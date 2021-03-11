@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.31105.61
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Shadowsocks.Crypto", "Shadowsocks.Crypto\Shadowsocks.Crypto.csproj", "{AB67F242-A16D-498B-8DE3-49D8B23D6BCC}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "UnitTest", "UnitTest\UnitTest.csproj", "{E5E0988D-BEDB-4B6B-9688-C435D5CC0C32}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{AB67F242-A16D-498B-8DE3-49D8B23D6BCC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AB67F242-A16D-498B-8DE3-49D8B23D6BCC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AB67F242-A16D-498B-8DE3-49D8B23D6BCC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AB67F242-A16D-498B-8DE3-49D8B23D6BCC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E5E0988D-BEDB-4B6B-9688-C435D5CC0C32}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E5E0988D-BEDB-4B6B-9688-C435D5CC0C32}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E5E0988D-BEDB-4B6B-9688-C435D5CC0C32}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E5E0988D-BEDB-4B6B-9688-C435D5CC0C32}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {E85155FC-3B0A-475E-AB6B-54E0AC3079C2}
+	EndGlobalSection
+EndGlobal
