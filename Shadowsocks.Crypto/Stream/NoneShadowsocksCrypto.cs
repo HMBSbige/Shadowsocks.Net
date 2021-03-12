@@ -1,3 +1,4 @@
+using CryptoBase.Abstractions.SymmetricCryptos;
 using System;
 
 namespace Shadowsocks.Crypto.Stream
@@ -16,7 +17,12 @@ namespace Shadowsocks.Crypto.Stream
 		{
 		}
 
-		protected override void UpdateStream(ReadOnlySpan<byte> source, Span<byte> destination)
+		protected override IStreamCrypto CreateCrypto(bool isEncrypt, ReadOnlySpan<byte> key, ReadOnlySpan<byte> iv)
+		{
+			return default!;
+		}
+
+		protected override void UpdateStream(IStreamCrypto crypto, ReadOnlySpan<byte> source, Span<byte> destination)
 		{
 			source.CopyTo(destination);
 		}

@@ -7,7 +7,7 @@ using System.Buffers;
 
 namespace Shadowsocks.Crypto.Stream
 {
-	public class Rc4Md5ShadowsocksCrypto : CryptoBaseStreamShadowsocksCrypto
+	public class Rc4Md5ShadowsocksCrypto : StreamShadowsocksCrypto
 	{
 		public override int KeyLength => 16;
 

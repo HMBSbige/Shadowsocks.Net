@@ -9,33 +9,25 @@ namespace Shadowsocks.Crypto.Stream
 		public override int KeyLength => 16;
 		public override int IvLength => 0;
 
-		private IStreamCrypto? _crypto;
-
 		public Rc4ShadowsocksCrypto(string password) : base(password)
 		{
 		}
 
 		protected override void InitCipher(bool isEncrypt)
 		{
-			if (_crypto is null)
+			if (Crypto is null)
 			{
-				_crypto = StreamCryptoCreate.Rc4(Key.AsSpan(0, KeyLength));
+				Crypto = CreateCrypto(isEncrypt, KeySpan, IvSpan);
 			}
 			else
 			{
-				_crypto.Reset();
+				Crypto.Reset();
 			}
 		}
 
-		protected override void UpdateStream(ReadOnlySpan<byte> source, Span<byte> destination)
+		protected override IStreamCrypto CreateCrypto(bool isEncrypt, ReadOnlySpan<byte> key, ReadOnlySpan<byte> iv)
 		{
-			_crypto!.Update(source, destination);
-		}
-
-		public override void Dispose()
-		{
-			base.Dispose();
-			_crypto?.Dispose();
+			return StreamCryptoCreate.Rc4(key);
 		}
 	}
 }

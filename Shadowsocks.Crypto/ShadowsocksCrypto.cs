@@ -1,3 +1,4 @@
+using Shadowsocks.Crypto.AEAD;
 using Shadowsocks.Crypto.Stream;
 using System;
 
@@ -5,7 +6,10 @@ namespace Shadowsocks.Crypto
 {
 	public static class ShadowsocksCrypto
 	{
-		public const string DefaultMethod = Aes128GcmMethod;
+		/// <summary>
+		/// ss-subkey
+		/// </summary>
+		public static ReadOnlySpan<byte> InfoBytes => new byte[] { 0x73, 0x73, 0x2d, 0x73, 0x75, 0x62, 0x6b, 0x65, 0x79 };
 
 		public const string NoneMethod = @"none";
 		public const string PlainMethod = @"plain";
@@ -51,6 +55,12 @@ namespace Shadowsocks.Crypto
 				XSalsa20Method => new XSalsa20ShadowsocksCrypto(password),
 				XChaCha20Method => new XChaCha20ShadowsocksCrypto(password),
 				Sm4CtrMethod => new Sm4CtrShadowsocksCrypto(password),
+				Aes128GcmMethod => new Aes128GcmShadowsocksCrypto(password),
+				Aes192GcmMethod => new Aes192GcmShadowsocksCrypto(password),
+				Aes256GcmMethod => new Aes256GcmShadowsocksCrypto(password),
+				ChaCha20IetfPoly1305Method => new ChaChaPoly1305ShadowsocksCrypto(password),
+				XChaCha20IetfPoly1305Method => new XChaChaPoly1305ShadowsocksCrypto(password),
+				Sm4GcmMethod => new Sm4GcmShadowsocksCrypto(password),
 				_ => throw new ArgumentException($@"Invalid method: {method}", nameof(method))
 			};
 		}

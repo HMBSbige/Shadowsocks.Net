@@ -1,3 +1,4 @@
+using CryptoBase.Abstractions.SymmetricCryptos;
 using System;
 using System.Buffers;
 using System.Security.Cryptography;
@@ -13,11 +14,17 @@ namespace Shadowsocks.Crypto.Stream
 
 		public abstract int KeyLength { get; }
 
+		protected Span<byte> KeySpan => Key.AsSpan(0, KeyLength);
+
 		public byte[] Iv { get; }
 
 		public abstract int IvLength { get; }
 
+		protected Span<byte> IvSpan => Iv.AsSpan(0, IvLength);
+
 		private bool _isFirstPacket;
+
+		protected IStreamCrypto? Crypto;
 
 		protected StreamShadowsocksCrypto(string password)
 		{
@@ -25,7 +32,7 @@ namespace Shadowsocks.Crypto.Stream
 
 			Key = ArrayPool<byte>.Shared.Rent(KeyLength);
 			Iv = ArrayPool<byte>.Shared.Rent(IvLength);
-			Key.AsSpan(0, KeyLength).SsDeriveKey(password);
+			KeySpan.SsDeriveKey(password);
 		}
 
 		public void SetIv(ReadOnlySpan<byte> iv)
@@ -35,14 +42,23 @@ namespace Shadowsocks.Crypto.Stream
 				throw new ArgumentException($@"Iv length must be {IvLength}", nameof(iv));
 			}
 
-			iv.CopyTo(Iv);
+			iv.CopyTo(IvSpan);
 			_isFirstPacket = false;
 			InitCipher(true);
 		}
 
-		protected abstract void InitCipher(bool isEncrypt);
+		protected virtual void InitCipher(bool isEncrypt)
+		{
+			Crypto?.Dispose();
+			Crypto = CreateCrypto(isEncrypt, KeySpan, IvSpan);
+		}
 
-		protected abstract void UpdateStream(ReadOnlySpan<byte> source, Span<byte> destination);
+		protected abstract IStreamCrypto CreateCrypto(bool isEncrypt, ReadOnlySpan<byte> key, ReadOnlySpan<byte> iv);
+
+		protected virtual void UpdateStream(IStreamCrypto crypto, ReadOnlySpan<byte> source, Span<byte> destination)
+		{
+			crypto.Update(source, destination);
+		}
 
 		public void EncryptTCP(ReadOnlySpan<byte> source, Span<byte> destination, out int processLength, out int outLength)
 		{
@@ -51,14 +67,15 @@ namespace Shadowsocks.Crypto.Stream
 
 			if (_isFirstPacket)
 			{
-				RandomNumberGenerator.Fill(Iv);
+				var iv = IvSpan;
+				RandomNumberGenerator.Fill(iv);
 				InitCipher(true);
-				Iv.AsSpan(0, IvLength).CopyTo(destination);
+				iv.CopyTo(destination);
 				outLength += IvLength;
 				_isFirstPacket = false;
 			}
 
-			UpdateStream(source, destination.Slice(outLength));
+			UpdateStream(Crypto!, source, destination.Slice(outLength));
 			processLength += source.Length;
 			outLength += source.Length;
 		}
@@ -75,52 +92,50 @@ namespace Shadowsocks.Crypto.Stream
 					return;
 				}
 
-				source.Slice(0, IvLength).CopyTo(Iv);
+				source.Slice(0, IvLength).CopyTo(IvSpan);
 				InitCipher(false);
 				processLength += IvLength;
 				_isFirstPacket = false;
 			}
 
 			var remain = source.Slice(processLength);
-			UpdateStream(remain, destination);
+			UpdateStream(Crypto!, remain, destination);
 			processLength += remain.Length;
 			outLength += remain.Length;
 		}
 
 		public void EncryptUDP(ReadOnlySpan<byte> source, Span<byte> destination, out int processLength, out int outLength)
 		{
-			processLength = 0;
-			outLength = 0;
+			var iv = IvSpan;
+			RandomNumberGenerator.Fill(iv);
+			using var crypto = CreateCrypto(true, KeySpan, iv);
+			iv.CopyTo(destination);
+			outLength = IvLength;
 
-			RandomNumberGenerator.Fill(Iv);
-			InitCipher(true);
-			Iv.AsSpan(0, IvLength).CopyTo(destination);
-			outLength += IvLength;
-
-			UpdateStream(source, destination.Slice(outLength));
-			processLength += source.Length;
+			UpdateStream(crypto, source, destination.Slice(IvLength));
+			processLength = source.Length;
 			outLength += source.Length;
 		}
 
 		public void DecryptUDP(ReadOnlySpan<byte> source, Span<byte> destination, out int processLength, out int outLength)
 		{
-			processLength = 0;
-			outLength = 0;
+			var iv = IvSpan;
+			source.Slice(0, IvLength).CopyTo(iv);
+			using var crypto = CreateCrypto(false, KeySpan, iv);
+			processLength = IvLength;
 
-			source.Slice(0, IvLength).CopyTo(Iv);
-			InitCipher(false);
-			processLength += IvLength;
-
-			var remain = source.Slice(processLength);
-			UpdateStream(remain, destination);
+			var remain = source.Slice(IvLength);
+			UpdateStream(crypto, remain, destination);
 			processLength += remain.Length;
-			outLength += remain.Length;
+			outLength = remain.Length;
 		}
 
 		public virtual void Dispose()
 		{
 			ArrayPool<byte>.Shared.Return(Key);
 			ArrayPool<byte>.Shared.Return(Iv);
+
+			Crypto?.Dispose();
 		}
 
 		public void Reset()

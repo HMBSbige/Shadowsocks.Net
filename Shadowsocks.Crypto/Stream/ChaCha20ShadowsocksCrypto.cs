@@ -4,7 +4,7 @@ using System;
 
 namespace Shadowsocks.Crypto.Stream
 {
-	public class ChaCha20ShadowsocksCrypto : CryptoBaseStreamShadowsocksCrypto
+	public class ChaCha20ShadowsocksCrypto : StreamShadowsocksCrypto
 	{
 		public override int KeyLength => 32;
 
