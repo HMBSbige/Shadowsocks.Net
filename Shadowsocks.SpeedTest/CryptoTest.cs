@@ -9,12 +9,14 @@ namespace Shadowsocks.SpeedTest
 	{
 		private const string Password = @"密码";
 
+		private const int Step = 1 * 1024 * 1024;
+
 		public static void Test(string method)
 		{
 			Console.Write($@"Testing {method}: ");
 
-			ReadOnlySpan<byte> i = new byte[AEADShadowsocksCrypto.ReceiveSize];
-			Span<byte> o = new byte[AEADShadowsocksCrypto.BufferSize];
+			ReadOnlySpan<byte> i = new byte[Step];
+			Span<byte> o = new byte[AEADShadowsocksCrypto.BufferSize + Step];
 
 			using var crypto = ShadowsocksCrypto.Create(method, Password);
 			crypto.AddressBufferLength = 7;
