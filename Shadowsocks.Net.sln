@@ -7,6 +7,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Shadowsocks.Crypto", "Shado
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "UnitTest", "UnitTest\UnitTest.csproj", "{E5E0988D-BEDB-4B6B-9688-C435D5CC0C32}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Shadowsocks.SpeedTest", "Shadowsocks.SpeedTest\Shadowsocks.SpeedTest.csproj", "{7F4C3558-C6FD-44B1-9391-67105F9A9967}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +23,10 @@ Global
 		{E5E0988D-BEDB-4B6B-9688-C435D5CC0C32}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{E5E0988D-BEDB-4B6B-9688-C435D5CC0C32}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{E5E0988D-BEDB-4B6B-9688-C435D5CC0C32}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7F4C3558-C6FD-44B1-9391-67105F9A9967}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7F4C3558-C6FD-44B1-9391-67105F9A9967}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7F4C3558-C6FD-44B1-9391-67105F9A9967}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7F4C3558-C6FD-44B1-9391-67105F9A9967}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
