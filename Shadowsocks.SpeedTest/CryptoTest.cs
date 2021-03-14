@@ -25,7 +25,7 @@ namespace Shadowsocks.SpeedTest
 
 			do
 			{
-				crypto.EncryptTCP(i, o, out var pLength, out var oLength);
+				crypto.EncryptTCP(i, o, out var pLength, out _);
 				length += (uint)pLength;
 			} while (sw.ElapsedMilliseconds < 2000);
 
