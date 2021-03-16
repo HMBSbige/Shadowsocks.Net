@@ -104,30 +104,27 @@ namespace Shadowsocks.Crypto.Stream
 			outLength += remain.Length;
 		}
 
-		public void EncryptUDP(ReadOnlySpan<byte> source, Span<byte> destination, out int processLength, out int outLength)
+		public int EncryptUDP(ReadOnlySpan<byte> source, Span<byte> destination)
 		{
 			var iv = IvSpan;
 			RandomNumberGenerator.Fill(iv);
 			using var crypto = CreateCrypto(true, KeySpan, iv);
 			iv.CopyTo(destination);
-			outLength = IvLength;
 
 			UpdateStream(crypto, source, destination.Slice(IvLength));
-			processLength = source.Length;
-			outLength += source.Length;
+
+			return IvLength + source.Length;
 		}
 
-		public void DecryptUDP(ReadOnlySpan<byte> source, Span<byte> destination, out int processLength, out int outLength)
+		public int DecryptUDP(ReadOnlySpan<byte> source, Span<byte> destination)
 		{
 			var iv = IvSpan;
 			source.Slice(0, IvLength).CopyTo(iv);
 			using var crypto = CreateCrypto(false, KeySpan, iv);
-			processLength = IvLength;
 
 			var remain = source.Slice(IvLength);
 			UpdateStream(crypto, remain, destination);
-			processLength += remain.Length;
-			outLength = remain.Length;
+			return remain.Length;
 		}
 
 		public virtual void Dispose()

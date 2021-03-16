@@ -202,28 +202,32 @@ namespace Shadowsocks.Crypto.AEAD
 			}
 		}
 
-		public void EncryptUDP(ReadOnlySpan<byte> source, Span<byte> destination, out int processLength, out int outLength)
+		public int EncryptUDP(ReadOnlySpan<byte> source, Span<byte> destination)
 		{
-			processLength = 0;
+			var processLength = 0;
 
 			var salt = SaltSpan;
 			RandomNumberGenerator.Fill(salt);
 			using var crypto = CreateSessionCrypto();
 			salt.CopyTo(destination);
-			outLength = SaltLength;
+			var outLength = SaltLength;
 
 			CipherEncrypt(crypto, source, destination.Slice(SaltLength), ref processLength, ref outLength);
+
+			return outLength;
 		}
 
-		public void DecryptUDP(ReadOnlySpan<byte> source, Span<byte> destination, out int processLength, out int outLength)
+		public int DecryptUDP(ReadOnlySpan<byte> source, Span<byte> destination)
 		{
-			outLength = 0;
+			var outLength = 0;
 
 			source.Slice(0, SaltLength).CopyTo(SaltSpan);
 			using var crypto = CreateSessionCrypto();
-			processLength = SaltLength;
+			var processLength = SaltLength;
 
 			CipherDecrypt(crypto, source.Slice(SaltLength), destination, ref processLength, ref outLength);
+
+			return outLength;
 		}
 
 		public virtual void Dispose()

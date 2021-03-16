@@ -12,7 +12,7 @@ namespace Shadowsocks.Crypto
 
 		void EncryptTCP(ReadOnlySpan<byte> source, Span<byte> destination, out int processLength, out int outLength);
 		void DecryptTCP(ReadOnlySpan<byte> source, Span<byte> destination, out int processLength, out int outLength);
-		void EncryptUDP(ReadOnlySpan<byte> source, Span<byte> destination, out int processLength, out int outLength);
-		void DecryptUDP(ReadOnlySpan<byte> source, Span<byte> destination, out int processLength, out int outLength);
+		int EncryptUDP(ReadOnlySpan<byte> source, Span<byte> destination);
+		int DecryptUDP(ReadOnlySpan<byte> source, Span<byte> destination);
 	}
 }

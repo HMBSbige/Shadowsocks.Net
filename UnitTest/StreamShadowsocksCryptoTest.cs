@@ -56,14 +56,12 @@ namespace UnitTest
 			var length = crypto.IvLength + buffer.Length;
 			Span<byte> output = new byte[length];
 
-			crypto.EncryptUDP(buffer, output, out var processLength, out var outLength);
-			Assert.AreEqual(buffer.Length, processLength);
+			var outLength = crypto.EncryptUDP(buffer, output);
 			Assert.AreEqual(length, outLength);
 
 			var encBuffer = output.Slice(0, outLength);
 
-			crypto.DecryptUDP(encBuffer, buffer, out processLength, out outLength);
-			Assert.AreEqual(encBuffer.Length, processLength);
+			outLength = crypto.DecryptUDP(encBuffer, buffer);
 			Assert.AreEqual(buffer.Length, outLength);
 
 			Assert.AreEqual(originHex, buffer.ToHex());

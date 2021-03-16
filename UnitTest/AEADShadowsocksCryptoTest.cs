@@ -90,14 +90,12 @@ namespace UnitTest
 			using var encryptor = (AEADShadowsocksCrypto)ShadowsocksCrypto.Create(method, password);
 			using var decryptor = (AEADShadowsocksCrypto)ShadowsocksCrypto.Create(method, password);
 
-			encryptor.EncryptUDP(buffer, output, out var p0, out var o0);
-			Assert.AreNotEqual(0, p0);
+			var o0 = encryptor.EncryptUDP(buffer, output);
 			Assert.AreNotEqual(0, o0);
 
 			var encBuffer = output.Slice(0, o0);
 
-			decryptor.DecryptUDP(encBuffer, buffer, out var p1, out var o1);
-			Assert.AreEqual(encBuffer.Length, p1);
+			var o1 = decryptor.DecryptUDP(encBuffer, buffer);
 			Assert.AreEqual(buffer.Length, o1);
 
 			Assert.AreEqual(originHex, buffer.ToHex());
