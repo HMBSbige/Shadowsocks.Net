@@ -1,6 +1,5 @@
 using Nerdbank.Streams;
 using System;
-using System.Buffers;
 using System.IO;
 using System.IO.Pipelines;
 using System.Runtime.CompilerServices;
@@ -10,8 +9,6 @@ using System.Threading.Tasks;
 
 namespace Pipelines.Extensions
 {
-	public delegate ParseResult HandleReadOnlySequence(ref ReadOnlySequence<byte> buffer);
-
 	public static class PipelinesExtensions
 	{
 		public static async ValueTask<bool> ReadAsync(
