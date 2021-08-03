@@ -8,7 +8,6 @@
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageTags>http</PackageTags>
     <Description>A simple http proxy library for .NET</Description>
-    <PackageId>HMBSbige.HttpProxy</PackageId>
   </PropertyGroup>
 
   <ItemGroup>

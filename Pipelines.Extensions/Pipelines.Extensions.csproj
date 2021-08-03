@@ -8,7 +8,6 @@
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageTags>pipelines</PackageTags>
     <Description>Pipelines extensions</Description>
-    <PackageId>HMBSbige.Pipelines.Extensions</PackageId>
   </PropertyGroup>
 
   <ItemGroup>
