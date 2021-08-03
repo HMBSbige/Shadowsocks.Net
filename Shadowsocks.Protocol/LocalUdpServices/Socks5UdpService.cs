@@ -88,7 +88,7 @@ namespace Shadowsocks.Protocol.LocalUdpServices
 							break;
 						}
 
-						var length = task.Result;
+						var length = await task;
 
 						await incoming.SendAsync(buffer, length + 3, source);
 					}
