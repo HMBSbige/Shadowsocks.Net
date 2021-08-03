@@ -1,21 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <Import Project="..\common.props" />
+
   <PropertyGroup>
-    <TargetFramework>net5.0</TargetFramework>
-    <LangVersion>latest</LangVersion>
-    <Nullable>enable</Nullable>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <NoWarn>CS1591</NoWarn>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <Authors>HMBSbige</Authors>
-    <Copyright>Copyright © 2021 HMBSbige</Copyright>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/HMBSbige/Shadowsocks.Net</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/HMBSbige/Shadowsocks.Net</RepositoryUrl>
     <PackageTags>socks5</PackageTags>
     <Description>A simple SOCKS5 library for .NET</Description>
-    <Version>0.1.0</Version>
     <PackageId>HMBSbige.Socks5</PackageId>
   </PropertyGroup>
 
