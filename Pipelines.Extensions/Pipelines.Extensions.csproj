@@ -12,7 +12,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.VisualStudio.Threading" Version="16.10.56" />
-    <PackageReference Include="Nerdbank.Streams" Version="2.8.46" PrivateAssets="all" />
+    <PackageReference Include="Nerdbank.Streams" Version="2.8.46" PrivateAssets="contentfiles;analyzers;build;compile" />
     <PackageReference Include="System.IO.Pipelines" Version="5.0.1" />
   </ItemGroup>
 
