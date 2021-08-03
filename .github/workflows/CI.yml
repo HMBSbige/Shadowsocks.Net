@@ -2,6 +2,23 @@ name: CI
 on: [push, pull_request]
 
 jobs:
+  check_format:
+    name: Check format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v1
+        with:
+          dotnet-version: 5.0.x
+
+      - name: Install dotnet-format
+        run: dotnet tool update -g dotnet-format
+
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Run dotnet format check
+        run: dotnet format -wsa -v diag --check
 
   test:
     name: Test
@@ -11,42 +28,67 @@ jobs:
         os: [ubuntu-latest, windows-latest]
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
+      - name: Checkout code
+        uses: actions/checkout@v2
 
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v1
-      with:
-        dotnet-version: 5.0.x
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v1
+        with:
+          dotnet-version: 5.0.x
 
-    - name: Test
-      shell: pwsh
-      run: dotnet test -c Release --filter ClassName!~Socks5
+      - name: Test
+        shell: pwsh
+        run: dotnet test -c Release --filter ClassName!~Socks5
 
   build:
     name: Build
-    needs: test
+    needs: [test, check_format]
     if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        ProjectName: [ Shadowsocks.Crypto ]
+        ProjectName:
+          [
+            HttpProxy,
+            Pipelines.Extensions,
+            Shadowsocks.Crypto,
+            Shadowsocks.Protocol,
+            Socks5,
+          ]
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
+      - name: Checkout code
+        uses: actions/checkout@v2
 
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v1
-      with:
-        dotnet-version: 5.0.x
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v1
+        with:
+          dotnet-version: 5.0.x
 
-    - name: Build
-      shell: pwsh
-      run: dotnet build -c Release ${{ matrix.ProjectName }}\${{ matrix.ProjectName }}.csproj
+      - name: Build
+        shell: pwsh
+        run: dotnet build -c Release ${{ matrix.ProjectName }}\${{ matrix.ProjectName }}.csproj
 
-    - name: Push nuget packages
-      shell: pwsh
-      run: |
-        dotnet nuget push ${{ matrix.ProjectName }}\bin\Release\*.nupkg -s https://nuget.pkg.github.com/HMBSbige -k ${{ secrets.GITHUB_TOKEN }} --skip-duplicate
-        dotnet nuget push ${{ matrix.ProjectName }}\bin\Release\*.nupkg -s https://api.nuget.org/v3/index.json -k ${{ secrets.NuGetAPIKey }} --skip-duplicate
+      - name: Push nuget packages
+        shell: pwsh
+        run: |
+          dotnet nuget push ${{ matrix.ProjectName }}\bin\Release\*.nupkg -s https://nuget.pkg.github.com/HMBSbige -k ${{ secrets.GITHUB_TOKEN }} --skip-duplicate
+          dotnet nuget push ${{ matrix.ProjectName }}\bin\Release\*.nupkg -s https://api.nuget.org/v3/index.json -k ${{ secrets.NuGetAPIKey }} --skip-duplicate
+
+  release:
+    name: Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Changelog
+        uses: glennawatson/ChangeLog@v1
+        id: changelog
+
+      - name: Create Release
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          body: ${{ steps.changelog.outputs.commitLog }}
+          draft: false
+          prerelease: false
