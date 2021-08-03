@@ -16,10 +16,9 @@ namespace Shadowsocks.SpeedTest
 			Console.Write($@"Testing {method}: ");
 
 			ReadOnlySpan<byte> i = new byte[Step];
-			Span<byte> o = new byte[AEADShadowsocksCrypto.BufferSize + Step];
+			Span<byte> o = new byte[AEADShadowsocksCrypto.GetBufferSize(i.Length)];
 
 			using var crypto = ShadowsocksCrypto.Create(method, Password);
-			crypto.AddressBufferLength = 7;
 			var length = 0ul;
 			var sw = Stopwatch.StartNew();
 

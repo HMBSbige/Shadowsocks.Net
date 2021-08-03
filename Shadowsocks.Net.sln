@@ -7,7 +7,17 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Shadowsocks.Crypto", "Shado
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "UnitTest", "UnitTest\UnitTest.csproj", "{E5E0988D-BEDB-4B6B-9688-C435D5CC0C32}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Shadowsocks.SpeedTest", "Shadowsocks.SpeedTest\Shadowsocks.SpeedTest.csproj", "{7F4C3558-C6FD-44B1-9391-67105F9A9967}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Shadowsocks.SpeedTest", "Shadowsocks.SpeedTest\Shadowsocks.SpeedTest.csproj", "{7F4C3558-C6FD-44B1-9391-67105F9A9967}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Shadowsocks.Protocol", "Shadowsocks.Protocol\Shadowsocks.Protocol.csproj", "{168B057C-2E50-43D2-983C-D7B1826FB4F6}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Socks5", "Socks5\Socks5.csproj", "{F5111CB7-C380-4DAE-BEDA-98408BF50704}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TestConsoleApp", "TestConsoleApp\TestConsoleApp.csproj", "{CD2BA868-204D-4781-9E8A-1A3C85DAA5F2}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "HttpProxy", "HttpProxy\HttpProxy.csproj", "{E843C04A-4589-4F91-AE90-230D9A34C42A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Pipelines.Extensions", "Pipelines.Extensions\Pipelines.Extensions.csproj", "{E5BB5D6A-DE27-44C6-8566-274C75240269}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -27,6 +37,26 @@ Global
 		{7F4C3558-C6FD-44B1-9391-67105F9A9967}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{7F4C3558-C6FD-44B1-9391-67105F9A9967}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{7F4C3558-C6FD-44B1-9391-67105F9A9967}.Release|Any CPU.Build.0 = Release|Any CPU
+		{168B057C-2E50-43D2-983C-D7B1826FB4F6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{168B057C-2E50-43D2-983C-D7B1826FB4F6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{168B057C-2E50-43D2-983C-D7B1826FB4F6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{168B057C-2E50-43D2-983C-D7B1826FB4F6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F5111CB7-C380-4DAE-BEDA-98408BF50704}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F5111CB7-C380-4DAE-BEDA-98408BF50704}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F5111CB7-C380-4DAE-BEDA-98408BF50704}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F5111CB7-C380-4DAE-BEDA-98408BF50704}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CD2BA868-204D-4781-9E8A-1A3C85DAA5F2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CD2BA868-204D-4781-9E8A-1A3C85DAA5F2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CD2BA868-204D-4781-9E8A-1A3C85DAA5F2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CD2BA868-204D-4781-9E8A-1A3C85DAA5F2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E843C04A-4589-4F91-AE90-230D9A34C42A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E843C04A-4589-4F91-AE90-230D9A34C42A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E843C04A-4589-4F91-AE90-230D9A34C42A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E843C04A-4589-4F91-AE90-230D9A34C42A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E5BB5D6A-DE27-44C6-8566-274C75240269}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E5BB5D6A-DE27-44C6-8566-274C75240269}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E5BB5D6A-DE27-44C6-8566-274C75240269}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E5BB5D6A-DE27-44C6-8566-274C75240269}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

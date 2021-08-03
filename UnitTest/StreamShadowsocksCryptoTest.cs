@@ -1,8 +1,9 @@
-using CryptoBase;
+using CryptoBase.DataFormatExtensions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Shadowsocks.Crypto;
 using Shadowsocks.Crypto.Stream;
 using System;
+using System.Buffers;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -35,13 +36,15 @@ namespace UnitTest
 			Assert.AreEqual(buffer.Length, processLength);
 			Assert.AreEqual(length, outLength);
 
-			var encBuffer = output.Slice(0, outLength);
+			var encBuffer = output[..outLength];
 
 			crypto.Reset();
 
-			crypto.DecryptTCP(encBuffer, buffer, out processLength, out outLength);
-			Assert.AreEqual(encBuffer.Length, processLength);
-			Assert.AreEqual(buffer.Length, outLength);
+			var sequence = new ReadOnlySequence<byte>(encBuffer.ToArray());
+
+			var decLength = crypto.DecryptTCP(ref sequence, buffer);
+			Assert.AreEqual(0, sequence.Length);
+			Assert.AreEqual(buffer.Length, decLength);
 
 			Assert.AreEqual(originHex, buffer.ToHex());
 		}
@@ -59,7 +62,7 @@ namespace UnitTest
 			var outLength = crypto.EncryptUDP(buffer, output);
 			Assert.AreEqual(length, outLength);
 
-			var encBuffer = output.Slice(0, outLength);
+			var encBuffer = output[..outLength];
 
 			outLength = crypto.DecryptUDP(encBuffer, buffer);
 			Assert.AreEqual(buffer.Length, outLength);
@@ -70,16 +73,18 @@ namespace UnitTest
 		private static void TestDecrypt(StreamShadowsocksCrypto crypto, string str, string encHex)
 		{
 			Span<byte> origin = Encoding.UTF8.GetBytes(str);
-			Span<byte> enc = encHex.FromHex();
+			var enc = new ReadOnlySequence<byte>(encHex.FromHex());
 
 			Span<byte> buffer = new byte[origin.Length];
 
-			crypto.DecryptTCP(enc.Slice(0, Math.Max(0, crypto.IvLength - 1)), buffer, out var processLength, out var outLength);
-			Assert.AreEqual(0, processLength);
-			Assert.AreEqual(0, outLength);
+			var e0Length = Math.Max(0, crypto.IvLength - 1);
+			var e0 = enc.Slice(0, e0Length);
+			var length0 = crypto.DecryptTCP(ref e0, buffer);
+			Assert.AreEqual(e0Length, e0.Length);
+			Assert.AreEqual(0, length0);
 
-			crypto.DecryptTCP(enc, buffer, out processLength, out outLength);
-			Assert.AreEqual(enc.Length, processLength);
+			var outLength = crypto.DecryptTCP(ref enc, buffer);
+			Assert.AreEqual(0, enc.Length);
 			Assert.AreEqual(origin.Length, outLength);
 
 			Assert.AreEqual(str, Encoding.UTF8.GetString(buffer));
@@ -122,8 +127,6 @@ namespace UnitTest
 			using var crypto = new NoneShadowsocksCrypto(Password);
 			Assert.AreEqual(16, crypto.KeyLength);
 			Assert.AreEqual(0, crypto.IvLength);
-			Assert.AreEqual(-1, crypto.AddressBufferLength);
-			crypto.AddressBufferLength = -2;
 
 			TestDecrypt(crypto, str, encHex);
 		}

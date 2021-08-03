@@ -1,5 +1,5 @@
 using CryptoBase.Abstractions.Digests;
-using CryptoBase.Digests.MD5;
+using CryptoBase.Digests;
 using System;
 using System.Buffers;
 using System.Text;
@@ -19,24 +19,35 @@ namespace Shadowsocks.Crypto
 				var pwLength = Encoding.UTF8.GetBytes(password, buffer);
 				var pw = buffer.AsSpan(0, pwLength);
 				var result = buffer.AsSpan(pwLength, hashLength + pwLength);
-				var low = result.Slice(hashLength);
+				var low = result[hashLength..];
 
-				MD5Utils.Default(pw, result);
-				result.Slice(0, Math.Min(hashLength, key.Length)).CopyTo(key);
+				pw.ToMd5(result);
+				result[..Math.Min(hashLength, key.Length)].CopyTo(key);
 
 				for (var i = hashLength; i < key.Length; i += hashLength)
 				{
 					pw.CopyTo(low);
-					MD5Utils.Default(result, result);
+					result.ToMd5(result);
 
 					var length = Math.Min(hashLength, key.Length - i);
-					result.Slice(0, length).CopyTo(key.Slice(i));
+					result[..length].CopyTo(key[i..]);
 				}
 			}
 			finally
 			{
 				ArrayPool<byte>.Shared.Return(buffer);
 			}
+		}
+
+		public static void ToMd5(this in Span<byte> origin, Span<byte> destination)
+		{
+			ToMd5((ReadOnlySpan<byte>)origin, destination);
+		}
+
+		public static void ToMd5(this in ReadOnlySpan<byte> origin, Span<byte> destination)
+		{
+			using var hasher = DigestUtils.Create(DigestType.Md5);
+			hasher.UpdateFinal(origin, destination);
 		}
 	}
 }

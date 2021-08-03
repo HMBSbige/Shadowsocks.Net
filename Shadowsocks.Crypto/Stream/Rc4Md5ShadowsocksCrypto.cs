@@ -1,7 +1,6 @@
-using CryptoBase;
 using CryptoBase.Abstractions.Digests;
 using CryptoBase.Abstractions.SymmetricCryptos;
-using CryptoBase.Digests.MD5;
+using CryptoBase.SymmetricCryptos.StreamCryptos;
 using System;
 using System.Buffers;
 
@@ -26,8 +25,8 @@ namespace Shadowsocks.Crypto.Stream
 				var temp = buffer.AsSpan(HashConstants.Md5Length, KeyLength + IvLength);
 
 				key.CopyTo(temp);
-				iv.CopyTo(temp.Slice(KeyLength));
-				MD5Utils.Fast440(temp, realKey);
+				iv.CopyTo(temp[KeyLength..]);
+				temp.ToMd5(realKey);
 
 				return StreamCryptoCreate.Rc4(realKey);
 			}

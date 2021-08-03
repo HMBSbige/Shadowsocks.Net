@@ -1,5 +1,5 @@
-using CryptoBase;
 using CryptoBase.Abstractions.SymmetricCryptos;
+using CryptoBase.SymmetricCryptos.AEADCryptos;
 using System;
 
 namespace Shadowsocks.Crypto.AEAD

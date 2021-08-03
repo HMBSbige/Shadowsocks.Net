@@ -1,8 +1,10 @@
-using CryptoBase;
+using CryptoBase.DataFormatExtensions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Shadowsocks.Crypto;
 using Shadowsocks.Crypto.AEAD;
 using System;
+using System.Buffers;
+using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -18,35 +20,38 @@ namespace UnitTest
 		private static void TestAEAD(string method, string password, string str, string encHex)
 		{
 			TestTcpDecrypt(method, password, str, encHex);
-			IsSymmetricalTcp(method, password, AEADShadowsocksCrypto.ReceiveSize);
-			IsSymmetricalTcp(method, password, AEADShadowsocksCrypto.BufferSize);
-			IsSymmetricalUdp(method, password, AEADShadowsocksCrypto.ReceiveSize);
+			IsSymmetricalTcp(method, password, 1 * 1024 * 1024);
+			IsSymmetricalTcp(method, password, 20 * 4096);
+			IsSymmetricalUdp(method, password, ushort.MaxValue + 1);
 			TestException(method, password);
 		}
 
 		private static void TestTcpDecrypt(string method, string password, string str, string encHex)
 		{
 			Span<byte> origin = Encoding.UTF8.GetBytes(str);
-			Span<byte> enc = encHex.FromHex();
+			var enc = new ReadOnlySequence<byte>(encHex.FromHex());
 
 			Span<byte> buffer = new byte[enc.Length];
 
 			using var crypto = (AEADShadowsocksCrypto)ShadowsocksCrypto.Create(method, password);
 
-			crypto.DecryptTCP(enc.Slice(0, crypto.SaltLength - 1), buffer, out var p2, out var o2);
-			Assert.AreEqual(0, p2);
+			var e0 = enc.Slice(0, crypto.SaltLength);
+			var o2 = crypto.DecryptTCP(ref e0, buffer);
+			Assert.AreEqual(crypto.SaltLength, e0.Length);
 			Assert.AreEqual(0, o2);
 
-			crypto.DecryptTCP(enc.Slice(0, crypto.SaltLength + 1), buffer, out var p0, out var o0);
-			Assert.AreEqual(crypto.SaltLength, p0);
+			var e1Length = crypto.SaltLength + AEADShadowsocksCrypto.ChunkOverheadSize + 1;
+			var e1 = enc.Slice(0, e1Length);
+			var o0 = crypto.DecryptTCP(ref e1, buffer);
+			Assert.AreEqual(e1Length - crypto.SaltLength, e1.Length);
 			Assert.AreEqual(0, o0);
 
-			var remain = enc.Slice(p0);
-			crypto.DecryptTCP(remain, buffer.Slice(o0), out var p1, out var o1);
-			Assert.AreEqual(remain.Length, p1);
+			var remain = enc.Slice(crypto.SaltLength);
+			var o1 = crypto.DecryptTCP(ref remain, buffer[o0..]);
+			Assert.AreEqual(0, remain.Length);
 			Assert.AreEqual(origin.Length, o1);
 
-			Assert.AreEqual(str, Encoding.UTF8.GetString(buffer.Slice(0, o1)));
+			Assert.AreEqual(str, Encoding.UTF8.GetString(buffer[..o1]));
 		}
 
 		private static void IsSymmetricalTcp(string method, string password, int size)
@@ -55,25 +60,23 @@ namespace UnitTest
 			RandomNumberGenerator.Fill(buffer);
 			var originHex = buffer.ToHex();
 
-			Span<byte> output = new byte[AEADShadowsocksCrypto.BufferSize + size];
+			Span<byte> output = new byte[AEADShadowsocksCrypto.GetBufferSize(size)];
 
 			using var encryptor = (AEADShadowsocksCrypto)ShadowsocksCrypto.Create(method, password);
 			using var decryptor = (AEADShadowsocksCrypto)ShadowsocksCrypto.Create(method, password);
 
-			encryptor.AddressBufferLength = decryptor.AddressBufferLength = 7;
+			encryptor.EncryptTCP(buffer, output[..(encryptor.SaltLength + 1)], out var p, out var o);
+			Assert.AreEqual(0, p);
+			Assert.AreEqual(encryptor.SaltLength, o);
 
-			encryptor.EncryptTCP(buffer.Slice(0, 1), output, out var p2, out var o2);
-			Assert.AreEqual(0, p2);
-			Assert.AreEqual(0, o2);
-
-			encryptor.EncryptTCP(buffer, output, out var p0, out var o0);
+			encryptor.EncryptTCP(buffer, output[o..], out var p0, out var o0);
 			Assert.AreNotEqual(0, p0);
 			Assert.AreNotEqual(0, o0);
 
-			var encBuffer = output.Slice(0, o0);
+			var encBuffer = new ReadOnlySequence<byte>(output[..(o0 + o)].ToArray());
 
-			decryptor.DecryptTCP(encBuffer, buffer, out var p1, out var o1);
-			Assert.AreEqual(encBuffer.Length, p1);
+			var o1 = decryptor.DecryptTCP(ref encBuffer, buffer);
+			Assert.AreEqual(0, encBuffer.Length);
 			Assert.AreEqual(buffer.Length, o1);
 
 			Assert.AreEqual(originHex, buffer.ToHex());
@@ -85,7 +88,7 @@ namespace UnitTest
 			RandomNumberGenerator.Fill(buffer);
 			var originHex = buffer.ToHex();
 
-			Span<byte> output = new byte[AEADShadowsocksCrypto.BufferSize];
+			Span<byte> output = new byte[AEADShadowsocksCrypto.GetBufferSize(size)];
 
 			using var encryptor = (AEADShadowsocksCrypto)ShadowsocksCrypto.Create(method, password);
 			using var decryptor = (AEADShadowsocksCrypto)ShadowsocksCrypto.Create(method, password);
@@ -93,7 +96,7 @@ namespace UnitTest
 			var o0 = encryptor.EncryptUDP(buffer, output);
 			Assert.AreNotEqual(0, o0);
 
-			var encBuffer = output.Slice(0, o0);
+			var encBuffer = output[..o0];
 
 			var o1 = decryptor.DecryptUDP(encBuffer, buffer);
 			Assert.AreEqual(buffer.Length, o1);
@@ -103,29 +106,19 @@ namespace UnitTest
 
 		private static void TestException(string method, string password)
 		{
-			// AddressBufferLength too large
-			Assert.ThrowsException<Exception>(() =>
-			{
-				Span<byte> buffer = new byte[ushort.MaxValue];
-				Span<byte> output = new byte[AEADShadowsocksCrypto.BufferSize];
-				using var crypto = (AEADShadowsocksCrypto)ShadowsocksCrypto.Create(method, password);
-				crypto.AddressBufferLength = AEADShadowsocksCrypto.PayloadLengthLimit + 1;
-				crypto.EncryptTCP(buffer, output, out _, out _);
-			});
-
 			// Received part of stream
 			{
 				Span<byte> buffer = new byte[114];
-				Span<byte> output = new byte[AEADShadowsocksCrypto.BufferSize];
+				Span<byte> output = new byte[AEADShadowsocksCrypto.GetBufferSize(buffer.Length)];
 				using var encryptor = (AEADShadowsocksCrypto)ShadowsocksCrypto.Create(method, password);
 				using var decryptor = (AEADShadowsocksCrypto)ShadowsocksCrypto.Create(method, password);
-				encryptor.AddressBufferLength = 7;
 				encryptor.EncryptTCP(buffer, output, out var p0, out var o0);
 				Assert.AreEqual(buffer.Length, p0);
 
-				var part = output.Slice(0, o0 - 1);
-				decryptor.DecryptTCP(part, buffer, out var p1, out _);
-				Assert.IsTrue(p1 < part.Length);
+				var length = o0 - 1;
+				var part = new ReadOnlySequence<byte>(output[..length].ToArray());
+				decryptor.DecryptTCP(ref part, buffer);
+				Assert.IsFalse(part.IsEmpty);
 			}
 		}
 
@@ -143,16 +136,17 @@ namespace UnitTest
 			TestAEAD(ShadowsocksCrypto.Aes128GcmMethod, Password, str, encHex);
 
 			// Received wrong payload length
-			Assert.ThrowsException<Exception>(() =>
+			Assert.ThrowsException<InvalidDataException>(() =>
 			{
-				Span<byte> buffer = new byte[AEADShadowsocksCrypto.BufferSize];
-				Span<byte> data = @"9fe197e9b49097273bd814f2955f2056527fcedc730b1c28b37f37520900ad518fb91bd61e4b8226cdb5a69109c713e2c37db1ffb980b09aafc3a56857df3eec3cb3b10edd9aa8e257851cff2250d4cbc952cf9c5103e8311c4e9b18fa68e0734716294747c1abcc906be8a0ce33d41438795cd682cdf7b4e1949b398656543ca03ed7af3cfbcb6700646c241baa3bb39a3f175f5d127d27649876cb055d8b271f48a5abeead43ad5f9d9ac2d47b12997fa8d45f4c370dd49b683c772b30ed092f6326980c5c".FromHex();
+				var dataBuffer = @"9fe197e9b49097273bd814f2955f2056527fcedc730b1c28b37f37520900ad518fb91bd61e4b8226cdb5a69109c713e2c37db1ffb980b09aafc3a56857df3eec3cb3b10edd9aa8e257851cff2250d4cbc952cf9c5103e8311c4e9b18fa68e0734716294747c1abcc906be8a0ce33d41438795cd682cdf7b4e1949b398656543ca03ed7af3cfbcb6700646c241baa3bb39a3f175f5d127d27649876cb055d8b271f48a5abeead43ad5f9d9ac2d47b12997fa8d45f4c370dd49b683c772b30ed092f6326980c5c".FromHex();
+				Span<byte> buffer = new byte[AEADShadowsocksCrypto.GetBufferSize(dataBuffer.Length)];
 				using var crypto = new Aes128GcmShadowsocksCrypto(Password);
 				Assert.AreEqual(16, crypto.KeyLength);
 				Assert.AreEqual(16, crypto.SaltLength);
 				Assert.AreEqual(12, crypto.NonceLength);
 
-				crypto.DecryptTCP(data, buffer, out _, out _);
+				var data = new ReadOnlySequence<byte>(dataBuffer);
+				crypto.DecryptTCP(ref data, buffer);
 			});
 		}
 
@@ -209,8 +203,8 @@ namespace UnitTest
 		}
 
 		[TestMethod]
-		[DataRow(Origin, @"a39de9d800b7bef731847766832b7b708489d6adb7eb076777d2c76a462d8bca738c0ef06cfa28f57297989494cf4b6d105c4e1a2b8950f7d28d26d60b3231d75916d0e129ef4e0ef687e1213562e7cad4027a0161c2b59a1542f148c3645bfac72736737f235b059122ac7e17b636ba172de71e53c35d13c441237b443852d7084fcbeaacdba32610f8aae18486f648d72c488a")]
-		[DataRow(Origin2, @"59abca4188216e04e4b9329a0cb1748af317d1c2899440e4947960224dc692387d22525b2d9c5244a382230996a9e10ece197744dafc6f06d04219493b2f4d4510308fa0acf03fe0db4093d078fffb74e92f1c2b4580a310ba8792c05c12e821")]
+		[DataRow(Origin, @"919780bb3dce3045f8eefa7626c8139a0f0607ae6d22deef0da1f90cb663f0d22bba430e1a26cd14d5d214e50e9225a4770df86cf13f0d84d53bc94eb8cc0a20dfe81765d0b6a2ef18df5325e31508b173080634cfedb96f06501d8cade27f726346c2ff96245d5c256d4d5c8be47bd9b9d8")]
+		[DataRow(Origin2, @"09b9c4f8ec51794bc194af9e0663a3842cf757a602e9b13de00a23b8e8bca848c9f07f28efe3795caced6e621f22272d1e33efb69b89cb17045527e034fe")]
 		public void Sm4Gcm(string str, string encHex)
 		{
 			TestAEAD(ShadowsocksCrypto.Sm4GcmMethod, Password, str, encHex);

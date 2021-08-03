@@ -8,8 +8,6 @@ namespace Shadowsocks.Crypto.Stream
 {
 	public abstract class StreamShadowsocksCrypto : IStreamShadowsocksCrypto
 	{
-		public int AddressBufferLength { get; set; } = -1;
-
 		public byte[] Key { get; }
 
 		public abstract int KeyLength { get; }
@@ -75,33 +73,39 @@ namespace Shadowsocks.Crypto.Stream
 				_isFirstPacket = false;
 			}
 
-			UpdateStream(Crypto!, source, destination.Slice(outLength));
+			UpdateStream(Crypto!, source, destination[outLength..]);
 			processLength += source.Length;
 			outLength += source.Length;
 		}
 
-		public void DecryptTCP(ReadOnlySpan<byte> source, Span<byte> destination, out int processLength, out int outLength)
+		public int DecryptTCP(ref ReadOnlySequence<byte> source, Span<byte> destination)
 		{
-			processLength = 0;
-			outLength = 0;
+			var outLength = 0;
 
 			if (_isFirstPacket)
 			{
 				if (source.Length < IvLength)
 				{
-					return;
+					return 0;
 				}
 
 				source.Slice(0, IvLength).CopyTo(IvSpan);
 				InitCipher(false);
-				processLength += IvLength;
+				source = source.Slice(IvLength);
 				_isFirstPacket = false;
 			}
 
-			var remain = source.Slice(processLength);
-			UpdateStream(Crypto!, remain, destination);
-			processLength += remain.Length;
-			outLength += remain.Length;
+			var remainLength = Math.Min(source.Length, destination.Length);
+			var remain = source.Slice(0, remainLength);
+			source = source.Slice(remainLength);
+
+			foreach (var memory in remain)
+			{
+				UpdateStream(Crypto!, memory.Span, destination[outLength..]);
+				outLength += memory.Length;
+			}
+
+			return outLength;
 		}
 
 		public int EncryptUDP(ReadOnlySpan<byte> source, Span<byte> destination)
@@ -111,7 +115,7 @@ namespace Shadowsocks.Crypto.Stream
 			using var crypto = CreateCrypto(true, KeySpan, iv);
 			iv.CopyTo(destination);
 
-			UpdateStream(crypto, source, destination.Slice(IvLength));
+			UpdateStream(crypto, source, destination[IvLength..]);
 
 			return IvLength + source.Length;
 		}
@@ -119,20 +123,21 @@ namespace Shadowsocks.Crypto.Stream
 		public int DecryptUDP(ReadOnlySpan<byte> source, Span<byte> destination)
 		{
 			var iv = IvSpan;
-			source.Slice(0, IvLength).CopyTo(iv);
+			source[..IvLength].CopyTo(iv);
 			using var crypto = CreateCrypto(false, KeySpan, iv);
 
-			var remain = source.Slice(IvLength);
+			var remain = source[IvLength..];
 			UpdateStream(crypto, remain, destination);
 			return remain.Length;
 		}
 
-		public virtual void Dispose()
+		public void Dispose()
 		{
 			ArrayPool<byte>.Shared.Return(Key);
 			ArrayPool<byte>.Shared.Return(Iv);
 
 			Crypto?.Dispose();
+			GC.SuppressFinalize(this);
 		}
 
 		public void Reset()

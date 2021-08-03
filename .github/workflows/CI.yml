@@ -21,7 +21,7 @@ jobs:
 
     - name: Test
       shell: pwsh
-      run: dotnet test -c Release
+      run: dotnet test -c Release --filter ClassName!~Socks5
 
   build:
     name: Build
