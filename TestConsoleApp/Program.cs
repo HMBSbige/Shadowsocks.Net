@@ -38,6 +38,8 @@ var local = new IPEndPoint(IPAddress.Loopback, port);
 var httpService = provide.GetRequiredService<HttpService>();
 var socks5Service = provide.GetRequiredService<Socks5Service>();
 var socks5UdpService = provide.GetRequiredService<Socks5UdpService>();
+
+httpService.Socks5EndPoint = local;
 socks5Service.BindEndPoint = local;
 
 var tcp = new TcpListenService(

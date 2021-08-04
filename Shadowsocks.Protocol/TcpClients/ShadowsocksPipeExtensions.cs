@@ -26,13 +26,5 @@ namespace Shadowsocks.Protocol.TcpClients
 			writer.Advance(addressLength);
 			return await writer.FlushAsync(token);
 		}
-
-		public static async ValueTask LinkToAsync(this IDuplexPipe pipe1, IDuplexPipe pipe2, CancellationToken token = default)
-		{
-			var a = pipe1.Input.CopyToAsync(pipe2.Output, token);
-			var b = pipe2.Input.CopyToAsync(pipe1.Output, token);
-
-			await Task.WhenAny(a, b); //TODO: CopyToAsync should be fixed in .NET6.0, change to Task.WhenAll
-		}
 	}
 }

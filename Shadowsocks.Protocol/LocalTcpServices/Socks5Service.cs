@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Pipelines.Extensions;
 using Shadowsocks.Protocol.ServersControllers;
 using Shadowsocks.Protocol.TcpClients;
 using Socks5.Enums;

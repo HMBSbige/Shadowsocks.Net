@@ -1,5 +1,6 @@
 using Nerdbank.Streams;
 using System;
+using System.Buffers;
 using System.IO;
 using System.IO.Pipelines;
 using System.Runtime.CompilerServices;
@@ -57,14 +58,37 @@ namespace Pipelines.Extensions
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static async ValueTask<FlushResult> WriteAsync(this PipeWriter writer, string str, CancellationToken token = default)
+		public static void Write(this PipeWriter writer, string str)
 		{
 			var encoding = Encoding.UTF8;
 
-			var memory = writer.GetMemory(encoding.GetMaxByteCount(str.Length));
-			var length = encoding.GetBytes(str, memory.Span);
+			var span = writer.GetSpan(encoding.GetMaxByteCount(str.Length));
+			var length = encoding.GetBytes(str, span);
 			writer.Advance(length);
+		}
 
+		public static void Write(this PipeWriter writer, ReadOnlySequence<byte> sequence)
+		{
+			foreach (var memory in sequence)
+			{
+				var sourceSpan = memory.Span;
+				var targetSpan = writer.GetSpan(sourceSpan.Length);
+				sourceSpan.CopyTo(targetSpan);
+				writer.Advance(sourceSpan.Length);
+			}
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static async ValueTask<FlushResult> WriteAsync(this PipeWriter writer, string str, CancellationToken token = default)
+		{
+			writer.Write(str);
+			return await writer.FlushAsync(token);
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static async ValueTask<FlushResult> WriteAsync(this PipeWriter writer, ReadOnlySequence<byte> sequence, CancellationToken token = default)
+		{
+			writer.Write(sequence);
 			return await writer.FlushAsync(token);
 		}
 
@@ -73,6 +97,62 @@ namespace Pipelines.Extensions
 		{
 			//TODO .NET6.0
 			return stream.UsePipe(sizeHint, pipeOptions, cancellationToken);
+		}
+
+		public static async ValueTask LinkToAsync(this IDuplexPipe pipe1, IDuplexPipe pipe2, CancellationToken token = default)
+		{
+			var a = pipe1.Input.CopyToAsync(pipe2.Output, token);
+			var b = pipe2.Input.CopyToAsync(pipe1.Output, token);
+
+			await Task.WhenAny(a, b); // TODO: CopyToAsync should be fixed in.NET6.0
+		}
+
+		public static async ValueTask CopyToAsync(this PipeReader reader,
+			PipeWriter target, long size, CancellationToken cancellationToken = default)
+		{
+			//TODO .NET6.0 ReadAtLeastAsync
+
+			if (size < 0)
+			{
+				throw new ArgumentOutOfRangeException(nameof(size), @"size must >0.");
+			}
+
+			while (true)
+			{
+				var result = await reader.ReadAsync(cancellationToken);
+				var buffer = result.Buffer;
+
+				try
+				{
+					if (buffer.Length == size)
+					{
+						await target.WriteAsync(buffer, cancellationToken);
+						buffer = buffer.Slice(buffer.Length);
+						return;
+					}
+
+					if (buffer.Length > size)
+					{
+						await target.WriteAsync(buffer.Slice(0, size), cancellationToken);
+						buffer = buffer.Slice(size);
+						reader.CancelPendingRead();
+						return;
+					}
+
+					await target.WriteAsync(buffer, cancellationToken);
+					buffer = buffer.Slice(buffer.Length);
+					size -= buffer.Length;
+
+					if (result.IsCompleted)
+					{
+						throw new InvalidDataException(@"pipe is completed.");
+					}
+				}
+				finally
+				{
+					reader.AdvanceTo(buffer.Start, buffer.End);
+				}
+			}
 		}
 	}
 }
