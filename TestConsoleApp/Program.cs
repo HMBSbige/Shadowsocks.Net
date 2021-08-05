@@ -1,3 +1,4 @@
+using HttpProxy;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Serilog;
@@ -31,6 +32,7 @@ services.AddSingleton<IServersController, TestServersController>();
 services.AddTransient<HttpService>();
 services.AddTransient<Socks5Service>();
 services.AddTransient<Socks5UdpService>();
+services.AddTransient<HttpToSocks5>();
 
 await using var provide = services.BuildServiceProvider();
 
