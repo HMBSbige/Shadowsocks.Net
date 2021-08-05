@@ -13,7 +13,7 @@ namespace HttpProxy
 		public string? Hostname { get; set; }
 		public ushort Port { get; set; } = 80;
 
-		public int ContentLength { get; set; }
+		public long ContentLength { get; set; }
 
 		public string? Request { get; set; }
 	}

@@ -204,7 +204,7 @@ namespace HttpProxy
 			if (!httpHeaders.IsConnect)
 			{
 				headers.TryGetValue(@"Content-Length", out var contentLengthStr);
-				if (contentLengthStr is not null && int.TryParse(contentLengthStr, out var contentLength))
+				if (contentLengthStr is not null && long.TryParse(contentLengthStr, out var contentLength))
 				{
 					httpHeaders.ContentLength = contentLength;
 				}
@@ -247,7 +247,7 @@ InvalidRequest:
 			return false;
 		}
 
-		private static bool TryReadContentLength(string raw, out int contentLength)
+		private static bool TryReadContentLength(string raw, out long contentLength)
 		{
 			var headerLines = raw.Split(NewLines, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 			foreach (var headerLine in headerLines.Skip(1))
@@ -262,7 +262,7 @@ InvalidRequest:
 				var headerValue = sp[1];
 
 				if (headerName.Equals(@"Content-Length", StringComparison.OrdinalIgnoreCase)
-					&& int.TryParse(headerValue, out contentLength))
+					&& long.TryParse(headerValue, out contentLength))
 				{
 					return true;
 				}
