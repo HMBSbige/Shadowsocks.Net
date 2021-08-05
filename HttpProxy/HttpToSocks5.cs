@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Pipelines.Extensions;
 using Socks5.Clients;
+using Socks5.Models;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -10,7 +11,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.IO.Pipelines;
 using System.Linq;
-using System.Net;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -29,7 +29,7 @@ namespace HttpProxy
 			_logger = logger ?? NullLogger<HttpToSocks5>.Instance;
 		}
 
-		public async ValueTask ForwardToSocks5Async(IDuplexPipe incomingPipe, IPEndPoint socks5, CancellationToken cancellationToken = default)
+		public async ValueTask ForwardToSocks5Async(IDuplexPipe incomingPipe, Socks5CreateOption socks5CreateOption, CancellationToken cancellationToken = default)
 		{
 			var headers = await ReadHttpHeadersAsync(incomingPipe.Input, cancellationToken);
 			_logger.LogDebug("{0} Client headers received: \n{1}", LogHeader, headers);
@@ -49,7 +49,7 @@ namespace HttpProxy
 					return;
 				}
 
-				await using var socks5Client = new Socks5Client(socks5);
+				await using var socks5Client = new Socks5Client(socks5CreateOption);
 				await socks5Client.ConnectAsync(httpHeaders.Hostname, httpHeaders.Port, cancellationToken);
 
 				await SendConnectSuccessAsync(incomingPipe.Output, httpHeaders.HttpVersion, cancellationToken);
@@ -65,7 +65,7 @@ namespace HttpProxy
 					await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.InvalidRequest, httpHeaders.HttpVersion, cancellationToken);
 					return;
 				}
-				await using var socks5Client = new Socks5Client(socks5);
+				await using var socks5Client = new Socks5Client(socks5CreateOption);
 				await socks5Client.ConnectAsync(httpHeaders.Hostname, httpHeaders.Port, cancellationToken);
 				var socks5Pipe = socks5Client.GetPipe();
 

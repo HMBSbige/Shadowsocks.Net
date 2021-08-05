@@ -87,7 +87,7 @@ namespace Socks5.Utils
 			return outLength;
 		}
 
-		public static int UsernamePasswordAuth(NetworkCredential credential, Span<byte> buffer)
+		public static int UsernamePasswordAuth(UsernamePassword credential, Span<byte> buffer)
 		{
 			// +----+------+----------+------+----------+
 			// |VER | ULEN |  UNAME   | PLEN |  PASSWD  |

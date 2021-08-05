@@ -1,6 +1,7 @@
 using Pipelines.Extensions;
 using Socks5.Clients;
 using Socks5.Enums;
+using Socks5.Models;
 using System;
 using System.Buffers;
 using System.Diagnostics;
@@ -20,8 +21,7 @@ namespace Socks5.Utils
 		/// 使用 HTTP1.1 204 测试 SOCKS5 CONNECT
 		/// </summary>
 		public static async ValueTask<bool> Socks5ConnectAsync(
-			IPEndPoint ipEndPoint,
-			NetworkCredential? credential = null,
+			Socks5CreateOption option,
 			string target = @"http://www.google.com/generate_204",
 			string targetHost = @"www.google.com",
 			ushort targetPort = 80,
@@ -29,7 +29,7 @@ namespace Socks5.Utils
 		{
 			var sendString = $"GET {target} HTTP/1.1\r\nHost: {targetHost}\r\n\r\n";
 
-			await using var client = new Socks5Client(ipEndPoint, credential);
+			await using var client = new Socks5Client(option);
 
 			var bound = await client.ConnectAsync(targetHost, targetPort, token);
 
@@ -73,13 +73,14 @@ namespace Socks5.Utils
 		/// 使用 DNS 测试 SOCKS5 UDP
 		/// </summary>
 		public static async ValueTask<bool> Socks5UdpAssociateAsync(
-			IPEndPoint ipEndPoint,
+			Socks5CreateOption option,
 			string target = @"bing.com",
 			string targetHost = @"8.8.8.8",
 			ushort targetPort = 53,
 			CancellationToken token = default)
 		{
-			await using var client = new Socks5Client(ipEndPoint);
+			await using var client = new Socks5Client(option);
+
 			var bound = await client.UdpAssociateAsync(IPAddress.Any, 0, token);
 
 			Debug.WriteLine($@"UDP: Supported, {bound.Type} {(bound.Type == AddressType.Domain ? bound.Domain : bound.Address)}:{bound.Port}");

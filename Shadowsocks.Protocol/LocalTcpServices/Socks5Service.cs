@@ -20,9 +20,7 @@ namespace Shadowsocks.Protocol.LocalTcpServices
 		private readonly ILogger _logger;
 		private readonly IServersController _serversController;
 
-		public IPEndPoint? BindEndPoint { get; set; }
-
-		public NetworkCredential? Credential { get; set; }
+		public Socks5CreateOption? Socks5CreateOption { get; set; }
 
 		public Socks5Service(
 			ILogger<Socks5Service> logger,
@@ -39,16 +37,21 @@ namespace Shadowsocks.Protocol.LocalTcpServices
 
 		public async ValueTask HandleAsync(IDuplexPipe pipe, CancellationToken token = default)
 		{
-			if (BindEndPoint is null)
+			if (Socks5CreateOption is null)
 			{
-				throw new ArgumentNullException(nameof(BindEndPoint));
+				throw new ArgumentNullException(nameof(Socks5CreateOption));
 			}
 
-			var socks5 = new Socks5ServerConnection(pipe, Credential);
+			if (Socks5CreateOption.Address is null)
+			{
+				throw new ArgumentNullException(nameof(Socks5CreateOption.Address));
+			}
+
+			var socks5 = new Socks5ServerConnection(pipe, Socks5CreateOption.UsernamePassword);
 
 			await socks5.AcceptClientAsync(token);
 
-			var outType = BindEndPoint.AddressFamily == AddressFamily.InterNetwork ? AddressType.IPv4 : AddressType.IPv6;
+			var outType = Socks5CreateOption.Address.AddressFamily == AddressFamily.InterNetwork ? AddressType.IPv4 : AddressType.IPv6;
 
 			switch (socks5.Command)
 			{
@@ -69,7 +72,7 @@ namespace Shadowsocks.Protocol.LocalTcpServices
 					var bound = new ServerBound
 					{
 						Type = outType,
-						Address = BindEndPoint.Address,
+						Address = Socks5CreateOption.Address,
 						Port = IPEndPoint.MinPort
 					};
 					await socks5.SendReplyAsync(Socks5Reply.Succeeded, bound, token);
@@ -92,7 +95,7 @@ namespace Shadowsocks.Protocol.LocalTcpServices
 					var bound = new ServerBound
 					{
 						Type = outType,
-						Address = BindEndPoint.Address,
+						Address = Socks5CreateOption.Address,
 						Port = IPEndPoint.MinPort
 					};
 					await socks5.SendReplyAsync(Socks5Reply.CommandNotSupported, bound, token);
@@ -105,8 +108,8 @@ namespace Shadowsocks.Protocol.LocalTcpServices
 					var bound = new ServerBound
 					{
 						Type = outType,
-						Address = BindEndPoint.Address,
-						Port = (ushort)BindEndPoint.Port
+						Address = Socks5CreateOption.Address,
+						Port = Socks5CreateOption.Port
 					};
 					await socks5.SendReplyAsync(Socks5Reply.Succeeded, bound, token);
 					//TODO
@@ -117,7 +120,7 @@ namespace Shadowsocks.Protocol.LocalTcpServices
 					var bound = new ServerBound
 					{
 						Type = outType,
-						Address = BindEndPoint.Address,
+						Address = Socks5CreateOption.Address,
 						Port = IPEndPoint.MinPort
 					};
 					await socks5.SendReplyAsync(Socks5Reply.GeneralFailure, bound, token);

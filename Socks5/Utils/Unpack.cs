@@ -299,7 +299,7 @@ namespace Socks5.Utils
 			return true;
 		}
 
-		public static bool ReadClientAuth(ref ReadOnlySequence<byte> buffer, ref NetworkCredential? clientCredential)
+		public static bool ReadClientAuth(ref ReadOnlySequence<byte> buffer, ref UsernamePassword? clientCredential)
 		{
 			// +----+------+----------+------+----------+
 			// |VER | ULEN |  UNAME   | PLEN |  PASSWD  |
@@ -344,7 +344,11 @@ namespace Socks5.Utils
 			var password = Encoding.UTF8.GetString(reader.UnreadSequence.Slice(0, pLen));
 			reader.Advance(pLen);
 
-			clientCredential = new NetworkCredential(username, password);
+			clientCredential = new UsernamePassword
+			{
+				UserName = username,
+				Password = password
+			};
 			buffer = buffer.Slice(reader.Consumed);
 			return true;
 		}

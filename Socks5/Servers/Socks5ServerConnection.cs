@@ -8,7 +8,6 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Pipelines;
-using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -17,13 +16,13 @@ namespace Socks5.Servers
 	public sealed class Socks5ServerConnection
 	{
 		private readonly IDuplexPipe _pipe;
-		private readonly NetworkCredential? _credential;
+		private readonly UsernamePassword? _credential;
 
 		public ServerBound Target;
 
 		public Command Command { get; private set; }
 
-		public Socks5ServerConnection(IDuplexPipe pipe, NetworkCredential? credential = null)
+		public Socks5ServerConnection(IDuplexPipe pipe, UsernamePassword? credential = null)
 		{
 			_pipe = pipe;
 			_credential = credential;
@@ -109,7 +108,7 @@ namespace Socks5.Servers
 
 		private async ValueTask<bool> UsernamePasswordAuthAsync(CancellationToken token = default)
 		{
-			NetworkCredential? clientCredential = null;
+			UsernamePassword? clientCredential = null;
 			await _pipe.Input.ReadAsync(TryReadClientAuth, token);
 
 			var isAuth = clientCredential is not null

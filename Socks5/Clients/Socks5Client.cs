@@ -1,3 +1,4 @@
+using Microsoft;
 using Pipelines.Extensions;
 using Socks5.Enums;
 using Socks5.Exceptions;
@@ -27,8 +28,7 @@ namespace Socks5.Clients
 
 		private readonly TcpClient _tcpClient;
 		private UdpClient? _udpClient;
-		private readonly IPEndPoint _serverEndPoint;
-		private readonly NetworkCredential? _credential;
+		private readonly Socks5CreateOption _option;
 
 		private IDuplexPipe? _pipe;
 
@@ -36,11 +36,16 @@ namespace Socks5.Clients
 
 		#region Constructors
 
-		public Socks5Client(IPEndPoint server, NetworkCredential? credential = null)
+		public Socks5Client(Socks5CreateOption option)
 		{
-			_serverEndPoint = server;
-			_credential = credential;
-			_tcpClient = new TcpClient(server.AddressFamily);
+			Requires.NotNull(option, nameof(option));
+			if (option.Address is null)
+			{
+				throw new ArgumentNullException(nameof(option.Address));
+			}
+
+			_option = option;
+			_tcpClient = new TcpClient(option.Address.AddressFamily);
 		}
 
 		#endregion
@@ -87,7 +92,7 @@ namespace Socks5.Clients
 		{
 			var pipe = await HandshakeAsync(token);
 
-			_udpClient = new UdpClient(port, _serverEndPoint.AddressFamily);
+			_udpClient = new UdpClient(port, _option.Address!.AddressFamily);
 
 			var bound = await SendCommandAsync(pipe, Command.UdpAssociate, default, address, port, token);
 
@@ -97,7 +102,7 @@ namespace Socks5.Clients
 				{
 					if (Equals(bound.Address, IPAddress.Any))
 					{
-						bound.Address = _serverEndPoint.Address;
+						bound.Address = _option.Address;
 					}
 					_udpClient.Connect(bound.Address!, bound.Port);
 					break;
@@ -106,7 +111,7 @@ namespace Socks5.Clients
 				{
 					if (Equals(bound.Address, IPAddress.IPv6Any))
 					{
-						bound.Address = _serverEndPoint.Address;
+						bound.Address = _option.Address;
 					}
 					_udpClient.Connect(bound.Address!, bound.Port);
 					break;
@@ -183,16 +188,16 @@ namespace Socks5.Clients
 				throw new InvalidOperationException(@"Socks5 already connected.");
 			}
 
-			await _tcpClient.ConnectAsync(_serverEndPoint.Address, _serverEndPoint.Port, token);
+			await _tcpClient.ConnectAsync(_option.Address!, _option.Port, token);
 
 			var pipe = _tcpClient.GetStream().AsDuplexPipe(cancellationToken: token);
 
-			await HandshakeWithAuthAsync(pipe, _credential, token);
+			await HandshakeWithAuthAsync(pipe, token);
 
 			return pipe;
 		}
 
-		private async ValueTask HandshakeWithAuthAsync(IDuplexPipe pipe, NetworkCredential? credential, CancellationToken token)
+		private async ValueTask HandshakeWithAuthAsync(IDuplexPipe pipe, CancellationToken token)
 		{
 			switch (Status)
 			{
@@ -218,7 +223,7 @@ namespace Socks5.Clients
 			{
 				Method.NoAuthentication
 			};
-			if (credential is not null)
+			if (_option.UsernamePassword is not null)
 			{
 				clientMethods.Add(Method.UsernamePassword);
 			}
@@ -230,9 +235,9 @@ namespace Socks5.Clients
 				{
 					return;
 				}
-				case Method.UsernamePassword when credential is not null:
+				case Method.UsernamePassword when _option.UsernamePassword is not null:
 				{
-					await AuthAsync(pipe, credential, token);
+					await AuthAsync(pipe, _option.UsernamePassword, token);
 					break;
 				}
 				default:
@@ -270,7 +275,7 @@ namespace Socks5.Clients
 			}
 		}
 
-		private static async ValueTask AuthAsync(IDuplexPipe pipe, NetworkCredential credential, CancellationToken token)
+		private static async ValueTask AuthAsync(IDuplexPipe pipe, UsernamePassword credential, CancellationToken token)
 		{
 			await pipe.Output.WriteAsync(Constants.MaxUsernamePasswordAuthLength, PackUsernamePassword, token);
 

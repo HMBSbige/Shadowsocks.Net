@@ -6,6 +6,7 @@ using Shadowsocks.Protocol.ListenServices;
 using Shadowsocks.Protocol.LocalTcpServices;
 using Shadowsocks.Protocol.LocalUdpServices;
 using Shadowsocks.Protocol.ServersControllers;
+using Socks5.Models;
 using System;
 using System.Net;
 using System.Threading.Tasks;
@@ -39,8 +40,16 @@ var httpService = provide.GetRequiredService<HttpService>();
 var socks5Service = provide.GetRequiredService<Socks5Service>();
 var socks5UdpService = provide.GetRequiredService<Socks5UdpService>();
 
-httpService.Socks5EndPoint = local;
-socks5Service.BindEndPoint = local;
+httpService.Socks5CreateOption = new Socks5CreateOption
+{
+	Address = IPAddress.Loopback,
+	Port = port
+};
+socks5Service.Socks5CreateOption = new Socks5CreateOption
+{
+	Address = IPAddress.Loopback,
+	Port = port
+};
 
 var tcp = new TcpListenService(
 	provide.GetRequiredService<ILogger<TcpListenService>>(),
