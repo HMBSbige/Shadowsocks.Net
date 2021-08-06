@@ -15,7 +15,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Pipelines.Extensions\Pipelines.Extensions.csproj" />
     <ProjectReference Include="..\Socks5\Socks5.csproj" />
   </ItemGroup>
 

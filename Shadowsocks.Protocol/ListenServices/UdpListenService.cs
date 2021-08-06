@@ -49,7 +49,7 @@ namespace Shadowsocks.Protocol.ListenServices
 			}
 		}
 
-		private async Task HandleAsync(UdpReceiveResult result, CancellationToken token)
+		private async ValueTask HandleAsync(UdpReceiveResult result, CancellationToken token)
 		{
 			try
 			{
