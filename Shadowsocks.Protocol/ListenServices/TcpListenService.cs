@@ -15,7 +15,7 @@ namespace Shadowsocks.Protocol.ListenServices
 {
 	public class TcpListenService : IListenService
 	{
-		private readonly ILogger _logger;
+		private readonly ILogger<TcpListenService> _logger;
 		private readonly TcpListener _tcpListener;
 		private readonly IEnumerable<ILocalTcpService> _services;
 
@@ -24,7 +24,7 @@ namespace Shadowsocks.Protocol.ListenServices
 		private const string LoggerHeader = @"[TcpListenService]";
 		private const int FirstBufferSize = 8192;
 
-		public TcpListenService(ILogger logger, IPEndPoint local, IEnumerable<ILocalTcpService> services)
+		public TcpListenService(ILogger<TcpListenService> logger, IPEndPoint local, IEnumerable<ILocalTcpService> services)
 		{
 			_logger = logger;
 			_tcpListener = new TcpListener(local);

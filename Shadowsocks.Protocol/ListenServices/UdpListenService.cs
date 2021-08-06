@@ -11,7 +11,7 @@ namespace Shadowsocks.Protocol.ListenServices
 {
 	public class UdpListenService : IListenService
 	{
-		private readonly ILogger _logger;
+		private readonly ILogger<UdpListenService> _logger;
 		private readonly UdpClient _udpListener;
 		private readonly IEnumerable<ILocalUdpService> _services;
 
@@ -19,7 +19,7 @@ namespace Shadowsocks.Protocol.ListenServices
 
 		private const string LoggerHeader = @"[UdpListenService]";
 
-		public UdpListenService(ILogger logger, IPEndPoint local, IEnumerable<ILocalUdpService> services)
+		public UdpListenService(ILogger<UdpListenService> logger, IPEndPoint local, IEnumerable<ILocalUdpService> services)
 		{
 			_logger = logger;
 			_udpListener = new UdpClient(local);
