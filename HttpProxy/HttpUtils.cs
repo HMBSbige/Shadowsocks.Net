@@ -9,6 +9,7 @@ namespace HttpProxy
 	public static class HttpUtils
 	{
 		public static ReadOnlySpan<byte> HttpHeaderEnd => new[] { (byte)'\r', (byte)'\n', (byte)'\r', (byte)'\n' };
+		public static ReadOnlySpan<byte> HttpNewLineSpan => new[] { (byte)'\r', (byte)'\n' };
 		public static readonly string[] NewLines = { "\r\n", "\r", "\n" };
 		public const string HttpNewLine = "\r\n";
 

@@ -80,25 +80,34 @@ namespace HttpProxy
 				}
 
 				//Read response
-				var responseHeaders = await ReadHttpHeadersAsync(socks5Pipe.Input, cancellationToken);
-				_logger.LogDebug("{0} server headers received: \n{1}", LogHeader, responseHeaders);
-				if (!TryReadContentLength(responseHeaders, out var serverResponseContentLength))
+				var responseHeadersStr = await ReadHttpHeadersAsync(socks5Pipe.Input, cancellationToken);
+				_logger.LogDebug("{0} server headers received: \n{1}", LogHeader, responseHeadersStr);
+				var responseHeaders = ReadHeaders(responseHeadersStr);
+				if (IsChunked(responseHeaders))
 				{
-					await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.UnknownError, httpHeaders.HttpVersion, cancellationToken);
-					return;
+					incomingPipe.Output.Write(responseHeadersStr);
+					incomingPipe.Output.Write(HttpHeaderEnd);
+					await incomingPipe.Output.FlushAsync(cancellationToken);
+
+					await CopyChunksAsync(socks5Pipe.Input, incomingPipe.Output, cancellationToken);
+				}
+				else if (TryReadContentLength(responseHeaders, out var serverResponseContentLength))
+				{
+					incomingPipe.Output.Write(responseHeadersStr);
+					incomingPipe.Output.Write(HttpHeaderEnd);
+					await incomingPipe.Output.FlushAsync(cancellationToken);
+
+					if (serverResponseContentLength > 0)
+					{
+						_logger.LogDebug(@"{0} Waiting for up to {1} bytes from server", LogHeader, serverResponseContentLength);
+
+						await socks5Pipe.Input.CopyToAsync(incomingPipe.Output, serverResponseContentLength, cancellationToken);
+
+						_logger.LogDebug(@"{0} server sent {1} bytes to client", LogHeader, serverResponseContentLength);
+					}
 				}
 
-				incomingPipe.Output.Write(responseHeaders);
-				incomingPipe.Output.Write(HttpHeaderEnd);
-				await incomingPipe.Output.FlushAsync(cancellationToken);
-				if (serverResponseContentLength > 0)
-				{
-					_logger.LogDebug(@"{0} Waiting for up to {1} bytes from server", LogHeader, serverResponseContentLength);
-
-					await socks5Pipe.Input.CopyToAsync(incomingPipe.Output, serverResponseContentLength, cancellationToken);
-
-					_logger.LogDebug(@"{0} server sent {1} bytes to client", LogHeader, serverResponseContentLength);
-				}
+				await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.UnknownError, httpHeaders.HttpVersion, cancellationToken);
 			}
 		}
 
@@ -247,25 +256,11 @@ InvalidRequest:
 			return false;
 		}
 
-		private static bool TryReadContentLength(string raw, out long contentLength)
+		private static bool TryReadContentLength(IDictionary<string, string> headers, out long contentLength)
 		{
-			var headerLines = raw.Split(NewLines, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-			foreach (var headerLine in headerLines.Skip(1))
+			if (headers.TryGetValue(@"Content-Length", out var value) && long.TryParse(value, out contentLength))
 			{
-				var sp = headerLine.Split(':', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-				if (sp.Length != 2)
-				{
-					continue;
-				}
-
-				var headerName = sp[0];
-				var headerValue = sp[1];
-
-				if (headerName.Equals(@"Content-Length", StringComparison.OrdinalIgnoreCase)
-					&& long.TryParse(headerValue, out contentLength))
-				{
-					return true;
-				}
+				return true;
 			}
 
 			contentLength = 0;
@@ -315,6 +310,95 @@ InvalidRequest:
 
 			headers = default;
 			return false;
+		}
+
+		private static Dictionary<string, string> ReadHeaders(string raw)
+		{
+			var headerLines = raw.Split(NewLines, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+			foreach (var headerLine in headerLines.Skip(1))
+			{
+				var sp = headerLine.Split(':', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+				if (sp.Length != 2)
+				{
+					continue;
+				}
+
+				var headerName = sp[0];
+				var headerValue = sp[1];
+
+				headers[headerName] = headerValue;
+			}
+			return headers;
+		}
+
+		private static bool IsChunked(IDictionary<string, string> headers)
+		{
+			//Transfer-Encoding: chunked
+			return headers.TryGetValue(@"Transfer-Encoding", out var value) && value.Equals(@"chunked", StringComparison.OrdinalIgnoreCase);
+		}
+
+		private static async ValueTask CopyChunksAsync(
+			PipeReader reader,
+			PipeWriter target,
+			CancellationToken cancellationToken = default)
+		{
+			while (true)
+			{
+				var result = await reader.ReadAsync(cancellationToken);
+				var buffer = result.Buffer;
+				try
+				{
+					var lengthOfChunkLength = ReadLine(buffer, out var chunkLengthBuffer);
+					if (lengthOfChunkLength > 0)
+					{
+						var chunkLength = GetChunkLength(chunkLengthBuffer);
+
+						var length = lengthOfChunkLength + chunkLength + 2;
+						if (buffer.Length >= length)
+						{
+							await target.WriteAsync(buffer.Slice(0, length), cancellationToken);
+							buffer = buffer.Slice(length);
+
+							if (chunkLength is 0L)
+							{
+								break;
+							}
+						}
+					}
+					if (result.IsCompleted)
+					{
+						break;
+					}
+				}
+				finally
+				{
+					reader.AdvanceTo(buffer.Start, buffer.End);
+				}
+			}
+
+			static long GetChunkLength(ReadOnlySequence<byte> sequence)
+			{
+				var reader = new SequenceReader<byte>(sequence);
+				var length = 0L;
+				while (reader.TryRead(out var c))
+				{
+					length <<= 4;
+					length += c > '9' ? (c > 'Z' ? (c - 'a' + 10) : (c - 'A' + 10)) : (c - '0');
+				}
+				return length;
+			}
+		}
+
+		private static long ReadLine(ReadOnlySequence<byte> sequence, out ReadOnlySequence<byte> value)
+		{
+			var reader = new SequenceReader<byte>(sequence);
+			if (reader.TryReadTo(out value, HttpNewLineSpan))
+			{
+				// value 不包括结尾的 \r\n
+			}
+
+			return reader.Consumed;
 		}
 	}
 }
