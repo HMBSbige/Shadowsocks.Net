@@ -12,7 +12,8 @@ namespace HttpProxy
 {
 	public class HttpSocks5Service
 	{
-		private readonly TcpListener _tcpListener;
+		public TcpListener TcpListener { get; }
+
 		private readonly HttpToSocks5 _httpToSocks5;
 		private readonly Socks5CreateOption _socks5CreateOption;
 		private readonly CancellationTokenSource _cts;
@@ -24,7 +25,7 @@ namespace HttpProxy
 				throw new ArgumentNullException(nameof(socks5CreateOption.Address));
 			}
 
-			_tcpListener = new TcpListener(local);
+			TcpListener = new TcpListener(local);
 			_httpToSocks5 = httpToSocks5;
 			_socks5CreateOption = socks5CreateOption;
 
@@ -35,10 +36,10 @@ namespace HttpProxy
 		{
 			try
 			{
-				_tcpListener.Start();
+				TcpListener.Start();
 				while (!_cts.IsCancellationRequested)
 				{
-					var rec = await _tcpListener.AcceptTcpClientAsync();
+					var rec = await TcpListener.AcceptTcpClientAsync();
 					rec.NoDelay = true;
 					HandleAsync(rec, _cts.Token).Forget();
 				}
@@ -98,7 +99,14 @@ namespace HttpProxy
 
 		public void Stop()
 		{
-			_cts.Cancel();
+			try
+			{
+				TcpListener.Stop();
+			}
+			finally
+			{
+				_cts.Cancel();
+			}
 		}
 	}
 }
