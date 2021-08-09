@@ -91,7 +91,7 @@ namespace Pipelines.Extensions
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static void CheckIsCanceled(this ReadResult result, CancellationToken cancellationToken = default)
+		public static void ThrowIfCanceled(this ReadResult result, CancellationToken cancellationToken = default)
 		{
 			if (!result.IsCanceled)
 			{
@@ -106,7 +106,7 @@ namespace Pipelines.Extensions
 		public static async ValueTask<ReadResult> ReadAndCheckIsCanceledAsync(this PipeReader reader, CancellationToken cancellationToken = default)
 		{
 			var result = await reader.ReadAsync(cancellationToken);
-			result.CheckIsCanceled(cancellationToken);
+			result.ThrowIfCanceled(cancellationToken);
 			return result;
 		}
 	}

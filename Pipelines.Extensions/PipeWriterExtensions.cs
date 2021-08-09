@@ -61,7 +61,7 @@ namespace Pipelines.Extensions
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static void CheckIsCanceled(this FlushResult flushResult, CancellationToken cancellationToken = default)
+		public static void ThrowIfCanceled(this FlushResult flushResult, CancellationToken cancellationToken = default)
 		{
 			if (!flushResult.IsCanceled)
 			{
@@ -76,7 +76,7 @@ namespace Pipelines.Extensions
 		public static async ValueTask<FlushResult> FlushAndCheckIsCanceledAsync(this PipeWriter writer, CancellationToken cancellationToken = default)
 		{
 			var flushResult = await writer.FlushAsync(cancellationToken);
-			flushResult.CheckIsCanceled(cancellationToken);
+			flushResult.ThrowIfCanceled(cancellationToken);
 			return flushResult;
 		}
 	}
