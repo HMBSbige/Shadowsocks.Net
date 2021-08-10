@@ -15,7 +15,11 @@ namespace Pipelines.Extensions
 			var a = pipe1.Input.CopyToAsync(pipe2.Output, token);
 			var b = pipe2.Input.CopyToAsync(pipe1.Output, token);
 
-			await Task.WhenAny(a, b); // TODO: Use WhenAll? .NET6.0
+			var task = await Task.WhenAny(a, b);
+			if (task.IsCompletedSuccessfully)
+			{
+				await Task.WhenAll(a, b);
+			}
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
