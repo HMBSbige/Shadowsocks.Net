@@ -1,5 +1,6 @@
 using Microsoft;
 using Microsoft.VisualStudio.Threading;
+using Pipelines.Extensions;
 using Shadowsocks.Crypto;
 using Shadowsocks.Protocol.Models;
 using System;
@@ -101,12 +102,7 @@ namespace Shadowsocks.Protocol.TcpClients
 				{
 					while (true)
 					{
-						var result = await _upPipe.Input.ReadAsync(cancellationToken);
-						if (result.IsCanceled)
-						{
-							cancellationToken.ThrowIfCancellationRequested();
-							throw new OperationCanceledException();
-						}
+						var result = await _upPipe.Input.ReadAndCheckIsCanceledAsync(cancellationToken);
 
 						var buffer = result.Buffer;
 						try
@@ -167,7 +163,7 @@ namespace Shadowsocks.Protocol.TcpClients
 			}
 		}
 
-		private bool ReceiveFromRemote(
+		private static bool ReceiveFromRemote(
 			IShadowsocksCrypto decryptor,
 			PipeWriter writer,
 			ref ReadOnlySequence<byte> sequence)
