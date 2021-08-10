@@ -190,7 +190,7 @@ namespace Socks5.Clients
 
 			await _tcpClient.ConnectAsync(_option.Address!, _option.Port, token);
 
-			var pipe = _tcpClient.GetStream().AsDuplexPipe(cancellationToken: token);
+			var pipe = _tcpClient.GetStream().AsDuplexPipe();
 
 			await HandshakeWithAuthAsync(pipe, token);
 

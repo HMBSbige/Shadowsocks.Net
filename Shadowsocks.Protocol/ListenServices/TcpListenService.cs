@@ -5,6 +5,7 @@ using Shadowsocks.Protocol.LocalTcpServices;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Pipelines;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
@@ -23,6 +24,7 @@ namespace Shadowsocks.Protocol.ListenServices
 
 		private const string LoggerHeader = @"[TcpListenService]";
 		private const int FirstBufferSize = 8192;
+		private static readonly StreamPipeReaderOptions LocalPipeReaderOptions = new(bufferSize: FirstBufferSize);
 
 		public TcpListenService(ILogger<TcpListenService> logger, IPEndPoint local, IEnumerable<ILocalTcpService> services)
 		{
@@ -58,9 +60,10 @@ namespace Shadowsocks.Protocol.ListenServices
 
 		private async ValueTask HandleAsync(TcpClient rec, CancellationToken token)
 		{
+			var remoteEndPoint = rec.Client.RemoteEndPoint;
 			try
 			{
-				var pipe = rec.GetStream().AsDuplexPipe(FirstBufferSize, cancellationToken: token);
+				var pipe = rec.GetStream().AsDuplexPipe(LocalPipeReaderOptions);
 				try
 				{
 					var result = await pipe.Input.ReadAsync(token);
@@ -90,7 +93,7 @@ namespace Shadowsocks.Protocol.ListenServices
 			}
 			finally
 			{
-				_logger.LogInformation(@"{0} {1} disconnected", LoggerHeader, rec.Client.RemoteEndPoint);
+				_logger.LogInformation(@"{0} {1} disconnected", LoggerHeader, remoteEndPoint);
 				rec.Dispose();
 			}
 		}
