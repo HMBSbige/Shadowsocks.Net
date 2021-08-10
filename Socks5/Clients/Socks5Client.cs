@@ -39,10 +39,7 @@ namespace Socks5.Clients
 		public Socks5Client(Socks5CreateOption option)
 		{
 			Requires.NotNull(option, nameof(option));
-			if (option.Address is null)
-			{
-				throw new ArgumentNullException(nameof(option.Address));
-			}
+			Requires.NotNullAllowStructs(option.Address, nameof(option.Address));
 
 			_option = option;
 			_tcpClient = new TcpClient(option.Address.AddressFamily);
@@ -54,10 +51,7 @@ namespace Socks5.Clients
 
 		public IDuplexPipe GetPipe()
 		{
-			if (Status is not Status.Established || _pipe is null)
-			{
-				throw new InvalidOperationException(@"Socks5 is not established.");
-			}
+			Verify.Operation(Status is Status.Established && _pipe is not null, @"Socks5 is not established.");
 
 			return _pipe;
 		}
@@ -123,7 +117,7 @@ namespace Socks5.Clients
 				}
 				default:
 				{
-					throw new ArgumentOutOfRangeException(nameof(bound.Type));
+					throw Assumes.NotReachable();
 				}
 			}
 
@@ -135,10 +129,7 @@ namespace Socks5.Clients
 		//TODO .NET6.0
 		public async Task<Socks5UdpReceivePacket> ReceiveAsync()
 		{
-			if (Status is not Status.Established || _udpClient is null)
-			{
-				throw new InvalidOperationException(@"Socks5 is not established.");
-			}
+			Verify.Operation(Status is Status.Established && _udpClient is not null, @"Socks5 is not established.");
 
 			var res = await _udpClient.ReceiveAsync();
 
@@ -159,10 +150,7 @@ namespace Socks5.Clients
 			ReadOnlyMemory<byte> data,
 			string? dst, IPAddress? dstAddress, ushort dstPort)
 		{
-			if (Status is not Status.Established || _udpClient is null)
-			{
-				throw new InvalidOperationException(@"Socks5 is not established.");
-			}
+			Verify.Operation(Status is Status.Established && _udpClient is not null, @"Socks5 is not established.");
 
 			var buffer = ArrayPool<byte>.Shared.Rent(Constants.MaxUdpHandshakeHeaderLength + data.Length);
 			try
@@ -183,10 +171,7 @@ namespace Socks5.Clients
 
 		private async ValueTask<IDuplexPipe> HandshakeAsync(CancellationToken token)
 		{
-			if (Status is not Status.Initial)
-			{
-				throw new InvalidOperationException(@"Socks5 already connected.");
-			}
+			Verify.Operation(Status is Status.Initial, @"Socks5 already connected.");
 
 			await _tcpClient.ConnectAsync(_option.Address!, _option.Port, token);
 
@@ -199,25 +184,7 @@ namespace Socks5.Clients
 
 		private async ValueTask HandshakeWithAuthAsync(IDuplexPipe pipe, CancellationToken token)
 		{
-			switch (Status)
-			{
-				case Status.Established:
-				{
-					throw new InvalidOperationException(@"Socks5 has been initialized.");
-				}
-				case Status.Closed:
-				{
-					throw new InvalidOperationException(@"Socks5 closed.");
-				}
-				case Status.Initial:
-				{
-					break;
-				}
-				default:
-				{
-					throw new ArgumentOutOfRangeException();
-				}
-			}
+			Verify.Operation(Status is Status.Initial, @"Socks5 has been initialized.");
 
 			var clientMethods = new List<Method>(2)
 			{

@@ -1,3 +1,4 @@
+using Microsoft;
 using System;
 using System.IO;
 using System.IO.Pipelines;
@@ -46,11 +47,9 @@ namespace Pipelines.Extensions
 			CancellationToken cancellationToken = default)
 		{
 			//TODO .NET6.0 ReadAtLeastAsync
+			//TODO CancelPendingRead
 
-			if (size < 0)
-			{
-				throw new ArgumentOutOfRangeException(nameof(size), @"size must >0.");
-			}
+			Requires.Range(size >= 0, nameof(size), @"size must >=0.");
 
 			while (true)
 			{

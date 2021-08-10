@@ -1,3 +1,4 @@
+using Microsoft;
 using Socks5.Enums;
 using Socks5.Exceptions;
 using Socks5.Models;
@@ -124,31 +125,26 @@ namespace Socks5.Utils
 			// | 2  |  1   |  1   | Variable |    2     | Variable |
 			// +----+------+------+----------+----------+----------+
 
-			try
+			Requires.Range(buffer.LongLength >= 7, nameof(buffer));
+
+			var res = new Socks5UdpReceivePacket();
+
+			if (buffer[0] != Constants.Rsv || buffer[1] != Constants.Rsv)
 			{
-				var res = new Socks5UdpReceivePacket();
-
-				if (buffer[0] != Constants.Rsv || buffer[1] != Constants.Rsv)
-				{
-					throw new ProtocolErrorException($@"Protocol failed, RESERVED is not 0x0000: 0x{buffer[0]:X2}{buffer[1]:X2}.");
-				}
-
-				res.Fragment = buffer[2];
-
-				res.Type = (AddressType)buffer[3];
-
-				var offset = 4;
-				offset += DestinationAddress(res.Type, buffer.AsSpan(offset), out res.Address, out res.Domain);
-
-				res.Port = BinaryPrimitives.ReadUInt16BigEndian(buffer.AsSpan(offset));
-				res.Data = buffer.AsMemory(offset + 2);
-
-				return res;
+				throw new ProtocolErrorException($@"Protocol failed, RESERVED is not 0x0000: 0x{buffer[0]:X2}{buffer[1]:X2}.");
 			}
-			catch (Exception ex) when (ex is not ProtocolErrorException)
-			{
-				throw new ProtocolErrorException($@"Server sent an unknown message: {BitConverter.ToString(buffer)}.");
-			}
+
+			res.Fragment = buffer[2];
+
+			res.Type = (AddressType)buffer[3];
+
+			var offset = 4;
+			offset += DestinationAddress(res.Type, buffer.AsSpan(offset), out res.Address, out res.Domain);
+
+			res.Port = BinaryPrimitives.ReadUInt16BigEndian(buffer.AsSpan(offset));
+			res.Data = buffer.AsMemory(offset + 2);
+
+			return res;
 		}
 
 		public static bool ReadDestinationAddress(

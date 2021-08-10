@@ -1,3 +1,4 @@
+using Microsoft;
 using Socks5.Enums;
 using Socks5.Models;
 using System;
@@ -23,19 +24,13 @@ namespace Socks5.Utils
 			{
 				destination[0] = Convert.ToByte(AddressType.Domain);
 				var length = Encoding.UTF8.GetBytes(hostName, destination[2..]);
-				if (length > byte.MaxValue)
-				{
-					throw new ArgumentException($@"Domain Length > {byte.MaxValue}");
-				}
+				Requires.Argument(length <= byte.MaxValue, nameof(hostName), @"Domain Length > {0}", byte.MaxValue);
 				destination[1] = (byte)length;
 				outLength = 1 + 1 + length;
 			}
 			else
 			{
-				if (!ip.TryWriteBytes(destination[1..], out var length))
-				{
-					throw new ArgumentOutOfRangeException(nameof(destination));
-				}
+				Requires.Argument(ip.TryWriteBytes(destination[1..], out var length), nameof(destination), @"buffer is too small");
 
 				var type = length == 4 ? AddressType.IPv4 : AddressType.IPv6;
 				destination[0] = Convert.ToByte(type);
@@ -70,10 +65,7 @@ namespace Socks5.Utils
 			// | 1  |    1     | 1 to 255 |
 			// +----+----------+----------+
 
-			if (clientMethods.Count > byte.MaxValue)
-			{
-				throw new ArgumentException($@"{nameof(clientMethods)}.Count > {byte.MaxValue}");
-			}
+			Requires.Argument(clientMethods.Count <= byte.MaxValue, nameof(clientMethods), @"{0}.Count > {1}", nameof(clientMethods), byte.MaxValue);
 
 			buffer[0] = Constants.ProtocolVersion;
 			buffer[1] = (byte)clientMethods.Count;
@@ -99,18 +91,12 @@ namespace Socks5.Utils
 			var offset = 1;
 
 			var usernameLength = Encoding.UTF8.GetBytes(credential.UserName, buffer[(offset + 1)..]);
-			if (usernameLength > byte.MaxValue)
-			{
-				throw new ArgumentException($@"{nameof(credential.UserName)} too long.");
-			}
+			Requires.Argument(usernameLength <= byte.MaxValue, nameof(credential), @"{0} too long.", nameof(credential.UserName));
 			buffer[offset++] = (byte)usernameLength;
 			offset += usernameLength;
 
 			var passwordLength = Encoding.UTF8.GetBytes(credential.Password, buffer[(offset + 1)..]);
-			if (passwordLength > byte.MaxValue)
-			{
-				throw new ArgumentException($@"{nameof(credential.Password)} too long.");
-			}
+			Requires.Argument(passwordLength <= byte.MaxValue, nameof(credential), @"{0} too long.", nameof(credential.Password));
 			buffer[offset++] = (byte)passwordLength;
 			offset += passwordLength;
 

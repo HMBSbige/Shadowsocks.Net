@@ -1,3 +1,4 @@
+using Microsoft;
 using Microsoft.Extensions.Logging;
 using Pipelines.Extensions;
 using Shadowsocks.Protocol.ServersControllers;
@@ -5,7 +6,6 @@ using Shadowsocks.Protocol.TcpClients;
 using Socks5.Enums;
 using Socks5.Models;
 using Socks5.Servers;
-using System;
 using System.Buffers;
 using System.IO.Pipelines;
 using System.Net;
@@ -37,15 +37,8 @@ namespace Shadowsocks.Protocol.LocalTcpServices
 
 		public async ValueTask HandleAsync(IDuplexPipe pipe, CancellationToken token = default)
 		{
-			if (Socks5CreateOption is null)
-			{
-				throw new ArgumentNullException(nameof(Socks5CreateOption));
-			}
-
-			if (Socks5CreateOption.Address is null)
-			{
-				throw new ArgumentNullException(nameof(Socks5CreateOption.Address));
-			}
+			Verify.Operation(Socks5CreateOption is not null, @"You must set {0}", nameof(Socks5CreateOption));
+			Verify.Operation(Socks5CreateOption.Address is not null, @"You must set socks5 address");
 
 			var socks5 = new Socks5ServerConnection(pipe, Socks5CreateOption.UsernamePassword);
 
@@ -77,10 +70,7 @@ namespace Shadowsocks.Protocol.LocalTcpServices
 					};
 					await socks5.SendReplyAsync(Socks5Reply.Succeeded, bound, token);
 
-					if (client.Pipe is null)
-					{
-						throw new InvalidOperationException(@"You should TryConnect successfully first!");
-					}
+					Verify.Operation(client.Pipe is not null, @"You should TryConnect successfully first!");
 
 					await client.Pipe.Output.SendShadowsocksHeaderAsync(target, socks5.Target.Port, token);
 

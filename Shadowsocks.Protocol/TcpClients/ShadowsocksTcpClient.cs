@@ -1,3 +1,4 @@
+using Microsoft;
 using Microsoft.Extensions.Logging;
 using Pipelines.Extensions;
 using Shadowsocks.Protocol.Models;
@@ -30,10 +31,7 @@ namespace Shadowsocks.Protocol.TcpClients
 		{
 			try
 			{
-				if (_serverInfo.Address is null)
-				{
-					throw new ArgumentNullException(nameof(_serverInfo.Address));
-				}
+				Requires.NotNullAllowStructs(_serverInfo.Address, nameof(_serverInfo.Address));
 
 				_client = new TcpClient { NoDelay = true };
 				await _client.ConnectAsync(_serverInfo.Address, _serverInfo.Port, token);

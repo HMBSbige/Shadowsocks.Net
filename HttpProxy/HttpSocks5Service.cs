@@ -1,3 +1,4 @@
+using Microsoft;
 using Microsoft.VisualStudio.Threading;
 using Pipelines.Extensions;
 using Socks5.Models;
@@ -20,10 +21,7 @@ namespace HttpProxy
 
 		public HttpSocks5Service(IPEndPoint local, HttpToSocks5 httpToSocks5, Socks5CreateOption socks5CreateOption)
 		{
-			if (socks5CreateOption.Address is null)
-			{
-				throw new ArgumentNullException(nameof(socks5CreateOption.Address));
-			}
+			Requires.NotNullAllowStructs(socks5CreateOption.Address, nameof(socks5CreateOption.Address));
 
 			TcpListener = new TcpListener(local);
 			_httpToSocks5 = httpToSocks5;

@@ -1,6 +1,6 @@
 using HttpProxy;
+using Microsoft;
 using Socks5.Models;
-using System;
 using System.Buffers;
 using System.IO.Pipelines;
 using System.Threading;
@@ -26,15 +26,8 @@ namespace Shadowsocks.Protocol.LocalTcpServices
 
 		public async ValueTask HandleAsync(IDuplexPipe pipe, CancellationToken token = default)
 		{
-			if (Socks5CreateOption is null)
-			{
-				throw new InvalidOperationException($@"You must set {nameof(Socks5CreateOption)}");
-			}
-
-			if (Socks5CreateOption.Address is null)
-			{
-				throw new InvalidOperationException(@"You must set socks5 address");
-			}
+			Verify.Operation(Socks5CreateOption is not null, @"You must set {0}", nameof(Socks5CreateOption));
+			Verify.Operation(Socks5CreateOption.Address is not null, @"You must set socks5 address");
 
 			await _httpToSocks5.ForwardToSocks5Async(pipe, Socks5CreateOption, token);
 		}
