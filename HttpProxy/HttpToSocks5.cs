@@ -113,7 +113,7 @@ namespace HttpProxy
 
 		private static async ValueTask SendErrorAsync(PipeWriter writer, ConnectionErrorResult error, string httpVersion = @"HTTP/1.1", CancellationToken token = default)
 		{
-			var str = HttpUtils.BuildErrorResponse(error, httpVersion);
+			var str = BuildErrorResponse(error, httpVersion);
 			await writer.WriteAsync(str, token);
 		}
 
@@ -125,7 +125,7 @@ namespace HttpProxy
 
 		private static bool TryParseHeader(string raw, [NotNullWhen(true)] out HttpHeaders? httpHeaders)
 		{
-			var headerLines = raw.Split(NewLines, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+			var headerLines = raw.SplitLines();
 
 			if (headerLines.Length <= 0)
 			{
@@ -314,7 +314,7 @@ InvalidRequest:
 
 		private static Dictionary<string, string> ReadHeaders(string raw)
 		{
-			var headerLines = raw.Split(NewLines, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+			var headerLines = raw.SplitLines();
 			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 			foreach (var headerLine in headerLines.Skip(1))
 			{

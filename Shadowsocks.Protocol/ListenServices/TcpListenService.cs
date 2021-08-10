@@ -79,13 +79,18 @@ namespace Shadowsocks.Protocol.ListenServices
 					pipe.Input.AdvanceTo(buffer.Start, buffer.End);
 					pipe.Input.CancelPendingRead();
 
+					// In every service.HandleAsync, first ReadResult.IsCanceled always true
 					await service.HandleAsync(pipe, token);
 				}
 				finally
 				{
-					await pipe.Output.CompleteAsync();
 					await pipe.Input.CompleteAsync();
+					await pipe.Output.CompleteAsync();
 				}
+			}
+			catch (ObjectDisposedException)
+			{
+
 			}
 			catch (Exception ex)
 			{
@@ -93,8 +98,9 @@ namespace Shadowsocks.Protocol.ListenServices
 			}
 			finally
 			{
-				_logger.LogInformation(@"{0} {1} disconnected", LoggerHeader, remoteEndPoint);
 				rec.Dispose();
+				// rec.Client has already been disposed when pipe completed
+				_logger.LogInformation(@"{0} {1} disconnected", LoggerHeader, remoteEndPoint);
 			}
 		}
 

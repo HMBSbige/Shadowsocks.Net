@@ -46,9 +46,6 @@ namespace Pipelines.Extensions
 			long size,
 			CancellationToken cancellationToken = default)
 		{
-			//TODO .NET6.0 ReadAtLeastAsync
-			//TODO CancelPendingRead
-
 			Requires.Range(size >= 0, nameof(size), @"size must >=0.");
 
 			while (true)
@@ -58,18 +55,10 @@ namespace Pipelines.Extensions
 
 				try
 				{
-					if (buffer.Length == size)
-					{
-						await target.WriteAsync(buffer, cancellationToken);
-						buffer = buffer.Slice(buffer.Length);
-						return;
-					}
-
-					if (buffer.Length > size)
+					if (buffer.Length >= size)
 					{
 						await target.WriteAsync(buffer.Slice(0, size), cancellationToken);
 						buffer = buffer.Slice(size);
-						reader.CancelPendingRead();
 						return;
 					}
 

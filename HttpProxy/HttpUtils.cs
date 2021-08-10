@@ -10,7 +10,7 @@ namespace HttpProxy
 	{
 		public static ReadOnlySpan<byte> HttpHeaderEnd => new[] { (byte)'\r', (byte)'\n', (byte)'\r', (byte)'\n' };
 		public static ReadOnlySpan<byte> HttpNewLineSpan => new[] { (byte)'\r', (byte)'\n' };
-		public static readonly string[] NewLines = { "\r\n", "\r", "\n" };
+		private static readonly char[] NewLines = { '\r', '\n' };
 		public const string HttpNewLine = "\r\n";
 
 		// https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers
@@ -43,6 +43,11 @@ namespace HttpProxy
 			return HopByHopHeaders.Contains(header);
 		}
 
+		internal static string[] SplitLines(this string str)
+		{
+			return str.Split(NewLines, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+		}
+
 		public static bool IsHttpHeader(ReadOnlySequence<byte> buffer)
 		{
 			var reader = new SequenceReader<byte>(buffer);
@@ -53,7 +58,7 @@ namespace HttpProxy
 
 			var headers = Encoding.UTF8.GetString(headerBuffer); // 不包括结尾的 \r\n\r\n
 
-			var headerLines = headers.Split(NewLines, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+			var headerLines = headers.SplitLines();
 
 			if (headerLines.Length <= 0)
 			{
