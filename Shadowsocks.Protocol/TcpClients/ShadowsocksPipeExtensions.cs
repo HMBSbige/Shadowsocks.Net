@@ -1,12 +1,14 @@
 using Shadowsocks.Protocol.Models;
 using Socks5.Utils;
 using System.IO.Pipelines;
+using System.Runtime.CompilerServices;
 using System.Threading;
 
 namespace Shadowsocks.Protocol.TcpClients
 {
 	public static class ShadowsocksPipeExtensions
 	{
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static IDuplexPipe AsShadowsocksPipe(
 			this IDuplexPipe pipe,
 			ShadowsocksServerInfo serverInfo,
@@ -17,6 +19,7 @@ namespace Shadowsocks.Protocol.TcpClients
 			return new ShadowsocksDuplexPipe(pipe, serverInfo, targetAddress, targetPort, pipeOptions, cancellationToken);
 		}
 
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static void WriteShadowsocksHeader(
 			this PipeWriter writer,
 			string targetAddress, ushort targetPort)

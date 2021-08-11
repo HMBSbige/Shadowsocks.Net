@@ -92,6 +92,14 @@ namespace Shadowsocks.Protocol.ListenServices
 			{
 
 			}
+			catch (IOException ex) when (ex.InnerException is SocketException)
+			{
+
+			}
+			catch (OperationCanceledException)
+			{
+
+			}
 			catch (Exception ex)
 			{
 				_logger.LogError(ex, @"{0} Handle Error", LoggerHeader);

@@ -15,12 +15,7 @@ namespace Pipelines.Extensions
 			var a = pipe1.Input.CopyToAsync(pipe2.Output, token);
 			var b = pipe2.Input.CopyToAsync(pipe1.Output, token);
 
-			var task = await Task.WhenAny(a, b);
-			// A pipe run to an exception cause another pend reading permanently
-			if (task.IsCompletedSuccessfully)
-			{
-				await Task.WhenAll(a, b);
-			}
+			await Task.WhenAll(a, b);
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
