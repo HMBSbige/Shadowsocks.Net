@@ -7,8 +7,8 @@ namespace Shadowsocks.Protocol.TcpClients
 {
 	public interface IPipeClient : IAsyncDisposable
 	{
-		IDuplexPipe? Pipe { get; }
+		ValueTask ConnectAsync(CancellationToken token);
 
-		ValueTask<bool> TryConnectAsync(CancellationToken token);
+		IDuplexPipe GetPipe(string targetAddress, ushort targetPort);
 	}
 }

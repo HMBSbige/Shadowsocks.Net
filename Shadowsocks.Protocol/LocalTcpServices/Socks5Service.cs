@@ -2,7 +2,6 @@ using Microsoft;
 using Microsoft.Extensions.Logging;
 using Pipelines.Extensions;
 using Shadowsocks.Protocol.ServersControllers;
-using Shadowsocks.Protocol.TcpClients;
 using Socks5.Enums;
 using Socks5.Models;
 using Socks5.Servers;
@@ -70,11 +69,9 @@ namespace Shadowsocks.Protocol.LocalTcpServices
 					};
 					await socks5.SendReplyAsync(Socks5Reply.Succeeded, bound, token);
 
-					Verify.Operation(client.Pipe is not null, @"You should TryConnect successfully first!");
+					var clientPipe = client.GetPipe(target, socks5.Target.Port);
 
-					await client.Pipe.Output.SendShadowsocksHeaderAsync(target, socks5.Target.Port, token);
-
-					await client.Pipe.LinkToAsync(pipe, token);
+					await clientPipe.LinkToAsync(pipe, token);
 
 					break;
 				}

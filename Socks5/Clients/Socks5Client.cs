@@ -231,9 +231,9 @@ namespace Socks5.Clients
 
 			return method;
 
-			int PackHandshake(Memory<byte> memory)
+			int PackHandshake(Span<byte> span)
 			{
-				return Pack.Handshake(clientMethods, memory.Span);
+				return Pack.Handshake(clientMethods, span);
 			}
 
 			ParseResult HandleResponse(ref ReadOnlySequence<byte> buffer)
@@ -250,9 +250,9 @@ namespace Socks5.Clients
 
 			await pipe.Input.ReadAsync(HandleResponse, token);
 
-			int PackUsernamePassword(Memory<byte> memory)
+			int PackUsernamePassword(Span<byte> span)
 			{
-				return Pack.UsernamePasswordAuth(credential, memory.Span);
+				return Pack.UsernamePasswordAuth(credential, span);
 			}
 
 			static ParseResult HandleResponse(ref ReadOnlySequence<byte> buffer)
@@ -277,9 +277,9 @@ namespace Socks5.Clients
 
 			return bound;
 
-			int PackClientCommand(Memory<byte> memory)
+			int PackClientCommand(Span<byte> span)
 			{
-				return Pack.ClientCommand(command, dst, dstAddress, dstPort, memory.Span);
+				return Pack.ClientCommand(command, dst, dstAddress, dstPort, span);
 			}
 
 			ParseResult HandleResponse(ref ReadOnlySequence<byte> buffer)

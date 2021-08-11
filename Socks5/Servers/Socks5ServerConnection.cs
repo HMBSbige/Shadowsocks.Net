@@ -100,9 +100,9 @@ namespace Socks5.Servers
 				return Unpack.ReadClientHandshake(ref buffer, ref methods) ? ParseResult.Success : ParseResult.NeedsMoreData;
 			}
 
-			int PackMethod(Memory<byte> memory)
+			int PackMethod(Span<byte> span)
 			{
-				return Pack.Handshake(method, memory.Span);
+				return Pack.Handshake(method, span);
 			}
 		}
 
@@ -124,9 +124,9 @@ namespace Socks5.Servers
 				return Unpack.ReadClientAuth(ref buffer, ref clientCredential) ? ParseResult.Success : ParseResult.NeedsMoreData;
 			}
 
-			int PackReply(Memory<byte> memory)
+			int PackReply(Span<byte> span)
 			{
-				return Pack.AuthReply(isAuth, memory.Span);
+				return Pack.AuthReply(isAuth, span);
 			}
 		}
 
@@ -199,9 +199,9 @@ namespace Socks5.Servers
 		{
 			await _pipe.Output.WriteAsync(Constants.MaxCommandLength, PackCommand, token);
 
-			int PackCommand(Memory<byte> memory)
+			int PackCommand(Span<byte> span)
 			{
-				return Pack.ServerReply(reply, bound, memory.Span);
+				return Pack.ServerReply(reply, bound, span);
 			}
 		}
 	}

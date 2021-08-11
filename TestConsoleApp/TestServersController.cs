@@ -30,14 +30,11 @@ namespace TestConsoleApp
 				Remark = @""
 			};
 
-			IPipeClient client = new ShadowsocksTcpClient(_logger, info);
+			IPipeClient client = new ShadowsocksTcpClient(info);
 
 			var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
 
-			if (!await client.TryConnectAsync(cts.Token))
-			{
-				throw new Exception($@"Connect to {info} Error");
-			}
+			await client.ConnectAsync(cts.Token);
 
 			return client;
 		}

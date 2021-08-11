@@ -2,7 +2,6 @@ using Shadowsocks.Protocol.Models;
 using Socks5.Utils;
 using System.IO.Pipelines;
 using System.Threading;
-using System.Threading.Tasks;
 
 namespace Shadowsocks.Protocol.TcpClients
 {
@@ -11,20 +10,20 @@ namespace Shadowsocks.Protocol.TcpClients
 		public static IDuplexPipe AsShadowsocksPipe(
 			this IDuplexPipe pipe,
 			ShadowsocksServerInfo serverInfo,
+			string targetAddress, ushort targetPort,
 			PipeOptions? pipeOptions = null,
 			CancellationToken cancellationToken = default)
 		{
-			return new ShadowsocksDuplexPipe(pipe, serverInfo, pipeOptions, cancellationToken);
+			return new ShadowsocksDuplexPipe(pipe, serverInfo, targetAddress, targetPort, pipeOptions, cancellationToken);
 		}
 
-		public static async ValueTask<FlushResult> SendShadowsocksHeaderAsync(
+		public static void WriteShadowsocksHeader(
 			this PipeWriter writer,
-			string targetAddress, ushort targetPort, CancellationToken token)
+			string targetAddress, ushort targetPort)
 		{
-			var memory = writer.GetMemory(1 + 1 + byte.MaxValue + 2);
-			var addressLength = Pack.DestinationAddressAndPort(targetAddress, default, targetPort, memory.Span);
+			var span = writer.GetSpan(1 + 1 + byte.MaxValue + 2);
+			var addressLength = Pack.DestinationAddressAndPort(targetAddress, default, targetPort, span);
 			writer.Advance(addressLength);
-			return await writer.FlushAsync(token);
 		}
 	}
 }

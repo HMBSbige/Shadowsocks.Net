@@ -11,17 +11,23 @@ namespace Pipelines.Extensions
 	public static partial class PipelinesExtensions
 	{
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static async ValueTask<FlushResult> WriteAsync(
-			this PipeWriter writer,
-			int maxBufferSize,
-			Func<Memory<byte>, int> copyTo,
-			CancellationToken token = default)
+		public static void Write(this PipeWriter writer, int maxBufferSize, CopyToSpan copyTo)
 		{
-			var memory = writer.GetMemory(maxBufferSize);
+			var memory = writer.GetSpan(maxBufferSize);
 
 			var length = copyTo(memory);
 
 			writer.Advance(length);
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static async ValueTask<FlushResult> WriteAsync(
+			this PipeWriter writer,
+			int maxBufferSize,
+			CopyToSpan copyTo,
+			CancellationToken token = default)
+		{
+			writer.Write(maxBufferSize, copyTo);
 			return await writer.FlushAsync(token);
 		}
 

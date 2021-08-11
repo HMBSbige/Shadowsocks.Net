@@ -22,14 +22,17 @@ namespace Shadowsocks.Protocol.TcpClients
 		public ShadowsocksDuplexPipe(
 			IDuplexPipe pipe,
 			ShadowsocksServerInfo serverInfo,
+			string targetAddress, ushort targetPort,
 			PipeOptions? pipeOptions = null,
 			CancellationToken cancellationToken = default)
 		{
 			Requires.NotNull(pipe, nameof(pipe));
 			Requires.NotNull(serverInfo, nameof(serverInfo));
+			Requires.NotNullAllowStructs(serverInfo.Method, nameof(serverInfo));
+			Requires.NotNullAllowStructs(serverInfo.Password, nameof(serverInfo));
 
-			var encryptor = ShadowsocksCrypto.Create(serverInfo.Method!, serverInfo.Password!);
-			var decryptor = ShadowsocksCrypto.Create(serverInfo.Method!, serverInfo.Password!);
+			var encryptor = ShadowsocksCrypto.Create(serverInfo.Method, serverInfo.Password);
+			var decryptor = ShadowsocksCrypto.Create(serverInfo.Method, serverInfo.Password);
 
 			pipeOptions ??= PipeOptions.Default;
 
@@ -37,6 +40,7 @@ namespace Shadowsocks.Protocol.TcpClients
 
 			Input = WrapReader(decryptor, pipeOptions, cancellationToken);
 			Output = WrapWriter(encryptor, pipeOptions, cancellationToken);
+			Output.WriteShadowsocksHeader(targetAddress, targetPort);
 		}
 
 		private PipeWriter WrapWriter(
@@ -58,7 +62,7 @@ namespace Shadowsocks.Protocol.TcpClients
 						{
 							foreach (var segment in buffer)
 							{
-								SendToRemote(encryptor, _upPipe.Output, segment);
+								SendToRemote(encryptor, _upPipe.Output, segment.Span);
 							}
 
 							var flushResult = await _upPipe.Output.FlushAsync(cancellationToken);
@@ -141,16 +145,16 @@ namespace Shadowsocks.Protocol.TcpClients
 			return pipe.Reader;
 		}
 
-		private void SendToRemote(
+		private static void SendToRemote(
 			IShadowsocksCrypto encryptor,
 			PipeWriter writer,
-			ReadOnlyMemory<byte> buffer)
+			ReadOnlySpan<byte> buffer)
 		{
 			while (!buffer.IsEmpty)
 			{
-				var memory = writer.GetMemory(BufferSize);
+				var span = writer.GetSpan(BufferSize);
 
-				encryptor.EncryptTCP(buffer.Span, memory.Span, out var p, out var outLength);
+				encryptor.EncryptTCP(buffer, span, out var p, out var outLength);
 
 				writer.Advance(outLength);
 
@@ -173,9 +177,9 @@ namespace Shadowsocks.Protocol.TcpClients
 			{
 				var oldLength = sequence.Length;
 
-				var memory = writer.GetMemory(BufferSize);
+				var span = writer.GetSpan(BufferSize);
 
-				var outLength = decryptor.DecryptTCP(ref sequence, memory.Span);
+				var outLength = decryptor.DecryptTCP(ref sequence, span);
 
 				writer.Advance(outLength);
 				if (outLength > 0)
