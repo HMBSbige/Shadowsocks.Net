@@ -248,7 +248,10 @@ namespace Socks5.Clients
 
 			// Receive
 
-			await pipe.Input.ReadAsync(HandleResponse, token);
+			if (!await pipe.Input.ReadAsync(HandleResponse, token))
+			{
+				throw new ProtocolErrorException(@"Auth failed!");
+			}
 
 			int PackUsernamePassword(Span<byte> span)
 			{

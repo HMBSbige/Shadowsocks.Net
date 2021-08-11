@@ -19,11 +19,11 @@ namespace HttpProxy
 		private readonly Socks5CreateOption _socks5CreateOption;
 		private readonly CancellationTokenSource _cts;
 
-		public HttpSocks5Service(IPEndPoint local, HttpToSocks5 httpToSocks5, Socks5CreateOption socks5CreateOption)
+		public HttpSocks5Service(IPEndPoint bindEndPoint, HttpToSocks5 httpToSocks5, Socks5CreateOption socks5CreateOption)
 		{
 			Requires.NotNullAllowStructs(socks5CreateOption.Address, nameof(socks5CreateOption.Address));
 
-			TcpListener = new TcpListener(local);
+			TcpListener = new TcpListener(bindEndPoint);
 			_httpToSocks5 = httpToSocks5;
 			_socks5CreateOption = socks5CreateOption;
 
@@ -79,8 +79,8 @@ namespace HttpProxy
 				}
 				finally
 				{
-					await pipe.Output.CompleteAsync();
 					await pipe.Input.CompleteAsync();
+					await pipe.Output.CompleteAsync();
 				}
 			}
 			finally

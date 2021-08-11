@@ -5,6 +5,7 @@ using Socks5.Models;
 using System;
 using System.Buffers;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
@@ -13,17 +14,22 @@ using System.Threading.Tasks;
 
 namespace Socks5.Utils
 {
-	public static class TestUtils
+	public static class Socks5TestUtils
 	{
-		private static ReadOnlySpan<byte> HttpHeaderEnd => new[] { (byte)'\r', (byte)'\n', (byte)'\r', (byte)'\n' };
+		private static ReadOnlySpan<byte> Newline => new[] { (byte)'\r', (byte)'\n' };
 
 		/// <summary>
-		/// 使用 HTTP1.1 204 测试 SOCKS5 CONNECT
+		/// 使用 HTTP1.1 204 测试 SOCKS5 CONNECT 
+		/// <para>Example:</para>
+		/// <para>https://www.google.com/generate_204</para>
+		/// <para>http://connectivitycheck.gstatic.com/generate_204</para>
+		/// <para>http://connect.rom.miui.com/generate_204</para>
+		/// <para>http://cp.cloudflare.com</para>
 		/// </summary>
 		public static async ValueTask<bool> Socks5ConnectAsync(
 			Socks5CreateOption option,
-			string target = @"http://www.google.com/generate_204",
-			string targetHost = @"www.google.com",
+			string target = @"http://cp.cloudflare.com",
+			string targetHost = @"cp.cloudflare.com",
 			ushort targetPort = 80,
 			CancellationToken token = default)
 		{
@@ -41,31 +47,43 @@ namespace Socks5.Utils
 
 			// Response
 
-			var content = string.Empty;
-			var success = await pipe.Input.ReadAsync(TryReadHttpHeaderEnd, token);
-
-			Debug.WriteLine(success ? @"Success" : @"Failed");
-			Debug.WriteLine($@"Receive: {Environment.NewLine}{content}");
-
-			return content.Contains(@"HTTP/1.1 204 No Content");
-
-			ParseResult TryReadHttpHeaderEnd(ref ReadOnlySequence<byte> buffer)
+			string? content;
+			while (true)
 			{
-				var reader = new SequenceReader<byte>(buffer);
+				var result = await pipe.Input.ReadAsync(token);
+				var buffer = result.Buffer;
 				try
 				{
-					if (!reader.TryReadTo(out ReadOnlySequence<byte> contentBuffer, HttpHeaderEnd))
+					if (TryReadLine(ref buffer, out content))
 					{
-						return ParseResult.NeedsMoreData;
+						break;
 					}
 
-					content = Encoding.UTF8.GetString(contentBuffer);
-					return ParseResult.Success;
+					if (result.IsCompleted)
+					{
+						break;
+					}
 				}
 				finally
 				{
-					buffer = buffer.Slice(reader.Consumed);
+					pipe.Input.AdvanceTo(buffer.Start, buffer.End);
 				}
+			}
+
+			return content is not null && content.Equals(@"HTTP/1.1 204 No Content", StringComparison.OrdinalIgnoreCase);
+
+			static bool TryReadLine(ref ReadOnlySequence<byte> sequence, [NotNullWhen(true)] out string? str)
+			{
+				var reader = new SequenceReader<byte>(sequence);
+				if (reader.TryReadTo(out ReadOnlySequence<byte> headerBuffer, Newline))
+				{
+					sequence = sequence.Slice(reader.Consumed);
+					str = Encoding.UTF8.GetString(headerBuffer); // 不包括结尾的 \r\n
+					return true;
+				}
+
+				str = default;
+				return false;
 			}
 		}
 

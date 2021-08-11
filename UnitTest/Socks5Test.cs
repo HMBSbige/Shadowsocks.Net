@@ -1,5 +1,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Microsoft.VisualStudio.Threading;
 using Socks5.Models;
+using Socks5.Servers;
 using Socks5.Utils;
 using System.Net;
 using System.Threading.Tasks;
@@ -12,13 +14,29 @@ namespace UnitTest
 		[TestMethod]
 		public async Task ConnectTestAsync()
 		{
-			//TODO
-			var option = new Socks5CreateOption
+			var serverEndpoint = new IPEndPoint(IPAddress.Loopback, 0);
+			var userPass = new UsernamePassword
 			{
-				Address = IPAddress.Loopback,
-				Port = 23333
+				UserName = @"114514！",
+				Password = @"1919810￥"
 			};
-			Assert.IsTrue(await TestUtils.Socks5ConnectAsync(option));
+			var server = new Socks5Server(serverEndpoint, userPass);
+			server.StartAsync().Forget();
+			try
+			{
+				var port = (ushort)((IPEndPoint)server.TcpListener.LocalEndpoint).Port;
+				var option = new Socks5CreateOption
+				{
+					Address = IPAddress.Loopback,
+					Port = port,
+					UsernamePassword = userPass
+				};
+				Assert.IsTrue(await Socks5TestUtils.Socks5ConnectAsync(option));
+			}
+			finally
+			{
+				server.Stop();
+			}
 		}
 
 		[TestMethod]
@@ -29,7 +47,7 @@ namespace UnitTest
 				Address = IPAddress.Loopback,
 				Port = 23333
 			};
-			Assert.IsTrue(await TestUtils.Socks5UdpAssociateAsync(option));
+			Assert.IsTrue(await Socks5TestUtils.Socks5UdpAssociateAsync(option));
 		}
 	}
 }

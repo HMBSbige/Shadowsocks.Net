@@ -43,7 +43,7 @@ namespace Shadowsocks.Protocol.LocalTcpServices
 
 			await socks5.AcceptClientAsync(token);
 
-			var outType = Socks5CreateOption.Address.AddressFamily == AddressFamily.InterNetwork ? AddressType.IPv4 : AddressType.IPv6;
+			var outType = Socks5CreateOption.Address.AddressFamily is AddressFamily.InterNetwork ? AddressType.IPv4 : AddressType.IPv6;
 
 			switch (socks5.Command)
 			{

@@ -87,7 +87,7 @@ namespace Socks5.Utils
 			// | 1  |  1   | 1 to 255 |  1   | 1 to 255 |
 			// +----+------+----------+------+----------+
 
-			buffer[0] = Constants.ProtocolVersion;
+			buffer[0] = Constants.AuthVersion;
 			var offset = 1;
 
 			var usernameLength = Encoding.UTF8.GetBytes(credential.UserName, buffer[(offset + 1)..]);
