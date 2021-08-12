@@ -106,8 +106,10 @@ namespace HttpProxy
 						_logger.LogDebug(@"{0} server sent {1} bytes to client", LogHeader, serverResponseContentLength);
 					}
 				}
-
-				await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.UnknownError, httpHeaders.HttpVersion, cancellationToken);
+				else
+				{
+					await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.UnknownError, httpHeaders.HttpVersion, cancellationToken);
+				}
 			}
 		}
 
