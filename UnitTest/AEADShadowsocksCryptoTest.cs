@@ -29,25 +29,24 @@ namespace UnitTest
 		private static void TestTcpDecrypt(string method, string password, string str, string encHex)
 		{
 			Span<byte> origin = Encoding.UTF8.GetBytes(str);
-			var enc = new ReadOnlySequence<byte>(encHex.FromHex());
+			var encBuffer = encHex.FromHex();
 
-			Span<byte> buffer = new byte[enc.Length];
+			Span<byte> buffer = new byte[encBuffer.Length];
 
 			using var crypto = (AEADShadowsocksCrypto)ShadowsocksCrypto.Create(method, password);
 
-			var e0 = enc.Slice(0, crypto.SaltLength);
+			var secondIndex = RandomNumberGenerator.GetInt32(crypto.SaltLength, encBuffer.Length);
+			var multiSequence = TestUtils.GetMultiSegmentSequence(encBuffer, crypto.SaltLength, secondIndex);
+			Assert.IsFalse(multiSequence.IsSingleSegment);
+			Assert.AreEqual(encBuffer.LongLength, multiSequence.Length);
+
+			var e0 = multiSequence.Slice(0, crypto.SaltLength);
 			var o2 = crypto.DecryptTCP(ref e0, buffer);
 			Assert.AreEqual(crypto.SaltLength, e0.Length);
 			Assert.AreEqual(0, o2);
 
-			var e1Length = crypto.SaltLength + AEADShadowsocksCrypto.ChunkOverheadSize + 1;
-			var e1 = enc.Slice(0, e1Length);
-			var o0 = crypto.DecryptTCP(ref e1, buffer);
-			Assert.AreEqual(e1Length - crypto.SaltLength, e1.Length);
-			Assert.AreEqual(0, o0);
-
-			var remain = enc.Slice(crypto.SaltLength);
-			var o1 = crypto.DecryptTCP(ref remain, buffer[o0..]);
+			var remain = multiSequence;
+			var o1 = crypto.DecryptTCP(ref remain, buffer);
 			Assert.AreEqual(0, remain.Length);
 			Assert.AreEqual(origin.Length, o1);
 

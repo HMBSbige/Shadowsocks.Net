@@ -21,7 +21,7 @@ namespace Socks5.Utils
 		/// <summary>
 		/// 使用 HTTP1.1 204 测试 SOCKS5 CONNECT 
 		/// <para>Example:</para>
-		/// <para>https://www.google.com/generate_204</para>
+		/// <para>http://www.google.com/generate_204</para>
 		/// <para>http://connectivitycheck.gstatic.com/generate_204</para>
 		/// <para>http://connect.rom.miui.com/generate_204</para>
 		/// <para>http://cp.cloudflare.com</para>
