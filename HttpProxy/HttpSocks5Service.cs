@@ -53,34 +53,26 @@ namespace HttpProxy
 			try
 			{
 				var pipe = rec.GetStream().AsDuplexPipe();
-				try
+				var result = await pipe.Input.ReadAsync(token);
+				var buffer = result.Buffer;
+
+				if (IsSocks5Header(buffer))
 				{
-					var result = await pipe.Input.ReadAsync(token);
-					var buffer = result.Buffer;
+					using var socks5 = new TcpClient();
+					await socks5.ConnectAsync(_socks5CreateOption.Address!, _socks5CreateOption.Port, token);
+					var socks5Pipe = socks5.GetStream().AsDuplexPipe();
 
-					if (IsSocks5Header(buffer))
-					{
-						using var socks5 = new TcpClient();
-						await socks5.ConnectAsync(_socks5CreateOption.Address!, _socks5CreateOption.Port, token);
-						var socks5Pipe = socks5.GetStream().AsDuplexPipe();
+					await socks5Pipe.Output.WriteAsync(buffer, token);
+					pipe.Input.AdvanceTo(buffer.End);
 
-						await socks5Pipe.Output.WriteAsync(buffer, token);
-						pipe.Input.AdvanceTo(buffer.End);
-
-						await socks5Pipe.LinkToAsync(pipe, token);
-					}
-					else
-					{
-						pipe.Input.AdvanceTo(buffer.Start, buffer.End);
-						pipe.Input.CancelPendingRead();
-
-						await _httpToSocks5.ForwardToSocks5Async(pipe, _socks5CreateOption, token);
-					}
+					await socks5Pipe.LinkToAsync(pipe, token);
 				}
-				finally
+				else
 				{
-					await pipe.Input.CompleteAsync();
-					await pipe.Output.CompleteAsync();
+					pipe.Input.AdvanceTo(buffer.Start, buffer.End);
+					pipe.Input.CancelPendingRead();
+
+					await _httpToSocks5.ForwardToSocks5Async(pipe, _socks5CreateOption, token);
 				}
 			}
 			finally

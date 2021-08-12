@@ -16,7 +16,7 @@ using System.Threading.Tasks;
 
 namespace Socks5.Clients
 {
-	public sealed class Socks5Client : IDisposable, IAsyncDisposable
+	public sealed class Socks5Client : IDisposable
 	{
 		#region Public Fields
 
@@ -303,33 +303,11 @@ namespace Socks5.Clients
 
 		#region Dispose
 
-		private void DisposeSync()
+		public void Dispose()
 		{
 			Status = Status.Closed;
 			_tcpClient.Dispose();
 			_udpClient?.Dispose();
-		}
-
-		public void Dispose()
-		{
-			DisposeSync();
-
-			if (_pipe is not null)
-			{
-				_pipe.Input.Complete();
-				_pipe.Output.Complete();
-			}
-		}
-
-		public async ValueTask DisposeAsync()
-		{
-			DisposeSync();
-
-			if (_pipe is not null)
-			{
-				await _pipe.Input.CompleteAsync();
-				await _pipe.Output.CompleteAsync();
-			}
 		}
 
 		#endregion

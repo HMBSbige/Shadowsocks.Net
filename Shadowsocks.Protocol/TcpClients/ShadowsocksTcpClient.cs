@@ -41,14 +41,10 @@ namespace Shadowsocks.Protocol.TcpClients
 			return _serverInfo.ToString();
 		}
 
-		public async ValueTask DisposeAsync()
+		public ValueTask DisposeAsync()
 		{
 			_client?.Dispose();
-			if (_pipe is not null)
-			{
-				await _pipe.Input.CompleteAsync();
-				await _pipe.Output.CompleteAsync();
-			}
+			return default;
 		}
 	}
 }

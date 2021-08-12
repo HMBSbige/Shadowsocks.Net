@@ -35,7 +35,7 @@ namespace Socks5.Utils
 		{
 			var sendString = $"GET {target} HTTP/1.1\r\nHost: {targetHost}\r\n\r\n";
 
-			await using var client = new Socks5Client(option);
+			using var client = new Socks5Client(option);
 
 			var bound = await client.ConnectAsync(targetHost, targetPort, token);
 
@@ -97,7 +97,7 @@ namespace Socks5.Utils
 			ushort targetPort = 53,
 			CancellationToken token = default)
 		{
-			await using var client = new Socks5Client(option);
+			using var client = new Socks5Client(option);
 
 			var bound = await client.UdpAssociateAsync(IPAddress.Any, 0, token);
 

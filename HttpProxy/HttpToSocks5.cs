@@ -49,7 +49,7 @@ namespace HttpProxy
 					return;
 				}
 
-				await using var socks5Client = new Socks5Client(socks5CreateOption);
+				using var socks5Client = new Socks5Client(socks5CreateOption);
 				await socks5Client.ConnectAsync(httpHeaders.Hostname, httpHeaders.Port, cancellationToken);
 
 				await SendConnectSuccessAsync(incomingPipe.Output, httpHeaders.HttpVersion, cancellationToken);
@@ -65,7 +65,7 @@ namespace HttpProxy
 					await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.InvalidRequest, httpHeaders.HttpVersion, cancellationToken);
 					return;
 				}
-				await using var socks5Client = new Socks5Client(socks5CreateOption);
+				using var socks5Client = new Socks5Client(socks5CreateOption);
 				await socks5Client.ConnectAsync(httpHeaders.Hostname, httpHeaders.Port, cancellationToken);
 				var socks5Pipe = socks5Client.GetPipe();
 

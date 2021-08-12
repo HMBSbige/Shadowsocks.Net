@@ -68,56 +68,48 @@ namespace Socks5.Servers
 			try
 			{
 				var pipe = rec.GetStream().AsDuplexPipe();
-				try
-				{
-					var service = new Socks5ServerConnection(pipe, _credential);
-					await service.AcceptClientAsync(token);
+				var service = new Socks5ServerConnection(pipe, _credential);
+				await service.AcceptClientAsync(token);
 
-					switch (service.Command)
+				switch (service.Command)
+				{
+					case Command.Connect:
 					{
-						case Command.Connect:
+						using var tcp = new TcpClient();
+						if (service.Target.Type is AddressType.Domain)
 						{
-							using var tcp = new TcpClient();
-							if (service.Target.Type is AddressType.Domain)
-							{
-								Assumes.NotNull(service.Target.Domain);
-								await tcp.ConnectAsync(service.Target.Domain, service.Target.Port, token);
-							}
-							else
-							{
-								Assumes.NotNull(service.Target.Address);
-								await tcp.ConnectAsync(service.Target.Address, service.Target.Port, token);
-							}
-
-							await service.SendReplyAsync(Socks5Reply.Succeeded, ReplyTcpBound, token);
-
-							var tcpPipe = tcp.GetStream().AsDuplexPipe();
-
-							await tcpPipe.LinkToAsync(pipe, token);
-
-							break;
+							Assumes.NotNull(service.Target.Domain);
+							await tcp.ConnectAsync(service.Target.Domain, service.Target.Port, token);
 						}
-						case Command.Bind:
+						else
 						{
-							await service.SendReplyAsync(Socks5Reply.CommandNotSupported, ReplyTcpBound, token);
-							break;
+							Assumes.NotNull(service.Target.Address);
+							await tcp.ConnectAsync(service.Target.Address, service.Target.Port, token);
 						}
-						case Command.UdpAssociate:
-						{
-							await service.SendReplyAsync(Socks5Reply.Succeeded, ReplyUdpBound, token);
-							break;
-						}
-						default:
-						{
-							await service.SendReplyAsync(Socks5Reply.GeneralFailure, ReplyTcpBound, token);
-							break;
-						}
+
+						await service.SendReplyAsync(Socks5Reply.Succeeded, ReplyTcpBound, token);
+
+						var tcpPipe = tcp.GetStream().AsDuplexPipe();
+
+						await tcpPipe.LinkToAsync(pipe, token);
+
+						break;
 					}
-				}
-				finally
-				{
-					await pipe.Input.CompleteAsync();
-					await pipe.Output.CompleteAsync();
+					case Command.Bind:
+					{
+						await service.SendReplyAsync(Socks5Reply.CommandNotSupported, ReplyTcpBound, token);
+						break;
+					}
+					case Command.UdpAssociate:
+					{
+						await service.SendReplyAsync(Socks5Reply.Succeeded, ReplyUdpBound, token);
+						break;
+					}
+					default:
+					{
+						await service.SendReplyAsync(Socks5Reply.GeneralFailure, ReplyTcpBound, token);
+						break;
+					}
 				}
 			}
 			finally

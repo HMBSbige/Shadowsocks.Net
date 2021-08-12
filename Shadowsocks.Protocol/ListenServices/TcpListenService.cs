@@ -64,29 +64,21 @@ namespace Shadowsocks.Protocol.ListenServices
 			try
 			{
 				var pipe = rec.GetStream().AsDuplexPipe(LocalPipeReaderOptions);
-				try
+				var result = await pipe.Input.ReadAsync(token);
+				var buffer = result.Buffer;
+
+				var service = _services.FirstOrDefault(tcpService => tcpService.IsHandle(buffer));
+
+				if (service is null)
 				{
-					var result = await pipe.Input.ReadAsync(token);
-					var buffer = result.Buffer;
-
-					var service = _services.FirstOrDefault(tcpService => tcpService.IsHandle(buffer));
-
-					if (service is null)
-					{
-						throw new InvalidDataException(@"Cannot handle incoming pipe.");
-					}
-
-					pipe.Input.AdvanceTo(buffer.Start, buffer.End);
-					pipe.Input.CancelPendingRead();
-
-					// In every service.HandleAsync, first ReadResult.IsCanceled always true
-					await service.HandleAsync(pipe, token);
+					throw new InvalidDataException(@"Cannot handle incoming pipe.");
 				}
-				finally
-				{
-					await pipe.Input.CompleteAsync();
-					await pipe.Output.CompleteAsync();
-				}
+
+				pipe.Input.AdvanceTo(buffer.Start, buffer.End);
+				pipe.Input.CancelPendingRead();
+
+				// In every service.HandleAsync, first ReadResult.IsCanceled always true
+				await service.HandleAsync(pipe, token);
 			}
 			catch (ObjectDisposedException)
 			{
@@ -107,7 +99,6 @@ namespace Shadowsocks.Protocol.ListenServices
 			finally
 			{
 				rec.Dispose();
-				// rec.Client has already been disposed when pipe completed
 				_logger.LogInformation(@"{0} {1} disconnected", LoggerHeader, remoteEndPoint);
 			}
 		}
