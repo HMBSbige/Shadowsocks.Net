@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 
 namespace Shadowsocks.Protocol.UdpClients
 {
+	//TODO Remake
 	public class ShadowsocksUdpClient : IUdpClient
 	{
 		private readonly ILogger _logger;

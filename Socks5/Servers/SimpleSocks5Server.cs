@@ -11,7 +11,10 @@ using System.Threading.Tasks;
 
 namespace Socks5.Servers
 {
-	public class Socks5Server
+	/// <summary>
+	/// A simple SOCKS5 server for test use only
+	/// </summary>
+	public class SimpleSocks5Server
 	{
 		public TcpListener TcpListener { get; }
 
@@ -23,10 +26,18 @@ namespace Socks5.Servers
 			Port = IPEndPoint.MinPort,
 		};
 
+		public ServerBound ReplyUdpBound { get; set; } = new()
+		{
+			Type = AddressType.IPv4,
+			Address = IPAddress.Any,
+			Domain = default,
+			Port = IPEndPoint.MinPort,
+		};
+
 		private readonly UsernamePassword? _credential;
 		private readonly CancellationTokenSource _cts;
 
-		public Socks5Server(IPEndPoint bindEndPoint, UsernamePassword? credential = null)
+		public SimpleSocks5Server(IPEndPoint bindEndPoint, UsernamePassword? credential = null)
 		{
 			_credential = credential;
 			TcpListener = new TcpListener(bindEndPoint);
@@ -93,8 +104,7 @@ namespace Socks5.Servers
 						}
 						case Command.UdpAssociate:
 						{
-							//TODO
-							await service.SendReplyAsync(Socks5Reply.CommandNotSupported, ReplyTcpBound, token);
+							await service.SendReplyAsync(Socks5Reply.Succeeded, ReplyUdpBound, token);
 							break;
 						}
 						default:

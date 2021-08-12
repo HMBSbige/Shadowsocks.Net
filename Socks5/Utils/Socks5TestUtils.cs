@@ -124,9 +124,9 @@ namespace Socks5.Utils
 				buffer[offset++] = 0x00;
 				buffer[offset++] = 0x01;
 
-				await client.SendUdpAsync(buffer.AsMemory(0, offset), targetHost, targetPort);
+				await client.SendUdpAsync(buffer.AsMemory(0, offset), targetHost, targetPort, token);
 
-				var res = await client.ReceiveAsync();
+				var res = await client.ReceiveAsync(token);
 
 				return res.Data.Span[..2].SequenceEqual(buffer.AsSpan(0, 2));
 			}

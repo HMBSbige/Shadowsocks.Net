@@ -1,5 +1,6 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.VisualStudio.Threading;
+using Socks5.Enums;
 using Socks5.Models;
 using Socks5.Servers;
 using Socks5.Utils;
@@ -20,7 +21,7 @@ namespace UnitTest
 				UserName = @"114514！",
 				Password = @"1919810￥"
 			};
-			var server = new Socks5Server(serverEndpoint, userPass);
+			var server = new SimpleSocks5Server(serverEndpoint, userPass);
 			server.StartAsync().Forget();
 			try
 			{
@@ -42,12 +43,39 @@ namespace UnitTest
 		[TestMethod]
 		public async Task UdpAssociateTestAsync()
 		{
-			var option = new Socks5CreateOption
+			var serverEndpoint = new IPEndPoint(IPAddress.Loopback, 0);
+			var userPass = new UsernamePassword
 			{
-				Address = IPAddress.Loopback,
-				Port = 23333
+				UserName = @"114514！",
+				Password = @"1919810￥"
 			};
-			Assert.IsTrue(await Socks5TestUtils.Socks5UdpAssociateAsync(option));
+			var server = new SimpleSocks5Server(serverEndpoint, userPass);
+			var udpServer = new SimpleSocks5UdpServer(serverEndpoint);
+			udpServer.StartAsync().Forget();
+			server.ReplyUdpBound = new ServerBound
+			{
+				Type = AddressType.IPv4,
+				Address = ((IPEndPoint)udpServer.UdpListener.Client.LocalEndPoint!).Address,
+				Domain = default,
+				Port = (ushort)((IPEndPoint)udpServer.UdpListener.Client.LocalEndPoint!).Port,
+			};
+			server.StartAsync().Forget();
+			try
+			{
+				var port = (ushort)((IPEndPoint)server.TcpListener.LocalEndpoint).Port;
+				var option = new Socks5CreateOption
+				{
+					Address = IPAddress.Loopback,
+					Port = port,
+					UsernamePassword = userPass
+				};
+				Assert.IsTrue(await Socks5TestUtils.Socks5UdpAssociateAsync(option));
+			}
+			finally
+			{
+				server.Stop();
+				udpServer.Stop();
+			}
 		}
 	}
 }

@@ -7,6 +7,7 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Net;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Socks5.Utils
@@ -117,7 +118,7 @@ namespace Socks5.Utils
 			return offset;
 		}
 
-		public static Socks5UdpReceivePacket Udp(byte[] buffer)
+		public static Socks5UdpReceivePacket Udp(ReadOnlyMemory<byte> buffer)
 		{
 			// +----+------+------+----------+----------+----------+
 			// |RSV | FRAG | ATYP | DST.ADDR | DST.PORT |   DATA   |
@@ -125,24 +126,26 @@ namespace Socks5.Utils
 			// | 2  |  1   |  1   | Variable |    2     | Variable |
 			// +----+------+------+----------+----------+----------+
 
-			Requires.Range(buffer.LongLength >= 7, nameof(buffer));
+			var span = buffer.Span;
+			Requires.Range(buffer.Length >= 7, nameof(buffer));
 
 			var res = new Socks5UdpReceivePacket();
 
-			if (buffer[0] != Constants.Rsv || buffer[1] != Constants.Rsv)
+			if (span[0] is not Constants.Rsv || span[1] is not Constants.Rsv)
 			{
-				throw new ProtocolErrorException($@"Protocol failed, RESERVED is not 0x0000: 0x{buffer[0]:X2}{buffer[1]:X2}.");
+				throw new ProtocolErrorException($@"Protocol failed, RESERVED is not 0x0000: 0x{span[0]:X2}{span[1]:X2}.");
 			}
 
-			res.Fragment = buffer[2];
+			res.Fragment = span[2];
 
-			res.Type = (AddressType)buffer[3];
+			res.Type = (AddressType)span[3];
+			Requires.Defined(res.Type, nameof(res.Type));
 
 			var offset = 4;
-			offset += DestinationAddress(res.Type, buffer.AsSpan(offset), out res.Address, out res.Domain);
+			offset += DestinationAddress(res.Type, span[offset..], out res.Address, out res.Domain);
 
-			res.Port = BinaryPrimitives.ReadUInt16BigEndian(buffer.AsSpan(offset));
-			res.Data = buffer.AsMemory(offset + 2);
+			res.Port = BinaryPrimitives.ReadUInt16BigEndian(span[offset..]);
+			res.Data = MemoryMarshal.AsMemory(buffer[(offset + 2)..]);
 
 			return res;
 		}

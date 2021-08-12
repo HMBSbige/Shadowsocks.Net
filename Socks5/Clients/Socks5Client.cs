@@ -126,29 +126,37 @@ namespace Socks5.Clients
 			return bound;
 		}
 
-		//TODO .NET6.0
-		public async Task<Socks5UdpReceivePacket> ReceiveAsync()
+		public async Task<Socks5UdpReceivePacket> ReceiveAsync(CancellationToken token = default)
 		{
 			Verify.Operation(Status is Status.Established && _udpClient is not null, @"Socks5 is not established.");
 
-			var res = await _udpClient.ReceiveAsync();
+			var buffer = ArrayPool<byte>.Shared.Rent(0x10000);
+			try
+			{
+				var length = await _udpClient.Client.ReceiveAsync(buffer, SocketFlags.None, token);
 
-			return Unpack.Udp(res.Buffer);
+				return Unpack.Udp(buffer.AsMemory(0, length));
+			}
+			finally
+			{
+				ArrayPool<byte>.Shared.Return(buffer);
+			}
 		}
 
-		public Task<int> SendUdpAsync(ReadOnlyMemory<byte> data, string dst, ushort dstPort)
+		public Task<int> SendUdpAsync(ReadOnlyMemory<byte> data, string dst, ushort dstPort, CancellationToken token = default)
 		{
-			return SendUdpAsync(data, dst, default, dstPort);
+			return SendUdpAsync(data, dst, default, dstPort, token);
 		}
 
-		public Task<int> SendUdpAsync(ReadOnlyMemory<byte> data, IPAddress dstAddress, ushort dstPort)
+		public Task<int> SendUdpAsync(ReadOnlyMemory<byte> data, IPAddress dstAddress, ushort dstPort, CancellationToken token = default)
 		{
-			return SendUdpAsync(data, default, dstAddress, dstPort);
+			return SendUdpAsync(data, default, dstAddress, dstPort, token);
 		}
 
 		private async Task<int> SendUdpAsync(
 			ReadOnlyMemory<byte> data,
-			string? dst, IPAddress? dstAddress, ushort dstPort)
+			string? dst, IPAddress? dstAddress, ushort dstPort,
+			CancellationToken token = default)
 		{
 			Verify.Operation(Status is Status.Established && _udpClient is not null, @"Socks5 is not established.");
 
@@ -157,7 +165,7 @@ namespace Socks5.Clients
 			{
 				var length = Pack.Udp(buffer, dst, dstAddress, dstPort, data.Span);
 
-				return await _udpClient.SendAsync(buffer, length);
+				return await _udpClient.Client.SendAsync(buffer.AsMemory(0, length), SocketFlags.None, token);
 			}
 			finally
 			{
