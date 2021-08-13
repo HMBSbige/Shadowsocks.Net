@@ -33,6 +33,7 @@ services.AddTransient<HttpService>();
 services.AddTransient<Socks5Service>();
 services.AddTransient<Socks5UdpService>();
 services.AddTransient<HttpToSocks5>();
+services.AddMemoryCache();
 
 await using var provide = services.BuildServiceProvider();
 
@@ -63,12 +64,12 @@ var tcp = new TcpListenService(
 	});
 
 var udp = new UdpListenService(
-		provide.GetRequiredService<ILogger<UdpListenService>>(),
-		local,
-		new ILocalUdpService[]
-		{
-			socks5UdpService
-		});
+	provide.GetRequiredService<ILogger<UdpListenService>>(),
+	local,
+	new ILocalUdpService[]
+	{
+		socks5UdpService
+	});
 
 await Task.WhenAny(tcp.StartAsync().AsTask(), udp.StartAsync().AsTask());
 

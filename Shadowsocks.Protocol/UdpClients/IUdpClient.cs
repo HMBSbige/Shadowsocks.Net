@@ -9,7 +9,7 @@ namespace Shadowsocks.Protocol.UdpClients
 	{
 		UdpClient Client { get; }
 
-		Task<int> ReceiveAsync(Memory<byte> buffer, CancellationToken token);
-		Task<int> SendAsync(ReadOnlyMemory<byte> buffer, CancellationToken token);
+		ValueTask<int> ReceiveAsync(Memory<byte> buffer, CancellationToken cancellationToken = default);
+		ValueTask<int> SendAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default);
 	}
 }

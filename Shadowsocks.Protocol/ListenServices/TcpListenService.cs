@@ -17,7 +17,7 @@ namespace Shadowsocks.Protocol.ListenServices
 	public class TcpListenService : IListenService
 	{
 		private readonly ILogger<TcpListenService> _logger;
-		private readonly TcpListener _tcpListener;
+		public TcpListener TCPListener { get; }
 		private readonly IEnumerable<ILocalTcpService> _services;
 
 		private readonly CancellationTokenSource _cts;
@@ -29,7 +29,7 @@ namespace Shadowsocks.Protocol.ListenServices
 		public TcpListenService(ILogger<TcpListenService> logger, IPEndPoint local, IEnumerable<ILocalTcpService> services)
 		{
 			_logger = logger;
-			_tcpListener = new TcpListener(local);
+			TCPListener = new TcpListener(local);
 			_services = services;
 
 			_cts = new CancellationTokenSource();
@@ -39,12 +39,12 @@ namespace Shadowsocks.Protocol.ListenServices
 		{
 			try
 			{
-				_tcpListener.Start();
-				_logger.LogInformation(@"{0} {1} Start", LoggerHeader, _tcpListener.LocalEndpoint);
+				TCPListener.Start();
+				_logger.LogInformation(@"{0} {1} Start", LoggerHeader, TCPListener.LocalEndpoint);
 
 				while (!_cts.IsCancellationRequested)
 				{
-					var rec = await _tcpListener.AcceptTcpClientAsync();
+					var rec = await TCPListener.AcceptTcpClientAsync();
 					rec.NoDelay = true;
 
 					_logger.LogInformation(@"{0} {1} => {2}", LoggerHeader, rec.Client.RemoteEndPoint, rec.Client.LocalEndPoint);
@@ -53,7 +53,7 @@ namespace Shadowsocks.Protocol.ListenServices
 			}
 			catch (Exception ex)
 			{
-				_logger.LogError(ex, @"{0} {1} Stop!", LoggerHeader, _tcpListener.LocalEndpoint);
+				_logger.LogError(ex, @"{0} {1} Stop!", LoggerHeader, TCPListener.LocalEndpoint);
 				Stop();
 			}
 		}
@@ -105,8 +105,14 @@ namespace Shadowsocks.Protocol.ListenServices
 
 		public void Stop()
 		{
-			_cts.Cancel();
-			_tcpListener.Stop();
+			try
+			{
+				TCPListener.Stop();
+			}
+			finally
+			{
+				_cts.Cancel();
+			}
 		}
 	}
 }

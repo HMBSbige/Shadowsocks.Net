@@ -50,7 +50,7 @@ namespace TestConsoleApp
 				Remark = @""
 			};
 
-			IUdpClient client = new ShadowsocksUdpClient(_logger, info);
+			IUdpClient client = new ShadowsocksUdpClient(info);
 
 			return ValueTask.FromResult(client);
 		}

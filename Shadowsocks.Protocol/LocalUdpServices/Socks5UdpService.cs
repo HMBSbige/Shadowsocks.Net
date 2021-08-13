@@ -1,13 +1,11 @@
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using Microsoft.VisualStudio.Threading;
 using Shadowsocks.Protocol.ServersControllers;
-using Shadowsocks.Protocol.UdpClients;
 using Socks5.Enums;
-using Socks5.Models;
 using Socks5.Utils;
 using System;
 using System.Buffers;
-using System.Collections.Concurrent;
-using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,108 +15,88 @@ namespace Shadowsocks.Protocol.LocalUdpServices
 	public class Socks5UdpService : ILocalUdpService
 	{
 		private readonly ILogger _logger;
-
 		private readonly IServersController _serversController;
+		private readonly IMemoryCache _cache;
 
-		private readonly ConcurrentDictionary<IPEndPoint, IUdpClient> _clients;
+		public TimeSpan? SlidingExpiration
+		{
+			get => _cacheOptions.SlidingExpiration;
+			set => _cacheOptions.SlidingExpiration = value;
+		}
 
-		private readonly CancellationTokenSource _cts;
+		private readonly MemoryCacheEntryOptions _cacheOptions = new MemoryCacheEntryOptions()
+			.SetSlidingExpiration(TimeSpan.FromMinutes(1))
+			.RegisterPostEvictionCallback((key, value, reason, state) =>
+			{
+				if (value is System.IAsyncDisposable disposable)
+				{
+					disposable.DisposeAsync().Forget();
+				}
+			});
 
-		public TimeSpan TimeOut { get; set; } = TimeSpan.FromSeconds(30);
-
-		public Socks5UdpService(ILogger<Socks5UdpService> logger, IServersController serversController)
+		public Socks5UdpService(
+			ILogger<Socks5UdpService> logger,
+			IServersController serversController,
+			IMemoryCache cache)
 		{
 			_logger = logger;
 			_serversController = serversController;
-
-			_clients = new ConcurrentDictionary<IPEndPoint, IUdpClient>();
-			_cts = new CancellationTokenSource();
+			_cache = cache;
 		}
 
-		public async ValueTask<bool> IsHandleAsync(UdpReceiveResult receiveResult, UdpClient incoming)
+		public bool IsHandle(ReadOnlyMemory<byte> buffer)
 		{
-			Socks5UdpReceivePacket socks5UdpPacket;
 			try
 			{
-				socks5UdpPacket = Unpack.Udp(receiveResult.Buffer);
+				var socks5UdpPacket = Unpack.Udp(buffer);
+				return socks5UdpPacket.Fragment is 0x00;
 			}
-			catch (Exception ex)
+			catch (Exception)
 			{
-#if DEBUG
-				_logger.LogDebug(ex, @"Socks5UdpService no handle");
-#endif
 				return false;
 			}
-
-			var target = socks5UdpPacket.Type switch
-			{
-				AddressType.Domain => socks5UdpPacket.Domain!,
-				_ => socks5UdpPacket.Address!.ToString()
-			};
-
-			if (!_clients.TryGetValue(receiveResult.RemoteEndPoint, out var client))
-			{
-				client = await _serversController.GetServerUdpAsync(target);
-
-				_clients.TryAdd(receiveResult.RemoteEndPoint, client);
-				_ = TransferAsync(client, receiveResult.RemoteEndPoint, incoming, _cts.Token);
-			}
-
-			_logger.LogInformation(@"Udp Send to {0} via {1}", target, client);
-			await client.SendAsync(receiveResult.Buffer.AsMemory(3), _cts.Token);
-
-			return true;
 		}
 
-		private async Task TransferAsync(IUdpClient client, IPEndPoint source, UdpClient incoming, CancellationToken token)
+		public async ValueTask HandleAsync(UdpReceiveResult receiveResult, UdpClient incoming, CancellationToken cancellationToken = default)
 		{
 			try
 			{
-				var buffer = ArrayPool<byte>.Shared.Rent(3 + ShadowsocksUdpClient.MaxUDPSize);
+				var socks5UdpPacket = Unpack.Udp(receiveResult.Buffer);
+
+				var target = socks5UdpPacket.Type switch
+				{
+					AddressType.Domain => socks5UdpPacket.Domain!,
+					_ => socks5UdpPacket.Address!.ToString()
+				};
+
+				var client = await _cache.GetOrCreateAsync(
+					receiveResult.RemoteEndPoint,
+					_ => _serversController.GetServerUdpAsync(target).AsTask());
+
+				_logger.LogInformation(@"Udp Send to {0} via {1}", target, client);
+				var sendBuffer = receiveResult.Buffer.AsMemory(3); //TODO Only support ss now
+				await client.SendAsync(sendBuffer, cancellationToken);
+
+				var receiveBuffer = ArrayPool<byte>.Shared.Rent(0x10000);
 				try
 				{
-					while (!token.IsCancellationRequested)
-					{
-						buffer[0] = buffer[1] = buffer[2] = 0;
-						var task = client.ReceiveAsync(buffer.AsMemory(3), token);
+					var receiveLength = await client.ReceiveAsync(receiveBuffer.AsMemory(3), cancellationToken);
+					receiveBuffer.AsSpan(0, 3).Clear();
 
-						var resTask = await Task.WhenAny(Task.Delay(TimeOut, token), task);
-						if (resTask != task)
-						{
-							break;
-						}
-
-						var length = await task;
-
-						await incoming.SendAsync(buffer, length + 3, source);
-					}
+					//TODO .NET6.0
+					await incoming.Client.SendToAsync(
+						new ArraySegment<byte>(receiveBuffer, 0, 3 + receiveLength),
+						SocketFlags.None,
+						receiveResult.RemoteEndPoint);
 				}
 				finally
 				{
-					ArrayPool<byte>.Shared.Return(buffer);
+					ArrayPool<byte>.Shared.Return(receiveBuffer);
 				}
 			}
 			catch (Exception ex)
 			{
-				_logger.LogWarning(ex, @"Translation Error");
-			}
-			finally
-			{
-#if DEBUG
-				_logger.LogDebug(@"Udp client Dispose: {0} <=> {1}", source, client);
-#endif
-				_clients.TryRemove(source, out _);
-				await client.DisposeAsync();
-			}
-		}
-
-		public void Stop()
-		{
-			_cts.Cancel();
-
-			foreach (var (_, client) in _clients)
-			{
-				_ = client.DisposeAsync();
+				_logger.LogWarning(ex, @"SOCKS5 Udp handle error");
 			}
 		}
 	}

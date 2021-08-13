@@ -99,7 +99,6 @@ namespace Shadowsocks.Protocol.LocalTcpServices
 						Port = Socks5CreateOption.Port
 					};
 					await socks5.SendReplyAsync(Socks5Reply.Succeeded, bound, token);
-					//TODO
 					break;
 				}
 				default:
