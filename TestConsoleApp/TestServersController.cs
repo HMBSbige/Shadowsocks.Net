@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Logging;
 using Shadowsocks.Crypto;
 using Shadowsocks.Protocol.Models;
 using Shadowsocks.Protocol.ServersControllers;
@@ -12,13 +11,6 @@ namespace TestConsoleApp
 {
 	public class TestServersController : IServersController
 	{
-		private readonly ILogger _logger;
-
-		public TestServersController(ILogger<TestServersController> logger)
-		{
-			_logger = logger;
-		}
-
 		public async ValueTask<IPipeClient> GetServerAsync(string target)
 		{
 			var info = new ShadowsocksServerInfo
