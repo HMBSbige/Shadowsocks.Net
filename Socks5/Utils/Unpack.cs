@@ -7,7 +7,6 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Net;
-using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Socks5.Utils
@@ -145,7 +144,7 @@ namespace Socks5.Utils
 			offset += DestinationAddress(res.Type, span[offset..], out res.Address, out res.Domain);
 
 			res.Port = BinaryPrimitives.ReadUInt16BigEndian(span[offset..]);
-			res.Data = MemoryMarshal.AsMemory(buffer[(offset + 2)..]);
+			res.Data = buffer[(offset + 2)..];
 
 			return res;
 		}

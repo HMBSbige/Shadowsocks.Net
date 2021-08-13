@@ -16,6 +16,6 @@ namespace Socks5.Models
 		public IPAddress? Address;
 		public string? Domain;
 		public ushort Port;
-		public Memory<byte> Data;
+		public ReadOnlyMemory<byte> Data;
 	}
 }
