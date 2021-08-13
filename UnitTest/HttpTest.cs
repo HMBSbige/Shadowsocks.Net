@@ -4,9 +4,9 @@ using Microsoft.VisualStudio.Threading;
 using Socks5.Models;
 using Socks5.Servers;
 using Socks5.Utils;
-using System;
 using System.Net;
 using System.Net.Http;
+using System.Text;
 using System.Threading.Tasks;
 
 namespace UnitTest
@@ -48,18 +48,15 @@ namespace UnitTest
 					var httpClient = new HttpClient(handler);
 
 					var httpsStr = await httpClient.GetStringAsync(@"https://api.ip.sb/ip");
-					Console.WriteLine(httpsStr);
 					Assert.IsFalse(string.IsNullOrWhiteSpace(httpsStr));
 
 					var httpChunkStr = await httpClient.GetStringAsync(@"http://api.ip.sb/ip");
-					Console.WriteLine(httpChunkStr);
 					Assert.IsFalse(string.IsNullOrWhiteSpace(httpChunkStr));
 
 					Assert.AreEqual(httpsStr, httpChunkStr);
 
 					httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(@"curl/7.55.1");
 					var httpStr = await httpClient.GetStringAsync(@"http://ip.sb");
-					Console.WriteLine(httpStr);
 					Assert.IsFalse(string.IsNullOrWhiteSpace(httpStr));
 
 					Assert.AreEqual(httpChunkStr, httpStr);
@@ -81,6 +78,39 @@ namespace UnitTest
 			{
 				server.Stop();
 			}
+		}
+
+		[TestMethod]
+		public void IsHttpHeaderTest()
+		{
+			var sequence0 = TestUtils.GetMultiSegmentSequence(
+				Encoding.ASCII.GetBytes("GET / HTTP/1.1"),
+				Encoding.ASCII.GetBytes("\r\nHost: ip.sb\r\n"),
+				Encoding.ASCII.GetBytes("User-Agent: curl/7.55.1\r\n"),
+				Encoding.ASCII.GetBytes("\r\n")
+			);
+			Assert.IsTrue(HttpUtils.IsHttpHeader(sequence0));
+
+			var sequence1 = TestUtils.GetMultiSegmentSequence(
+				Encoding.ASCII.GetBytes("GET / HTTP/1.1"),
+				Encoding.ASCII.GetBytes("\r\nHost: ip.sb\r\n"),
+				Encoding.ASCII.GetBytes("User-Agent: curl/7.55.1\r\n")
+			);
+			Assert.IsFalse(HttpUtils.IsHttpHeader(sequence1));
+
+			var sequence2 = TestUtils.GetMultiSegmentSequence(
+				Encoding.ASCII.GetBytes("\r\n"),
+				Encoding.ASCII.GetBytes("\r\n")
+			);
+			Assert.IsFalse(HttpUtils.IsHttpHeader(sequence2));
+
+			var sequence3 = TestUtils.GetMultiSegmentSequence(
+				Encoding.ASCII.GetBytes("GET HTTP/1.1"),
+				Encoding.ASCII.GetBytes("\r\nHost: ip.sb\r\n"),
+				Encoding.ASCII.GetBytes("User-Agent: curl/7.55.1\r\n"),
+				Encoding.ASCII.GetBytes("\r\n")
+			);
+			Assert.IsFalse(HttpUtils.IsHttpHeader(sequence3));
 		}
 	}
 }

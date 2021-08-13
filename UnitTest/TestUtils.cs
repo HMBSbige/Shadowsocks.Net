@@ -12,12 +12,12 @@ namespace UnitTest
 		{
 			Requires.Argument(index.LongLength > 1, nameof(index), @"index length must >1");
 			var orderedIndex = index.OrderBy(x => x);
-			var first = new BufferSegment(source[..orderedIndex.First()]);
 
+			var first = BufferSegment.Empty;
 			var last = first;
-			var length = index[0];
+			var length = 0;
 
-			foreach (var i in index.Skip(1))
+			foreach (var i in orderedIndex)
 			{
 				last = last.Append(source.Slice(length, i - length));
 				length = i;
@@ -27,6 +27,22 @@ namespace UnitTest
 
 			var sequence = new ReadOnlySequence<byte>(first, 0, last, last.Memory.Length);
 			Assert.AreEqual(source.Length, sequence.Length);
+
+			return sequence;
+		}
+
+		public static ReadOnlySequence<byte> GetMultiSegmentSequence(params Memory<byte>[] memories)
+		{
+			Requires.Argument(memories.LongLength > 1, nameof(memories), @"index length must >1");
+			var first = BufferSegment.Empty;
+
+			var last = memories.Aggregate(first, (current, memory) => current.Append(memory));
+
+			var sequence = new ReadOnlySequence<byte>(first, 0, last, last.Memory.Length);
+
+			var length = memories.Sum(x => (long)x.Length);
+			Assert.AreEqual(length, sequence.Length);
+
 			return sequence;
 		}
 	}
