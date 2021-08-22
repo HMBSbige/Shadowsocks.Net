@@ -83,20 +83,17 @@ namespace HttpProxy
 				var responseHeadersStr = await ReadHttpHeadersAsync(socks5Pipe.Input, cancellationToken);
 				_logger.LogDebug("{0} server headers received: \n{1}", LogHeader, responseHeadersStr);
 				var responseHeaders = ReadHeaders(responseHeadersStr);
+
+				incomingPipe.Output.Write(responseHeadersStr);
+				incomingPipe.Output.Write(HttpHeaderEnd);
+				await incomingPipe.Output.FlushAsync(cancellationToken);
+
 				if (IsChunked(responseHeaders))
 				{
-					incomingPipe.Output.Write(responseHeadersStr);
-					incomingPipe.Output.Write(HttpHeaderEnd);
-					await incomingPipe.Output.FlushAsync(cancellationToken);
-
 					await CopyChunksAsync(socks5Pipe.Input, incomingPipe.Output, cancellationToken);
 				}
 				else if (TryReadContentLength(responseHeaders, out var serverResponseContentLength))
 				{
-					incomingPipe.Output.Write(responseHeadersStr);
-					incomingPipe.Output.Write(HttpHeaderEnd);
-					await incomingPipe.Output.FlushAsync(cancellationToken);
-
 					if (serverResponseContentLength > 0)
 					{
 						_logger.LogDebug(@"{0} Waiting for up to {1} bytes from server", LogHeader, serverResponseContentLength);
@@ -105,10 +102,6 @@ namespace HttpProxy
 
 						_logger.LogDebug(@"{0} server sent {1} bytes to client", LogHeader, serverResponseContentLength);
 					}
-				}
-				else
-				{
-					await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.UnknownError, httpHeaders.HttpVersion, cancellationToken);
 				}
 			}
 		}
