@@ -47,20 +47,26 @@ namespace UnitTest
 					};
 					var httpClient = new HttpClient(handler);
 
+					// CONNECT
 					var httpsStr = await httpClient.GetStringAsync(@"https://api.ip.sb/ip");
 					Assert.IsFalse(string.IsNullOrWhiteSpace(httpsStr));
 
+					// HTTP chunk
 					var httpChunkStr = await httpClient.GetStringAsync(@"http://api.ip.sb/ip");
 					Assert.IsFalse(string.IsNullOrWhiteSpace(httpChunkStr));
-
 					Assert.AreEqual(httpsStr, httpChunkStr);
 
+					// HTTP Content-Length
 					httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(@"curl/7.55.1");
 					var httpStr = await httpClient.GetStringAsync(@"http://ip.sb");
 					Assert.IsFalse(string.IsNullOrWhiteSpace(httpStr));
-
 					Assert.AreEqual(httpChunkStr, httpStr);
 
+					// HTTP no body
+					var response = await httpClient.GetAsync(@"http://cp.cloudflare.com");
+					Assert.AreEqual(HttpStatusCode.NoContent, response.StatusCode);
+
+					// Forward to SOCKS5
 					socks5CreateOption = new Socks5CreateOption
 					{
 						Address = httpAddress,
