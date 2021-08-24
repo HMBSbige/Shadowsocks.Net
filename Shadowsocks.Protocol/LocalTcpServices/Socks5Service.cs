@@ -99,6 +99,10 @@ namespace Shadowsocks.Protocol.LocalTcpServices
 						Port = Socks5CreateOption.Port
 					};
 					await socks5.SendReplyAsync(Socks5Reply.Succeeded, bound, token);
+
+					// wait remote close
+					var result = await pipe.Input.ReadAsync(token);
+					Report.IfNot(result.IsCompleted);
 					break;
 				}
 				default:

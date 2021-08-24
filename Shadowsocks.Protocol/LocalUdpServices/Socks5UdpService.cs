@@ -2,6 +2,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.Threading;
 using Shadowsocks.Protocol.ServersControllers;
+using Shadowsocks.Protocol.UdpClients;
 using Socks5.Enums;
 using Socks5.Utils;
 using System;
@@ -69,9 +70,12 @@ namespace Shadowsocks.Protocol.LocalUdpServices
 					_ => socks5UdpPacket.Address!.ToString()
 				};
 
-				var client = await _cache.GetOrCreateAsync(
-					receiveResult.RemoteEndPoint,
-					_ => _serversController.GetServerUdpAsync(target).AsTask());
+				if (!_cache.TryGetValue(receiveResult.RemoteEndPoint, out IUdpClient client))
+				{
+					client = await _serversController.GetServerUdpAsync(target);
+
+					_cache.Set(receiveResult.RemoteEndPoint, client, _cacheOptions);
+				}
 
 				_logger.LogInformation(@"Udp Send to {0} via {1}", target, client);
 				var sendBuffer = receiveResult.Buffer.AsMemory(3); //TODO Only support ss now
