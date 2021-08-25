@@ -342,23 +342,31 @@ InvalidRequest:
 			{
 				var result = await reader.ReadAsync(cancellationToken);
 				var buffer = result.Buffer;
+
 				try
 				{
-					var lengthOfChunkLength = ReadLine(buffer, out var chunkLengthBuffer);
-					if (lengthOfChunkLength > 0)
+					while (true)
 					{
+						var lengthOfChunkLength = ReadLine(buffer, out var chunkLengthBuffer);
+						if (lengthOfChunkLength <= 0)
+						{
+							break;
+						}
+
 						var chunkLength = GetChunkLength(chunkLengthBuffer);
 
 						var length = lengthOfChunkLength + chunkLength + 2;
-						if (buffer.Length >= length)
+						if (buffer.Length < length)
 						{
-							await target.WriteAsync(buffer.Slice(0, length), cancellationToken);
-							buffer = buffer.Slice(length);
+							break;
+						}
 
-							if (chunkLength is 0L)
-							{
-								break;
-							}
+						var flushResult = await target.WriteAsync(buffer.Slice(0, length), cancellationToken);
+						buffer = buffer.Slice(length);
+
+						if (flushResult.IsCompleted || chunkLength is 0L)
+						{
+							return;
 						}
 					}
 					if (result.IsCompleted)
@@ -383,17 +391,17 @@ InvalidRequest:
 				}
 				return length;
 			}
-		}
 
-		private static long ReadLine(ReadOnlySequence<byte> sequence, out ReadOnlySequence<byte> value)
-		{
-			var reader = new SequenceReader<byte>(sequence);
-			if (reader.TryReadTo(out value, HttpNewLineSpan))
+			static long ReadLine(ReadOnlySequence<byte> sequence, out ReadOnlySequence<byte> value)
 			{
-				// value 不包括结尾的 \r\n
-			}
+				var reader = new SequenceReader<byte>(sequence);
+				if (reader.TryReadTo(out value, HttpNewLineSpan))
+				{
+					// value 不包括结尾的 \r\n
+				}
 
-			return reader.Consumed;
+				return reader.Consumed;
+			}
 		}
 	}
 }
