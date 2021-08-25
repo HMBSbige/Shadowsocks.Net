@@ -1,6 +1,5 @@
 using Microsoft;
 using System;
-using System.IO;
 using System.IO.Pipelines;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -40,42 +39,57 @@ namespace Pipelines.Extensions
 			}
 		}
 
-		public static async ValueTask CopyToAsync(
+		public static async ValueTask<long> CopyToAsync(
 			this PipeReader reader,
 			PipeWriter target,
 			long size,
 			CancellationToken cancellationToken = default)
 		{
 			Requires.Range(size >= 0, nameof(size), @"size must >=0.");
+			var readSize = 0L;
 
 			while (true)
 			{
 				var result = await reader.ReadAsync(cancellationToken);
 				var buffer = result.Buffer;
+				if (buffer.Length > size)
+				{
+					buffer = buffer.Slice(0, size);
+				}
+				SequencePosition position = buffer.Start;
+				SequencePosition consumed = position;
 
 				try
 				{
-					if (buffer.Length >= size)
+					while (buffer.TryGet(ref position, out var memory))
 					{
-						await target.WriteAsync(buffer.Slice(0, size), cancellationToken);
-						buffer = buffer.Slice(size);
-						return;
+						var flushResult = await target.WriteAsync(memory, cancellationToken);
+						flushResult.ThrowIfCanceled(cancellationToken);
+
+						readSize += memory.Length;
+						consumed = position;
+
+						if (flushResult.IsCompleted)
+						{
+							return readSize;
+						}
 					}
 
-					await target.WriteAsync(buffer, cancellationToken);
-					buffer = buffer.Slice(buffer.Length);
+					consumed = buffer.End;
 					size -= buffer.Length;
 
-					if (result.IsCompleted)
+					if (size <= 0 || result.IsCompleted)
 					{
-						throw new InvalidDataException(@"pipe is completed.");
+						break;
 					}
 				}
 				finally
 				{
-					reader.AdvanceTo(buffer.Start, buffer.End);
+					reader.AdvanceTo(consumed);
 				}
 			}
+
+			return readSize;
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]

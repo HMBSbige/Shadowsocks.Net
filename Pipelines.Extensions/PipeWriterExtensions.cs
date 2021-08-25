@@ -41,17 +41,6 @@ namespace Pipelines.Extensions
 			writer.Advance(length);
 		}
 
-		public static void Write(this PipeWriter writer, ReadOnlySequence<byte> sequence)
-		{
-			foreach (var memory in sequence)
-			{
-				var sourceSpan = memory.Span;
-				var targetSpan = writer.GetSpan(sourceSpan.Length);
-				sourceSpan.CopyTo(targetSpan);
-				writer.Advance(sourceSpan.Length);
-			}
-		}
-
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static async ValueTask<FlushResult> WriteAsync(this PipeWriter writer, string str, CancellationToken token = default)
 		{
@@ -62,8 +51,20 @@ namespace Pipelines.Extensions
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static async ValueTask<FlushResult> WriteAsync(this PipeWriter writer, ReadOnlySequence<byte> sequence, CancellationToken token = default)
 		{
-			writer.Write(sequence);
-			return await writer.FlushAsync(token);
+			FlushResult flushResult = default;
+
+			foreach (var memory in sequence)
+			{
+				writer.Write(memory.Span);
+				flushResult = await writer.FlushAndCheckIsCanceledAsync(token);
+
+				if (flushResult.IsCompleted)
+				{
+					break;
+				}
+			}
+
+			return flushResult;
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]

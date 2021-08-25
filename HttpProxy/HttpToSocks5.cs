@@ -74,9 +74,9 @@ namespace HttpProxy
 				{
 					_logger.LogDebug(@"{0} Waiting for up to {1} bytes from client", LogHeader, httpHeaders.ContentLength);
 
-					await incomingPipe.Input.CopyToAsync(socks5Pipe.Output, httpHeaders.ContentLength, cancellationToken);
+					var readLength = await incomingPipe.Input.CopyToAsync(socks5Pipe.Output, httpHeaders.ContentLength, cancellationToken);
 
-					_logger.LogDebug(@"{0} client sent {1} bytes to server", LogHeader, httpHeaders.ContentLength);
+					_logger.LogDebug(@"{0} client sent {1} bytes to server", LogHeader, readLength);
 				}
 
 				//Read response
@@ -98,9 +98,9 @@ namespace HttpProxy
 					{
 						_logger.LogDebug(@"{0} Waiting for up to {1} bytes from server", LogHeader, serverResponseContentLength);
 
-						await socks5Pipe.Input.CopyToAsync(incomingPipe.Output, serverResponseContentLength, cancellationToken);
+						var readLength = await socks5Pipe.Input.CopyToAsync(incomingPipe.Output, serverResponseContentLength, cancellationToken);
 
-						_logger.LogDebug(@"{0} server sent {1} bytes to client", LogHeader, serverResponseContentLength);
+						_logger.LogDebug(@"{0} server sent {1} bytes to client", LogHeader, readLength);
 					}
 				}
 			}
