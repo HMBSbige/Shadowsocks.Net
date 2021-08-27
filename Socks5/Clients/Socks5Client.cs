@@ -21,13 +21,13 @@ namespace Socks5.Clients
 		#region Public Fields
 
 		public Status Status { get; private set; } = Status.Initial;
+		public Socket? UdpClient { get; private set; }
 
 		#endregion
 
 		#region Private Fields
 
 		private readonly TcpClient _tcpClient;
-		private UdpClient? _udpClient;
 		private readonly Socks5CreateOption _option;
 
 		private IDuplexPipe? _pipe;
@@ -86,9 +86,11 @@ namespace Socks5.Clients
 		{
 			var pipe = await HandshakeAsync(token);
 
-			_udpClient = new UdpClient(port, _option.Address!.AddressFamily);
+			UdpClient = new Socket(_option.Address!.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
+			UdpClient.Bind(new IPEndPoint(address, port));
+			var local = (IPEndPoint)UdpClient.LocalEndPoint!;
 
-			var bound = await SendCommandAsync(pipe, Command.UdpAssociate, default, address, port, token);
+			var bound = await SendCommandAsync(pipe, Command.UdpAssociate, default, local.Address, (ushort)local.Port, token);
 
 			switch (bound.Type)
 			{
@@ -98,7 +100,8 @@ namespace Socks5.Clients
 					{
 						bound.Address = _option.Address;
 					}
-					_udpClient.Connect(bound.Address!, bound.Port);
+
+					await UdpClient.ConnectAsync(bound.Address!, bound.Port, token);
 					break;
 				}
 				case AddressType.IPv6:
@@ -107,12 +110,12 @@ namespace Socks5.Clients
 					{
 						bound.Address = _option.Address;
 					}
-					_udpClient.Connect(bound.Address!, bound.Port);
+					await UdpClient.ConnectAsync(bound.Address!, bound.Port, token);
 					break;
 				}
 				case AddressType.Domain:
 				{
-					_udpClient.Connect(bound.Domain!, bound.Port);
+					await UdpClient.ConnectAsync(bound.Domain!, bound.Port, token);
 					break;
 				}
 				default:
@@ -128,12 +131,12 @@ namespace Socks5.Clients
 
 		public async Task<Socks5UdpReceivePacket> ReceiveAsync(CancellationToken token = default)
 		{
-			Verify.Operation(Status is Status.Established && _udpClient is not null, @"Socks5 is not established.");
+			Verify.Operation(Status is Status.Established && UdpClient is not null, @"Socks5 is not established.");
 
 			var buffer = ArrayPool<byte>.Shared.Rent(0x10000);
 			try
 			{
-				var length = await _udpClient.Client.ReceiveAsync(buffer, SocketFlags.None, token);
+				var length = await UdpClient.ReceiveAsync(buffer, SocketFlags.None, token);
 
 				return Unpack.Udp(buffer.AsMemory(0, length));
 			}
@@ -158,14 +161,14 @@ namespace Socks5.Clients
 			string? dst, IPAddress? dstAddress, ushort dstPort,
 			CancellationToken token = default)
 		{
-			Verify.Operation(Status is Status.Established && _udpClient is not null, @"Socks5 is not established.");
+			Verify.Operation(Status is Status.Established && UdpClient is not null, @"Socks5 is not established.");
 
 			var buffer = ArrayPool<byte>.Shared.Rent(Constants.MaxUdpHandshakeHeaderLength + data.Length);
 			try
 			{
 				var length = Pack.Udp(buffer, dst, dstAddress, dstPort, data.Span);
 
-				return await _udpClient.Client.SendAsync(buffer.AsMemory(0, length), SocketFlags.None, token);
+				return await UdpClient.SendAsync(buffer.AsMemory(0, length), SocketFlags.None, token);
 			}
 			finally
 			{
@@ -307,7 +310,7 @@ namespace Socks5.Clients
 		{
 			Status = Status.Closed;
 			_tcpClient.Dispose();
-			_udpClient?.Dispose();
+			UdpClient?.Dispose();
 		}
 
 		#endregion
