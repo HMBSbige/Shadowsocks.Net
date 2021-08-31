@@ -52,7 +52,7 @@ namespace HttpProxy
 		{
 			try
 			{
-				var pipe = rec.GetStream().AsDuplexPipe();
+				var pipe = rec.Client.AsDuplexPipe();
 				var result = await pipe.Input.ReadAsync(token);
 				var buffer = result.Buffer;
 
@@ -60,7 +60,7 @@ namespace HttpProxy
 				{
 					using var socks5 = new TcpClient();
 					await socks5.ConnectAsync(_socks5CreateOption.Address!, _socks5CreateOption.Port, token);
-					var socks5Pipe = socks5.GetStream().AsDuplexPipe();
+					var socks5Pipe = socks5.Client.AsDuplexPipe();
 
 					await socks5Pipe.Output.WriteAsync(buffer, token);
 					pipe.Input.AdvanceTo(buffer.End);

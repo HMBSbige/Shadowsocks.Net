@@ -67,7 +67,7 @@ namespace Socks5.Servers
 		{
 			try
 			{
-				var pipe = rec.GetStream().AsDuplexPipe();
+				var pipe = rec.Client.AsDuplexPipe();
 				var service = new Socks5ServerConnection(pipe, _credential);
 				await service.AcceptClientAsync(token);
 
@@ -89,7 +89,7 @@ namespace Socks5.Servers
 
 						await service.SendReplyAsync(Socks5Reply.Succeeded, ReplyTcpBound, token);
 
-						var tcpPipe = tcp.GetStream().AsDuplexPipe();
+						var tcpPipe = tcp.Client.AsDuplexPipe();
 
 						await tcpPipe.LinkToAsync(pipe, token);
 
@@ -103,6 +103,10 @@ namespace Socks5.Servers
 					case Command.UdpAssociate:
 					{
 						await service.SendReplyAsync(Socks5Reply.Succeeded, ReplyUdpBound, token);
+
+						// wait remote close
+						var result = await pipe.Input.ReadAsync(token);
+						Report.IfNot(result.IsCompleted);
 						break;
 					}
 					default:

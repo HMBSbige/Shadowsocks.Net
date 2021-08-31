@@ -33,7 +33,7 @@ namespace Shadowsocks.Protocol.TcpClients
 		{
 			Verify.Operation(_client is not null && _client.Connected, @"You must connect to the server first!");
 
-			return _pipe ??= _client.GetStream().AsDuplexPipe().AsShadowsocksPipe(_serverInfo, targetAddress, targetPort);
+			return _pipe ??= _client.Client.AsDuplexPipe().AsShadowsocksPipe(_serverInfo, targetAddress, targetPort);
 		}
 
 		public override string? ToString()

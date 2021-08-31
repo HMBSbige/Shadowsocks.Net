@@ -186,7 +186,7 @@ namespace Socks5.Clients
 
 			await _tcpClient.ConnectAsync(_option.Address!, _option.Port, token);
 
-			var pipe = _tcpClient.GetStream().AsDuplexPipe();
+			var pipe = _tcpClient.Client.AsDuplexPipe();
 
 			await HandshakeWithAuthAsync(pipe, token);
 
@@ -287,7 +287,10 @@ namespace Socks5.Clients
 
 			var bound = new ServerBound();
 
-			await pipe.Input.ReadAsync(HandleResponse, token);
+			if (!await pipe.Input.ReadAsync(HandleResponse, token))
+			{
+				throw new ProtocolErrorException(@"Send command failed!");
+			}
 
 			return bound;
 
