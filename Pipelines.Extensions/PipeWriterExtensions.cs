@@ -50,7 +50,6 @@ namespace Pipelines.Extensions
 			return await writer.FlushAsync(token);
 		}
 
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public static async ValueTask<FlushResult> WriteAsync(this PipeWriter writer, ReadOnlySequence<byte> sequence, CancellationToken token = default)
 		{
 			FlushResult flushResult = default;

@@ -1,5 +1,4 @@
 using Microsoft;
-using Microsoft.VisualStudio.Threading;
 using System;
 using System.IO.Pipelines;
 using System.Net.Sockets;
@@ -17,8 +16,6 @@ namespace Pipelines.Extensions.SocketPipe
 		private PipeWriter Writer => _pipe.Writer;
 		private PipeReader Reader => _pipe.Reader;
 
-		private readonly CancellationTokenSource _cancellationTokenSource;
-
 		public SocketPipeWriter(Socket socket, SocketPipeWriterOptions options)
 		{
 			Requires.NotNull(socket, nameof(socket));
@@ -28,43 +25,6 @@ namespace Pipelines.Extensions.SocketPipe
 			InternalSocket = socket;
 			_options = options;
 			_pipe = new Pipe(options.PipeOptions);
-			_cancellationTokenSource = new CancellationTokenSource();
-
-			WrapReaderAsync(_cancellationTokenSource.Token).Forget();
-		}
-
-		private Task WrapReaderAsync(CancellationToken cancellationToken)
-		{
-			return Task.Run(async () =>
-			{
-				try
-				{
-					while (true)
-					{
-						var result = await Reader.ReadAndCheckIsCanceledAsync(cancellationToken);
-						var buffer = result.Buffer;
-
-						foreach (var memory in buffer)
-						{
-							var length = await InternalSocket.SendAsync(memory, _options.SocketFlags, cancellationToken);
-							Report.IfNot(length == memory.Length);
-						}
-
-						Reader.AdvanceTo(buffer.End);
-
-						if (result.IsCompleted)
-						{
-							break;
-						}
-					}
-
-					await Reader.CompleteAsync();
-				}
-				catch (Exception ex)
-				{
-					await Reader.CompleteAsync(ex);
-				}
-			}, cancellationToken);
 		}
 
 		public override void Advance(int bytes)
@@ -89,13 +49,38 @@ namespace Pipelines.Extensions.SocketPipe
 
 		public override void Complete(Exception? exception = null)
 		{
-			_cancellationTokenSource.Cancel();
 			Writer.Complete(exception);
 		}
 
-		public override ValueTask<FlushResult> FlushAsync(CancellationToken cancellationToken = default)
+		public override async ValueTask<FlushResult> FlushAsync(CancellationToken cancellationToken = default)
 		{
-			return Writer.FlushAsync(cancellationToken);
+			var flushResult = await Writer.FlushAsync(cancellationToken);
+
+			try
+			{
+				var result = await Reader.ReadAsync(cancellationToken);
+				var buffer = result.Buffer;
+
+				foreach (var memory in buffer)
+				{
+					var length = await InternalSocket.SendAsync(memory, _options.SocketFlags, cancellationToken);
+					Report.IfNot(length == memory.Length);
+				}
+
+				Reader.AdvanceTo(buffer.End);
+
+				if (result.IsCompleted)
+				{
+					await Reader.CompleteAsync();
+				}
+			}
+			catch (Exception ex)
+			{
+				await Reader.CompleteAsync(ex);
+				throw;
+			}
+
+			return flushResult;
 		}
 	}
 }

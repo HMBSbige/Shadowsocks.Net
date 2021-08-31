@@ -52,7 +52,7 @@ namespace Pipelines.Extensions.SocketPipe
 
 						Writer.Advance(readLength);
 
-						var flushResult = await Writer.FlushAndCheckIsCanceledAsync(cancellationToken);
+						var flushResult = await Writer.FlushAsync(cancellationToken);
 						if (flushResult.IsCompleted)
 						{
 							break;
