@@ -1,6 +1,8 @@
+using Pipelines.Extensions.SocketPipe;
 using System;
 using System.Buffers;
 using System.IO.Pipelines;
+using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
@@ -85,6 +87,12 @@ namespace Pipelines.Extensions
 			var flushResult = await writer.FlushAsync(cancellationToken);
 			flushResult.ThrowIfCanceled(cancellationToken);
 			return flushResult;
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static PipeWriter AsPipeWriter(this Socket socket, SocketPipeWriterOptions? options = null)
+		{
+			return new SocketPipeWriter(socket, options ?? SocketPipeWriterOptions.Default);
 		}
 	}
 }

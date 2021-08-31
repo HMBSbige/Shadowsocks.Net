@@ -1,6 +1,8 @@
 using Microsoft;
+using Pipelines.Extensions.SocketPipe;
 using System.IO;
 using System.IO.Pipelines;
+using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -28,6 +30,19 @@ namespace Pipelines.Extensions
 
 			var reader = PipeReader.Create(stream, readerOptions);
 			var writer = PipeWriter.Create(stream, writerOptions);
+
+			return DefaultDuplexPipe.Create(reader, writer);
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static IDuplexPipe AsDuplexPipe(this Socket socket,
+			SocketPipeReaderOptions? readerOptions = null,
+			SocketPipeWriterOptions? writerOptions = null)
+		{
+			Requires.Argument(socket.Connected, nameof(socket), @"Socket must be connected.");
+
+			var reader = socket.AsPipeReader(readerOptions);
+			var writer = socket.AsPipeWriter(writerOptions);
 
 			return DefaultDuplexPipe.Create(reader, writer);
 		}

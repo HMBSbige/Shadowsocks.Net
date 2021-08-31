@@ -1,6 +1,8 @@
 using Microsoft;
+using Pipelines.Extensions.SocketPipe;
 using System;
 using System.IO.Pipelines;
+using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -110,6 +112,12 @@ namespace Pipelines.Extensions
 			var result = await reader.ReadAsync(cancellationToken);
 			result.ThrowIfCanceled(cancellationToken);
 			return result;
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static PipeReader AsPipeReader(this Socket socket, SocketPipeReaderOptions? options = null)
+		{
+			return new SocketPipeReader(socket, options ?? SocketPipeReaderOptions.Default);
 		}
 	}
 }
