@@ -1,8 +1,10 @@
 using Microsoft;
 using Pipelines.Extensions.SocketPipe;
+using Pipelines.Extensions.WebSocketPipe;
 using System.IO;
 using System.IO.Pipelines;
 using System.Net.Sockets;
+using System.Net.WebSockets;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -39,10 +41,19 @@ namespace Pipelines.Extensions
 			SocketPipeReaderOptions? readerOptions = null,
 			SocketPipeWriterOptions? writerOptions = null)
 		{
-			Requires.Argument(socket.Connected, nameof(socket), @"Socket must be connected.");
-
 			var reader = socket.AsPipeReader(readerOptions);
 			var writer = socket.AsPipeWriter(writerOptions);
+
+			return DefaultDuplexPipe.Create(reader, writer);
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static IDuplexPipe AsDuplexPipe(this WebSocket webSocket,
+			WebSocketPipeReaderOptions? readerOptions = null,
+			WebSocketPipeWriterOptions? writerOptions = null)
+		{
+			var reader = webSocket.AsPipeReader(readerOptions);
+			var writer = webSocket.AsPipeWriter(writerOptions);
 
 			return DefaultDuplexPipe.Create(reader, writer);
 		}

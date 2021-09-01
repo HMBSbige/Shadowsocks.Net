@@ -1,8 +1,10 @@
 using Microsoft;
 using Pipelines.Extensions.SocketPipe;
+using Pipelines.Extensions.WebSocketPipe;
 using System;
 using System.IO.Pipelines;
 using System.Net.Sockets;
+using System.Net.WebSockets;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -118,6 +120,12 @@ namespace Pipelines.Extensions
 		public static PipeReader AsPipeReader(this Socket socket, SocketPipeReaderOptions? options = null)
 		{
 			return new SocketPipeReader(socket, options ?? SocketPipeReaderOptions.Default);
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static PipeReader AsPipeReader(this WebSocket webSocket, WebSocketPipeReaderOptions? options = null)
+		{
+			return new WebSocketPipeReader(webSocket, options ?? WebSocketPipeReaderOptions.Default);
 		}
 	}
 }

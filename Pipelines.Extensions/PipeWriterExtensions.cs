@@ -1,8 +1,10 @@
 using Pipelines.Extensions.SocketPipe;
+using Pipelines.Extensions.WebSocketPipe;
 using System;
 using System.Buffers;
 using System.IO.Pipelines;
 using System.Net.Sockets;
+using System.Net.WebSockets;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
@@ -92,6 +94,12 @@ namespace Pipelines.Extensions
 		public static PipeWriter AsPipeWriter(this Socket socket, SocketPipeWriterOptions? options = null)
 		{
 			return new SocketPipeWriter(socket, options ?? SocketPipeWriterOptions.Default);
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static PipeWriter AsPipeWriter(this WebSocket webSocket, WebSocketPipeWriterOptions? options = null)
+		{
+			return new WebSocketPipeWriter(webSocket, options ?? WebSocketPipeWriterOptions.Default);
 		}
 	}
 }
