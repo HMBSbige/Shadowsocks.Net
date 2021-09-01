@@ -49,7 +49,32 @@ namespace Pipelines.Extensions.SocketPipe
 
 		public override void Complete(Exception? exception = null)
 		{
-			Writer.Complete(exception);
+			try
+			{
+				Writer.Complete(exception);
+			}
+			finally
+			{
+				CloseSocketIfNeeded();
+			}
+
+			void CloseSocketIfNeeded()
+			{
+				try
+				{
+					if (_options.ShutDownSend)
+					{
+						InternalSocket.Shutdown(SocketShutdown.Send);
+					}
+				}
+				finally
+				{
+					if (!_options.LeaveOpen)
+					{
+						InternalSocket.FullClose();
+					}
+				}
+			}
 		}
 
 		public override async ValueTask<FlushResult> FlushAsync(CancellationToken cancellationToken = default)

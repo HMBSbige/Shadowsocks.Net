@@ -85,8 +85,33 @@ namespace Pipelines.Extensions.SocketPipe
 
 		public override void Complete(Exception? exception = null)
 		{
-			_cancellationTokenSource.Cancel();
-			Reader.Complete(exception);
+			try
+			{
+				_cancellationTokenSource.Cancel();
+				Reader.Complete(exception);
+			}
+			finally
+			{
+				CloseSocketIfNeeded();
+			}
+
+			void CloseSocketIfNeeded()
+			{
+				try
+				{
+					if (_options.ShutDownReceive)
+					{
+						InternalSocket.Shutdown(SocketShutdown.Receive);
+					}
+				}
+				finally
+				{
+					if (!_options.LeaveOpen)
+					{
+						InternalSocket.FullClose();
+					}
+				}
+			}
 		}
 
 		public override ValueTask<ReadResult> ReadAsync(CancellationToken cancellationToken = default)
