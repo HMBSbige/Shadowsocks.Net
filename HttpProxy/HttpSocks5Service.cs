@@ -48,7 +48,7 @@ namespace HttpProxy
 			}
 		}
 
-		private async ValueTask HandleAsync(TcpClient rec, CancellationToken token)
+		private async Task HandleAsync(TcpClient rec, CancellationToken token)
 		{
 			try
 			{

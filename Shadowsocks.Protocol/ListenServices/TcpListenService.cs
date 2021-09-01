@@ -58,7 +58,7 @@ namespace Shadowsocks.Protocol.ListenServices
 			}
 		}
 
-		private async ValueTask HandleAsync(TcpClient rec, CancellationToken token)
+		private async Task HandleAsync(TcpClient rec, CancellationToken token)
 		{
 			var remoteEndPoint = rec.Client.RemoteEndPoint;
 			try
