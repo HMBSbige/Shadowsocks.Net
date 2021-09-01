@@ -16,8 +16,9 @@ namespace Shadowsocks.Protocol.ListenServices
 {
 	public class TcpListenService : IListenService
 	{
-		private readonly ILogger<TcpListenService> _logger;
 		public TcpListener TCPListener { get; }
+
+		private readonly ILogger<TcpListenService> _logger;
 		private readonly IEnumerable<ILocalTcpService> _services;
 
 		private readonly CancellationTokenSource _cts;
@@ -29,9 +30,9 @@ namespace Shadowsocks.Protocol.ListenServices
 		public TcpListenService(ILogger<TcpListenService> logger, IPEndPoint local, IEnumerable<ILocalTcpService> services)
 		{
 			_logger = logger;
-			TCPListener = new TcpListener(local);
 			_services = services;
 
+			TCPListener = new TcpListener(local);
 			_cts = new CancellationTokenSource();
 		}
 

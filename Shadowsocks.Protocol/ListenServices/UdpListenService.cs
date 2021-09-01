@@ -13,8 +13,10 @@ namespace Shadowsocks.Protocol.ListenServices
 {
 	public class UdpListenService : IListenService
 	{
-		private readonly ILogger<UdpListenService> _logger;
 		public UdpClient UdpListener { get; }
+
+		private readonly ILogger<UdpListenService> _logger;
+		private readonly IPEndPoint _local;
 		private readonly IEnumerable<ILocalUdpService> _services;
 
 		private readonly CancellationTokenSource _cts;
@@ -24,9 +26,10 @@ namespace Shadowsocks.Protocol.ListenServices
 		public UdpListenService(ILogger<UdpListenService> logger, IPEndPoint local, IEnumerable<ILocalUdpService> services)
 		{
 			_logger = logger;
-			UdpListener = new UdpClient(local);
+			_local = local;
 			_services = services;
 
+			UdpListener = new UdpClient(local.AddressFamily);
 			_cts = new CancellationTokenSource();
 		}
 
@@ -34,7 +37,9 @@ namespace Shadowsocks.Protocol.ListenServices
 		{
 			try
 			{
+				UdpListener.Client.Bind(_local);
 				_logger.LogInformation(@"{0} {1} Start", LoggerHeader, UdpListener.Client.LocalEndPoint);
+
 				while (!_cts.IsCancellationRequested)
 				{
 					//TODO .NET6.0
