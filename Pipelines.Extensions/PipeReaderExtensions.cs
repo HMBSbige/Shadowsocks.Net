@@ -2,6 +2,7 @@ using Microsoft;
 using Pipelines.Extensions.SocketPipe;
 using Pipelines.Extensions.WebSocketPipe;
 using System;
+using System.IO;
 using System.IO.Pipelines;
 using System.Net.Sockets;
 using System.Net.WebSockets;
@@ -114,6 +115,12 @@ namespace Pipelines.Extensions
 			var result = await reader.ReadAsync(cancellationToken);
 			result.ThrowIfCanceled(cancellationToken);
 			return result;
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static PipeReader AsPipeReader(this Stream stream, StreamPipeReaderOptions? options = null)
+		{
+			return PipeReader.Create(stream, options);
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]

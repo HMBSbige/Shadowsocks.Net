@@ -2,6 +2,7 @@ using Pipelines.Extensions.SocketPipe;
 using Pipelines.Extensions.WebSocketPipe;
 using System;
 using System.Buffers;
+using System.IO;
 using System.IO.Pipelines;
 using System.Net.Sockets;
 using System.Net.WebSockets;
@@ -88,6 +89,12 @@ namespace Pipelines.Extensions
 			var flushResult = await writer.FlushAsync(cancellationToken);
 			flushResult.ThrowIfCanceled(cancellationToken);
 			return flushResult;
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static PipeWriter AsPipeWriter(this Stream stream, StreamPipeWriterOptions? options = null)
+		{
+			return PipeWriter.Create(stream, options);
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
