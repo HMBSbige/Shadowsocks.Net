@@ -37,9 +37,9 @@ namespace HttpProxy
 				TcpListener.Start();
 				while (!_cts.IsCancellationRequested)
 				{
-					var rec = await TcpListener.AcceptTcpClientAsync();
-					rec.NoDelay = true;
-					HandleAsync(rec, _cts.Token).Forget();
+					var socket = await TcpListener.AcceptSocketAsync();
+					socket.NoDelay = true;
+					HandleAsync(socket, _cts.Token).Forget();
 				}
 			}
 			catch (Exception)
@@ -48,11 +48,11 @@ namespace HttpProxy
 			}
 		}
 
-		private async Task HandleAsync(TcpClient rec, CancellationToken token)
+		private async Task HandleAsync(Socket socket, CancellationToken token)
 		{
 			try
 			{
-				var pipe = rec.Client.AsDuplexPipe();
+				var pipe = socket.AsDuplexPipe();
 				var result = await pipe.Input.ReadAsync(token);
 				var buffer = result.Buffer;
 
@@ -77,7 +77,7 @@ namespace HttpProxy
 			}
 			finally
 			{
-				rec.Dispose();
+				socket.FullClose();
 			}
 
 			static bool IsSocks5Header(ReadOnlySequence<byte> buffer)

@@ -52,9 +52,9 @@ namespace Socks5.Servers
 				TcpListener.Start();
 				while (!_cts.IsCancellationRequested)
 				{
-					var rec = await TcpListener.AcceptTcpClientAsync();
-					rec.NoDelay = true;
-					HandleAsync(rec, _cts.Token).Forget();
+					var socket = await TcpListener.AcceptSocketAsync();
+					socket.NoDelay = true;
+					HandleAsync(socket, _cts.Token).Forget();
 				}
 			}
 			catch (Exception)
@@ -63,11 +63,11 @@ namespace Socks5.Servers
 			}
 		}
 
-		private async ValueTask HandleAsync(TcpClient rec, CancellationToken token)
+		private async ValueTask HandleAsync(Socket socket, CancellationToken token)
 		{
 			try
 			{
-				var pipe = rec.Client.AsDuplexPipe();
+				var pipe = socket.AsDuplexPipe();
 				var service = new Socks5ServerConnection(pipe, _credential);
 				await service.AcceptClientAsync(token);
 
@@ -118,7 +118,7 @@ namespace Socks5.Servers
 			}
 			finally
 			{
-				rec.Dispose();
+				socket.FullClose();
 			}
 		}
 

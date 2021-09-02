@@ -45,11 +45,11 @@ namespace Shadowsocks.Protocol.ListenServices
 
 				while (!_cts.IsCancellationRequested)
 				{
-					var rec = await TCPListener.AcceptTcpClientAsync();
-					rec.NoDelay = true;
+					var socket = await TCPListener.AcceptSocketAsync();
+					socket.NoDelay = true;
 
-					_logger.LogInformation(@"{0} {1} => {2}", LoggerHeader, rec.Client.RemoteEndPoint, rec.Client.LocalEndPoint);
-					HandleAsync(rec, _cts.Token).Forget();
+					_logger.LogInformation(@"{0} {1} => {2}", LoggerHeader, socket.RemoteEndPoint, socket.LocalEndPoint);
+					HandleAsync(socket, _cts.Token).Forget();
 				}
 			}
 			catch (Exception ex)
@@ -59,12 +59,12 @@ namespace Shadowsocks.Protocol.ListenServices
 			}
 		}
 
-		private async Task HandleAsync(TcpClient rec, CancellationToken token)
+		private async Task HandleAsync(Socket socket, CancellationToken token)
 		{
-			var remoteEndPoint = rec.Client.RemoteEndPoint;
+			var remoteEndPoint = socket.RemoteEndPoint;
 			try
 			{
-				var pipe = rec.Client.AsDuplexPipe(LocalPipeReaderOptions);
+				var pipe = socket.AsDuplexPipe(LocalPipeReaderOptions);
 				var result = await pipe.Input.ReadAsync(token);
 				var buffer = result.Buffer;
 
@@ -99,7 +99,7 @@ namespace Shadowsocks.Protocol.ListenServices
 			}
 			finally
 			{
-				rec.Dispose();
+				socket.FullClose();
 				_logger.LogInformation(@"{0} {1} disconnected", LoggerHeader, remoteEndPoint);
 			}
 		}
