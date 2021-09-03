@@ -79,7 +79,7 @@ namespace Pipelines.Extensions.SocketPipe
 
 		public override async ValueTask<FlushResult> FlushAsync(CancellationToken cancellationToken = default)
 		{
-			var flushResult = await Writer.FlushAsync(cancellationToken);
+			var flushTask = Writer.FlushAsync(cancellationToken);
 
 			try
 			{
@@ -105,7 +105,7 @@ namespace Pipelines.Extensions.SocketPipe
 				throw;
 			}
 
-			return flushResult;
+			return await flushTask;
 		}
 	}
 }
