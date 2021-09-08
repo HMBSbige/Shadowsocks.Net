@@ -69,7 +69,7 @@ namespace Shadowsocks.Protocol.LocalUdpServices
 				var target = socks5UdpPacket.Type switch
 				{
 					AddressType.Domain => socks5UdpPacket.Domain!,
-					_                  => socks5UdpPacket.Address!.ToString()
+					_ => socks5UdpPacket.Address!.ToString()
 				};
 
 				if (!_cache.TryGetValue(receiveResult.RemoteEndPoint, out IUdpClient client))

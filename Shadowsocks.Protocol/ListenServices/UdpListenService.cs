@@ -45,7 +45,13 @@ namespace Shadowsocks.Protocol.ListenServices
 					//TODO .NET6.0
 					var message = await UdpListener.ReceiveAsync();
 #if DEBUG
-					_logger.LogDebug(@"{0}: {1} bytes {2} => {3}", LoggerHeader, message.Buffer.Length, message.RemoteEndPoint, UdpListener.Client.LocalEndPoint);
+					_logger.LogDebug(
+						@"{0}: {1} bytes {2} => {3}",
+						LoggerHeader,
+						message.Buffer.Length,
+						message.RemoteEndPoint,
+						UdpListener.Client.LocalEndPoint
+					);
 #endif
 					HandleAsync(message, _cts.Token).Forget();
 				}

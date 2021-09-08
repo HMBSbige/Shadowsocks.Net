@@ -33,10 +33,10 @@ namespace HttpProxy
 			return error switch
 			{
 				ConnectionErrorResult.AuthenticationError => $"{httpVersion} 401 Unauthorized\r\n\r\n",
-				ConnectionErrorResult.HostUnreachable     => $"{httpVersion} 502 {error}\r\n\r\n",
-				ConnectionErrorResult.ConnectionRefused   => $"{httpVersion} 502 {error}\r\n\r\n",
-				ConnectionErrorResult.ConnectionReset     => $"{httpVersion} 502 {error}\r\n\r\n",
-				_                                         => $"{httpVersion} 500 Internal Server Error\r\nX-Proxy-Error-Type: {error}\r\n\r\n"
+				ConnectionErrorResult.HostUnreachable => $"{httpVersion} 502 {error}\r\n\r\n",
+				ConnectionErrorResult.ConnectionRefused => $"{httpVersion} 502 {error}\r\n\r\n",
+				ConnectionErrorResult.ConnectionReset => $"{httpVersion} 502 {error}\r\n\r\n",
+				_ => $"{httpVersion} 500 Internal Server Error\r\nX-Proxy-Error-Type: {error}\r\n\r\n"
 			};
 		}
 

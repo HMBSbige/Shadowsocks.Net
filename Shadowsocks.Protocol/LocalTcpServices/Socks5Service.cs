@@ -54,7 +54,7 @@ namespace Shadowsocks.Protocol.LocalTcpServices
 					var target = socks5.Target.Type switch
 					{
 						AddressType.Domain => socks5.Target.Domain!,
-						_                  => socks5.Target.Address!.ToString()
+						_ => socks5.Target.Address!.ToString()
 					};
 
 					await using var client = await _serversController.GetServerAsync(target);

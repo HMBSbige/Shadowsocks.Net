@@ -50,6 +50,9 @@ dotnet_style_qualification_for_method = false:suggestion
 dotnet_style_qualification_for_property = false:suggestion
 dotnet_style_require_accessibility_modifiers = for_non_interface_members:suggestion
 
+# 缩进首选项
+csharp_indent_case_contents_when_block = false
+
 # ReSharper properties
 resharper_align_multiline_binary_expressions_chain = false
 resharper_autodetect_indent_settings = true
@@ -59,7 +62,7 @@ resharper_braces_for_foreach = required
 resharper_braces_for_ifelse = required
 resharper_braces_for_while = required
 resharper_braces_redundant = false
-resharper_csharp_alignment_tab_fill_style = optimal_fill
+resharper_csharp_alignment_tab_fill_style = use_tabs_only
 resharper_csharp_blank_lines_around_invocable = 0
 resharper_csharp_indent_style = tab
 resharper_csharp_insert_final_newline = true
@@ -76,8 +79,6 @@ resharper_csharp_wrap_before_first_type_parameter_constraint = true
 resharper_csharp_wrap_before_invocation_rpar = true
 resharper_csharp_wrap_lines = false
 resharper_csharp_wrap_multiple_type_parameter_constraints_style = chop_always
-resharper_int_align_switch_expressions = true
-resharper_int_align_switch_sections = true
 resharper_keep_existing_declaration_block_arrangement = true
 resharper_keep_existing_declaration_parens_arrangement = false
 resharper_keep_existing_embedded_arrangement = false
