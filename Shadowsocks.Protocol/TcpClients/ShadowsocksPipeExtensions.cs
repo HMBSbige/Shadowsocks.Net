@@ -16,7 +16,14 @@ namespace Shadowsocks.Protocol.TcpClients
 			PipeOptions? pipeOptions = null,
 			CancellationToken cancellationToken = default)
 		{
-			return new ShadowsocksDuplexPipe(pipe, serverInfo, targetAddress, targetPort, pipeOptions, cancellationToken);
+			return new ShadowsocksDuplexPipe(
+				pipe,
+				serverInfo,
+				targetAddress,
+				targetPort,
+				pipeOptions,
+				cancellationToken
+			);
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]

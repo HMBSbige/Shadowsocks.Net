@@ -84,7 +84,8 @@ namespace Socks5.Servers
 				await UdpListener.Client.SendToAsync(
 					new ArraySegment<byte>(receiveBuffer, 0, headerLength + receiveLength),
 					SocketFlags.None,
-					result.RemoteEndPoint);
+					result.RemoteEndPoint
+				);
 			}
 			finally
 			{

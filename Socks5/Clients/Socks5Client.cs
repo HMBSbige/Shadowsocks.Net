@@ -70,7 +70,14 @@ namespace Socks5.Clients
 		{
 			var pipe = await HandshakeAsync(token);
 
-			var bound = await SendCommandAsync(pipe, Command.Connect, dst, dstAddress, dstPort, token);
+			var bound = await SendCommandAsync(
+				pipe,
+				Command.Connect,
+				dst,
+				dstAddress,
+				dstPort,
+				token
+			);
 
 			_pipe = pipe;
 			Status = Status.Established;
@@ -90,7 +97,14 @@ namespace Socks5.Clients
 			UdpClient.Bind(new IPEndPoint(address, port));
 			var local = (IPEndPoint)UdpClient.LocalEndPoint!;
 
-			var bound = await SendCommandAsync(pipe, Command.UdpAssociate, default, local.Address, (ushort)local.Port, token);
+			var bound = await SendCommandAsync(
+				pipe,
+				Command.UdpAssociate,
+				default,
+				local.Address,
+				(ushort)local.Port,
+				token
+			);
 
 			switch (bound.Type)
 			{
@@ -148,12 +162,24 @@ namespace Socks5.Clients
 
 		public Task<int> SendUdpAsync(ReadOnlyMemory<byte> data, string dst, ushort dstPort, CancellationToken token = default)
 		{
-			return SendUdpAsync(data, dst, default, dstPort, token);
+			return SendUdpAsync(
+				data,
+				dst,
+				default,
+				dstPort,
+				token
+			);
 		}
 
 		public Task<int> SendUdpAsync(ReadOnlyMemory<byte> data, IPAddress dstAddress, ushort dstPort, CancellationToken token = default)
 		{
-			return SendUdpAsync(data, default, dstAddress, dstPort, token);
+			return SendUdpAsync(
+				data,
+				default,
+				dstAddress,
+				dstPort,
+				token
+			);
 		}
 
 		private async Task<int> SendUdpAsync(
@@ -166,7 +192,13 @@ namespace Socks5.Clients
 			var buffer = ArrayPool<byte>.Shared.Rent(Constants.MaxUdpHandshakeHeaderLength + data.Length);
 			try
 			{
-				var length = Pack.Udp(buffer, dst, dstAddress, dstPort, data.Span);
+				var length = Pack.Udp(
+					buffer,
+					dst,
+					dstAddress,
+					dstPort,
+					data.Span
+				);
 
 				return await UdpClient.SendAsync(buffer.AsMemory(0, length), SocketFlags.None, token);
 			}
@@ -296,7 +328,13 @@ namespace Socks5.Clients
 
 			int PackClientCommand(Span<byte> span)
 			{
-				return Pack.ClientCommand(command, dst, dstAddress, dstPort, span);
+				return Pack.ClientCommand(
+					command,
+					dst,
+					dstAddress,
+					dstPort,
+					span
+				);
 			}
 
 			ParseResult HandleResponse(ref ReadOnlySequence<byte> buffer)

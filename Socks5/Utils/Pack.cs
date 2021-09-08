@@ -65,7 +65,13 @@ namespace Socks5.Utils
 			// | 1  |    1     | 1 to 255 |
 			// +----+----------+----------+
 
-			Requires.Argument(clientMethods.Count <= byte.MaxValue, nameof(clientMethods), @"{0}.Count > {1}", nameof(clientMethods), byte.MaxValue);
+			Requires.Argument(
+				clientMethods.Count <= byte.MaxValue,
+				nameof(clientMethods),
+				@"{0}.Count > {1}",
+				nameof(clientMethods),
+				byte.MaxValue
+			);
 
 			buffer[0] = Constants.ProtocolVersion;
 			buffer[1] = (byte)clientMethods.Count;

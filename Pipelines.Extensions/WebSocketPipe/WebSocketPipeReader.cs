@@ -34,37 +34,40 @@ namespace Pipelines.Extensions.WebSocketPipe
 
 		private Task WrapWriterAsync(CancellationToken cancellationToken)
 		{
-			return Task.Run(async () =>
-			{
-				try
+			return Task.Run(
+				async () =>
 				{
-					while (true)
+					try
 					{
-						var memory = Writer.GetMemory(_options.SizeHint);
-
-						var readResult = await InternalWebSocket.ReceiveAsync(memory, cancellationToken);
-
-						if (readResult.Count is 0)
+						while (true)
 						{
-							break;
+							var memory = Writer.GetMemory(_options.SizeHint);
+
+							var readResult = await InternalWebSocket.ReceiveAsync(memory, cancellationToken);
+
+							if (readResult.Count is 0)
+							{
+								break;
+							}
+
+							Writer.Advance(readResult.Count);
+
+							var flushResult = await Writer.FlushAsync(cancellationToken);
+							if (flushResult.IsCompleted)
+							{
+								break;
+							}
 						}
 
-						Writer.Advance(readResult.Count);
-
-						var flushResult = await Writer.FlushAsync(cancellationToken);
-						if (flushResult.IsCompleted)
-						{
-							break;
-						}
+						await Writer.CompleteAsync();
 					}
-
-					await Writer.CompleteAsync();
-				}
-				catch (Exception ex)
-				{
-					await Writer.CompleteAsync(ex);
-				}
-			}, cancellationToken);
+					catch (Exception ex)
+					{
+						await Writer.CompleteAsync(ex);
+					}
+				},
+				cancellationToken
+			);
 		}
 
 		public override void AdvanceTo(SequencePosition consumed)

@@ -62,7 +62,13 @@ namespace Shadowsocks.Crypto.AEAD
 		private IAEADCrypto CreateSessionCrypto()
 		{
 			var sessionKey = SessionKeySpan;
-			Hkdf.DeriveKey(DigestType.Sha1, MasterKeySpan, sessionKey, SaltSpan, ShadowsocksCrypto.InfoBytes);
+			Hkdf.DeriveKey(
+				DigestType.Sha1,
+				MasterKeySpan,
+				sessionKey,
+				SaltSpan,
+				ShadowsocksCrypto.InfoBytes
+			);
 			return CreateCrypto(sessionKey);
 		}
 
@@ -92,10 +98,22 @@ namespace Shadowsocks.Crypto.AEAD
 			var nonce = NonceSpan;
 
 			var unused = 0;
-			CipherEncrypt(_crypto!, payloadLengthBuffer, destination, ref unused, ref outLength);
+			CipherEncrypt(
+				_crypto!,
+				payloadLengthBuffer,
+				destination,
+				ref unused,
+				ref outLength
+			);
 			nonce.Increment();
 
-			CipherEncrypt(_crypto!, source, destination[(PayloadLengthBytes + TagLength)..], ref processLength, ref outLength);
+			CipherEncrypt(
+				_crypto!,
+				source,
+				destination[(PayloadLengthBytes + TagLength)..],
+				ref processLength,
+				ref outLength
+			);
 			nonce.Increment();
 
 			return true;
@@ -197,8 +215,12 @@ namespace Shadowsocks.Crypto.AEAD
 				var remain = source[processLength..];
 				var chunkLength = Math.Min(PayloadLengthLimit, remain.Length);
 
-				if (!EncryptChunk(remain[..chunkLength], destination[outLength..],
-					ref processLength, ref outLength))
+				if (!EncryptChunk(
+					remain[..chunkLength],
+					destination[outLength..],
+					ref processLength,
+					ref outLength
+				))
 				{
 					return;
 				}
@@ -241,7 +263,13 @@ namespace Shadowsocks.Crypto.AEAD
 			salt.CopyTo(destination);
 			var outLength = SaltLength;
 
-			CipherEncrypt(crypto, source, destination[SaltLength..], ref processLength, ref outLength);
+			CipherEncrypt(
+				crypto,
+				source,
+				destination[SaltLength..],
+				ref processLength,
+				ref outLength
+			);
 
 			return outLength;
 		}
@@ -256,7 +284,8 @@ namespace Shadowsocks.Crypto.AEAD
 				NonceSpan,
 				source.Slice(SaltLength, realLength),
 				source.Slice(SaltLength + realLength, TagLength),
-				destination[..realLength]);
+				destination[..realLength]
+			);
 
 			return realLength;
 		}

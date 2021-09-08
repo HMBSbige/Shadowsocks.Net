@@ -246,7 +246,7 @@ namespace HttpProxy
 			#endregion
 
 			return true;
-InvalidRequest:
+		InvalidRequest:
 			httpHeaders = null;
 			return false;
 		}

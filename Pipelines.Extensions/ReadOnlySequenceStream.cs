@@ -84,10 +84,10 @@ namespace Pipelines.Extensions
 
 			var pos = origin switch
 			{
-				SeekOrigin.Begin => default,
+				SeekOrigin.Begin   => default,
 				SeekOrigin.Current => Position,
-				SeekOrigin.End => _readOnlySequence.Length,
-				_ => throw Requires.FailRange(nameof(origin))
+				SeekOrigin.End     => _readOnlySequence.Length,
+				_                  => throw Requires.FailRange(nameof(origin))
 			};
 
 			_position = _readOnlySequence.GetPosition(offset + pos);

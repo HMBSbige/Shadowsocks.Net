@@ -15,7 +15,8 @@ namespace HttpProxy
 
 		// https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers
 		private static readonly ImmutableHashSet<string> HopByHopHeaders =
-			ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase,
+			ImmutableHashSet.Create(
+				StringComparer.OrdinalIgnoreCase,
 				@"CONNECTION",
 				@"KEEP-ALIVE",
 				@"PROXY-AUTHENTICATE",
@@ -24,17 +25,18 @@ namespace HttpProxy
 				@"TRAILER",
 				@"TRANSFER-ENCODING",
 				@"UPGRADE",
-				@"Proxy-Connection");
+				@"Proxy-Connection"
+			);
 
 		internal static string BuildErrorResponse(ConnectionErrorResult error, string httpVersion)
 		{
 			return error switch
 			{
 				ConnectionErrorResult.AuthenticationError => $"{httpVersion} 401 Unauthorized\r\n\r\n",
-				ConnectionErrorResult.HostUnreachable => $"{httpVersion} 502 {error}\r\n\r\n",
-				ConnectionErrorResult.ConnectionRefused => $"{httpVersion} 502 {error}\r\n\r\n",
-				ConnectionErrorResult.ConnectionReset => $"{httpVersion} 502 {error}\r\n\r\n",
-				_ => $"{httpVersion} 500 Internal Server Error\r\nX-Proxy-Error-Type: {error}\r\n\r\n"
+				ConnectionErrorResult.HostUnreachable     => $"{httpVersion} 502 {error}\r\n\r\n",
+				ConnectionErrorResult.ConnectionRefused   => $"{httpVersion} 502 {error}\r\n\r\n",
+				ConnectionErrorResult.ConnectionReset     => $"{httpVersion} 502 {error}\r\n\r\n",
+				_                                         => $"{httpVersion} 500 Internal Server Error\r\nX-Proxy-Error-Type: {error}\r\n\r\n"
 			};
 		}
 

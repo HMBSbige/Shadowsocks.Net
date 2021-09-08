@@ -80,7 +80,8 @@ namespace Socks5.Utils
 			return true;
 		}
 
-		public static int DestinationAddress(AddressType type, ReadOnlySpan<byte> bytes,
+		public static int DestinationAddress(
+			AddressType type, ReadOnlySpan<byte> bytes,
 			out IPAddress? address, out string? domain)
 		{
 			address = null;
@@ -203,8 +204,7 @@ namespace Socks5.Utils
 			}
 		}
 
-		public static bool ReadServerReplyCommand(
-			ref ReadOnlySequence<byte> buffer, out ServerBound bound)
+		public static bool ReadServerReplyCommand(ref ReadOnlySequence<byte> buffer, out ServerBound bound)
 		{
 			// +----+-----+-------+------+----------+----------+
 			// |VER | REP |  RSV  | ATYP | BND.ADDR | BND.PORT |

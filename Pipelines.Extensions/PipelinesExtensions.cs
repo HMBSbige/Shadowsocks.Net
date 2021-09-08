@@ -23,7 +23,8 @@ namespace Pipelines.Extensions
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static IDuplexPipe AsDuplexPipe(this Stream stream,
+		public static IDuplexPipe AsDuplexPipe(
+			this Stream stream,
 			StreamPipeReaderOptions? readerOptions = null,
 			StreamPipeWriterOptions? writerOptions = null)
 		{
@@ -37,7 +38,8 @@ namespace Pipelines.Extensions
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static IDuplexPipe AsDuplexPipe(this Socket socket,
+		public static IDuplexPipe AsDuplexPipe(
+			this Socket socket,
 			SocketPipeReaderOptions? readerOptions = null,
 			SocketPipeWriterOptions? writerOptions = null)
 		{
@@ -48,7 +50,8 @@ namespace Pipelines.Extensions
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public static IDuplexPipe AsDuplexPipe(this WebSocket webSocket,
+		public static IDuplexPipe AsDuplexPipe(
+			this WebSocket webSocket,
 			WebSocketPipeReaderOptions? readerOptions = null,
 			WebSocketPipeWriterOptions? writerOptions = null)
 		{

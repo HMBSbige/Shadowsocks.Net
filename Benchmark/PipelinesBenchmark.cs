@@ -35,18 +35,20 @@ namespace Benchmark
 		[Benchmark(Baseline = true)]
 		public async Task StreamAsync()
 		{
-			var t = Task.Run(async () =>
-			{
-				using var tcpClient = await _server.AcceptTcpClientAsync();
-				var reader = tcpClient.GetStream().AsPipeReader();
-				var read = 0L;
-				while (read < Length)
+			var t = Task.Run(
+				async () =>
 				{
-					var result = await reader.ReadAsync();
-					read += result.Buffer.Length;
-					reader.AdvanceTo(result.Buffer.End);
+					using var tcpClient = await _server.AcceptTcpClientAsync();
+					var reader = tcpClient.GetStream().AsPipeReader();
+					var read = 0L;
+					while (read < Length)
+					{
+						var result = await reader.ReadAsync();
+						read += result.Buffer.Length;
+						reader.AdvanceTo(result.Buffer.End);
+					}
 				}
-			});
+			);
 
 			using var client = new TcpClient();
 			await client.ConnectAsync(IPAddress.Loopback, _serverPort);
@@ -63,18 +65,20 @@ namespace Benchmark
 		[Benchmark]
 		public async Task SocketAsync()
 		{
-			var t = Task.Run(async () =>
-			{
-				using var socket = await _server.AcceptSocketAsync();
-				var reader = socket.AsPipeReader();
-				var read = 0L;
-				while (read < Length)
+			var t = Task.Run(
+				async () =>
 				{
-					var result = await reader.ReadAsync();
-					read += result.Buffer.Length;
-					reader.AdvanceTo(result.Buffer.End);
+					using var socket = await _server.AcceptSocketAsync();
+					var reader = socket.AsPipeReader();
+					var read = 0L;
+					while (read < Length)
+					{
+						var result = await reader.ReadAsync();
+						read += result.Buffer.Length;
+						reader.AdvanceTo(result.Buffer.End);
+					}
 				}
-			});
+			);
 
 			using var client = new TcpClient();
 			await client.ConnectAsync(IPAddress.Loopback, _serverPort);

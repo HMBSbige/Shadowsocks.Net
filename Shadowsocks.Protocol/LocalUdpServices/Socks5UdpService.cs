@@ -27,13 +27,15 @@ namespace Shadowsocks.Protocol.LocalUdpServices
 
 		private readonly MemoryCacheEntryOptions _cacheOptions = new MemoryCacheEntryOptions()
 			.SetSlidingExpiration(TimeSpan.FromMinutes(1))
-			.RegisterPostEvictionCallback((key, value, reason, state) =>
-			{
-				if (value is System.IAsyncDisposable disposable)
+			.RegisterPostEvictionCallback(
+				(key, value, reason, state) =>
 				{
-					disposable.DisposeAsync().Forget();
+					if (value is System.IAsyncDisposable disposable)
+					{
+						disposable.DisposeAsync().Forget();
+					}
 				}
-			});
+			);
 
 		public Socks5UdpService(
 			ILogger<Socks5UdpService> logger,
@@ -67,7 +69,7 @@ namespace Shadowsocks.Protocol.LocalUdpServices
 				var target = socks5UdpPacket.Type switch
 				{
 					AddressType.Domain => socks5UdpPacket.Domain!,
-					_ => socks5UdpPacket.Address!.ToString()
+					_                  => socks5UdpPacket.Address!.ToString()
 				};
 
 				if (!_cache.TryGetValue(receiveResult.RemoteEndPoint, out IUdpClient client))
@@ -91,7 +93,8 @@ namespace Shadowsocks.Protocol.LocalUdpServices
 					await incoming.Client.SendToAsync(
 						new ArraySegment<byte>(receiveBuffer, 0, 3 + receiveLength),
 						SocketFlags.None,
-						receiveResult.RemoteEndPoint);
+						receiveResult.RemoteEndPoint
+					);
 				}
 				finally
 				{

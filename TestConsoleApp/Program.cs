@@ -16,15 +16,15 @@ using TestConsoleApp;
 const string outputTemplate = @"[{Timestamp:yyyy-MM-dd HH:mm:ss}] [{Level}] {Message:lj}{NewLine}{Exception}";
 Log.Logger = new LoggerConfiguration()
 #if DEBUG
-		.MinimumLevel.Debug()
+	.MinimumLevel.Debug()
 #else
-		.MinimumLevel.Information()
+	.MinimumLevel.Information()
 #endif
-		.MinimumLevel.Override(@"Microsoft", LogEventLevel.Information)
-		.MinimumLevel.Override(@"Volo.Abp", LogEventLevel.Warning)
-		.Enrich.FromLogContext()
-		.WriteTo.Async(c => c.Console(outputTemplate: outputTemplate))
-		.CreateLogger();
+	.MinimumLevel.Override(@"Microsoft", LogEventLevel.Information)
+	.MinimumLevel.Override(@"Volo.Abp", LogEventLevel.Warning)
+	.Enrich.FromLogContext()
+	.WriteTo.Async(c => c.Console(outputTemplate: outputTemplate))
+	.CreateLogger();
 
 var services = new ServiceCollection();
 services.AddLogging(c => c.AddSerilog());
@@ -61,7 +61,8 @@ var tcp = new TcpListenService(
 	{
 		socks5Service,
 		httpService
-	});
+	}
+);
 
 var udp = new UdpListenService(
 	provide.GetRequiredService<ILogger<UdpListenService>>(),
@@ -69,7 +70,8 @@ var udp = new UdpListenService(
 	new ILocalUdpService[]
 	{
 		socks5UdpService
-	});
+	}
+);
 
 await Task.WhenAny(tcp.StartAsync().AsTask(), udp.StartAsync().AsTask());
 

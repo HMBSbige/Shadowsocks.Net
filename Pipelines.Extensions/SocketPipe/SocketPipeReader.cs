@@ -35,37 +35,40 @@ namespace Pipelines.Extensions.SocketPipe
 
 		private Task WrapWriterAsync(CancellationToken cancellationToken)
 		{
-			return Task.Run(async () =>
-			{
-				try
+			return Task.Run(
+				async () =>
 				{
-					while (true)
+					try
 					{
-						var memory = Writer.GetMemory(_options.SizeHint);
-
-						var readLength = await InternalSocket.ReceiveAsync(memory, _options.SocketFlags, cancellationToken);
-
-						if (readLength is 0)
+						while (true)
 						{
-							break;
+							var memory = Writer.GetMemory(_options.SizeHint);
+
+							var readLength = await InternalSocket.ReceiveAsync(memory, _options.SocketFlags, cancellationToken);
+
+							if (readLength is 0)
+							{
+								break;
+							}
+
+							Writer.Advance(readLength);
+
+							var flushResult = await Writer.FlushAsync(cancellationToken);
+							if (flushResult.IsCompleted)
+							{
+								break;
+							}
 						}
 
-						Writer.Advance(readLength);
-
-						var flushResult = await Writer.FlushAsync(cancellationToken);
-						if (flushResult.IsCompleted)
-						{
-							break;
-						}
+						await Writer.CompleteAsync();
 					}
-
-					await Writer.CompleteAsync();
-				}
-				catch (Exception ex)
-				{
-					await Writer.CompleteAsync(ex);
-				}
-			}, cancellationToken);
+					catch (Exception ex)
+					{
+						await Writer.CompleteAsync(ex);
+					}
+				},
+				cancellationToken
+			);
 		}
 
 		public override void AdvanceTo(SequencePosition consumed)

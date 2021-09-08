@@ -94,26 +94,30 @@ namespace UnitTest
 		[DataRow(@"sm4-cfb")]
 		public void WrongMethod(string method)
 		{
-			Assert.ThrowsException<ArgumentException>(() =>
-			{
-				using var crypto = ShadowsocksCrypto.Create(method, string.Empty);
-			});
+			Assert.ThrowsException<ArgumentException>(
+				() =>
+				{
+					using var crypto = ShadowsocksCrypto.Create(method, string.Empty);
+				}
+			);
 		}
 
 		[TestMethod]
 		public void SetIv()
 		{
-			Assert.ThrowsException<ArgumentException>(() =>
-			{
-				using var crypto = new ChaCha20IETFShadowsocksCrypto(Password);
-				Span<byte> iv = new byte[crypto.IvLength];
-				RandomNumberGenerator.Fill(iv);
+			Assert.ThrowsException<ArgumentException>(
+				() =>
+				{
+					using var crypto = new ChaCha20IETFShadowsocksCrypto(Password);
+					Span<byte> iv = new byte[crypto.IvLength];
+					RandomNumberGenerator.Fill(iv);
 
-				crypto.SetIv(iv);
-				Assert.IsTrue(crypto.Iv.AsSpan(0, crypto.IvLength).SequenceEqual(iv));
+					crypto.SetIv(iv);
+					Assert.IsTrue(crypto.Iv.AsSpan(0, crypto.IvLength).SequenceEqual(iv));
 
-				crypto.SetIv(Array.Empty<byte>());
-			});
+					crypto.SetIv(Array.Empty<byte>());
+				}
+			);
 		}
 
 		[TestMethod]

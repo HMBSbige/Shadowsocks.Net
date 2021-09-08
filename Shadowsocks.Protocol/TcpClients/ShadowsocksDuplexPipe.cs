@@ -49,48 +49,52 @@ namespace Shadowsocks.Protocol.TcpClients
 			CancellationToken cancellationToken = default)
 		{
 			var pipe = new Pipe(pipeOptions);
-			Task.Run(async () =>
-			{
-				try
-				{
-					while (true)
+			Task.Run(
+					async () =>
 					{
-						var result = await pipe.Reader.ReadAsync(cancellationToken);
-						var buffer = result.Buffer;
-
-						if (!buffer.IsEmpty)
+						try
 						{
-							foreach (var segment in buffer)
+							while (true)
 							{
-								SendToRemote(encryptor, _upPipe.Output, segment.Span);
+								var result = await pipe.Reader.ReadAsync(cancellationToken);
+								var buffer = result.Buffer;
+
+								if (!buffer.IsEmpty)
+								{
+									foreach (var segment in buffer)
+									{
+										SendToRemote(encryptor, _upPipe.Output, segment.Span);
+									}
+
+									var flushResult = await _upPipe.Output.FlushAsync(cancellationToken);
+									if (flushResult.IsCompleted)
+									{
+										break;
+									}
+								}
+
+								pipe.Reader.AdvanceTo(buffer.End);
+
+								if (result.IsCompleted)
+								{
+									break;
+								}
 							}
 
-							var flushResult = await _upPipe.Output.FlushAsync(cancellationToken);
-							if (flushResult.IsCompleted)
-							{
-								break;
-							}
+							await pipe.Reader.CompleteAsync();
 						}
-
-						pipe.Reader.AdvanceTo(buffer.End);
-
-						if (result.IsCompleted)
+						catch (Exception ex)
 						{
-							break;
+							await pipe.Reader.CompleteAsync(ex);
 						}
-					}
-
-					await pipe.Reader.CompleteAsync();
-				}
-				catch (Exception ex)
-				{
-					await pipe.Reader.CompleteAsync(ex);
-				}
-				finally
-				{
-					encryptor.Dispose();
-				}
-			}, cancellationToken).Forget();
+						finally
+						{
+							encryptor.Dispose();
+						}
+					},
+					cancellationToken
+				)
+				.Forget();
 			return pipe.Writer;
 		}
 
@@ -100,48 +104,52 @@ namespace Shadowsocks.Protocol.TcpClients
 			CancellationToken cancellationToken = default)
 		{
 			var pipe = new Pipe(pipeOptions);
-			Task.Run(async () =>
-			{
-				try
-				{
-					while (true)
+			Task.Run(
+					async () =>
 					{
-						var result = await _upPipe.Input.ReadAndCheckIsCanceledAsync(cancellationToken);
-
-						var buffer = result.Buffer;
 						try
 						{
-							if (ReceiveFromRemote(decryptor, pipe.Writer, ref buffer))
+							while (true)
 							{
-								var writerFlushResult = await pipe.Writer.FlushAsync(cancellationToken);
-								if (writerFlushResult.IsCompleted)
+								var result = await _upPipe.Input.ReadAndCheckIsCanceledAsync(cancellationToken);
+
+								var buffer = result.Buffer;
+								try
 								{
-									break;
+									if (ReceiveFromRemote(decryptor, pipe.Writer, ref buffer))
+									{
+										var writerFlushResult = await pipe.Writer.FlushAsync(cancellationToken);
+										if (writerFlushResult.IsCompleted)
+										{
+											break;
+										}
+									}
+
+									if (result.IsCompleted)
+									{
+										break;
+									}
+								}
+								finally
+								{
+									_upPipe.Input.AdvanceTo(buffer.Start, buffer.End);
 								}
 							}
 
-							if (result.IsCompleted)
-							{
-								break;
-							}
+							await pipe.Writer.CompleteAsync();
+						}
+						catch (Exception ex)
+						{
+							await pipe.Writer.CompleteAsync(ex);
 						}
 						finally
 						{
-							_upPipe.Input.AdvanceTo(buffer.Start, buffer.End);
+							decryptor.Dispose();
 						}
-					}
-
-					await pipe.Writer.CompleteAsync();
-				}
-				catch (Exception ex)
-				{
-					await pipe.Writer.CompleteAsync(ex);
-				}
-				finally
-				{
-					decryptor.Dispose();
-				}
-			}, cancellationToken).Forget();
+					},
+					cancellationToken
+				)
+				.Forget();
 			return pipe.Reader;
 		}
 
