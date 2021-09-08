@@ -32,14 +32,14 @@ namespace HttpProxy
 		public async ValueTask ForwardToSocks5Async(IDuplexPipe incomingPipe, Socks5CreateOption socks5CreateOption, CancellationToken cancellationToken = default)
 		{
 			var headers = await ReadHttpHeadersAsync(incomingPipe.Input, cancellationToken);
-			_logger.LogDebug("{0} Client headers received: \n{1}", LogHeader, headers);
+			_logger.LogDebug("{LogHeader} Client headers received: \n{Headers}", LogHeader, headers);
 
 			if (!TryParseHeader(headers, out var httpHeaders))
 			{
 				await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.InvalidRequest, token: cancellationToken);
 				return;
 			}
-			_logger.LogDebug("{0} New request headers: \n{1}", LogHeader, httpHeaders);
+			_logger.LogDebug("{LogHeader} New request headers: \n{Headers}", LogHeader, httpHeaders);
 
 			if (httpHeaders.IsConnect)
 			{
@@ -72,16 +72,16 @@ namespace HttpProxy
 				await socks5Pipe.Output.WriteAsync(httpHeaders.Request, cancellationToken);
 				if (httpHeaders.ContentLength > 0)
 				{
-					_logger.LogDebug(@"{0} Waiting for up to {1} bytes from client", LogHeader, httpHeaders.ContentLength);
+					_logger.LogDebug(@"{LogHeader} Waiting for up to {ContentLength} bytes from client", LogHeader, httpHeaders.ContentLength);
 
 					var readLength = await incomingPipe.Input.CopyToAsync(socks5Pipe.Output, httpHeaders.ContentLength, cancellationToken);
 
-					_logger.LogDebug(@"{0} client sent {1} bytes to server", LogHeader, readLength);
+					_logger.LogDebug(@"{LogHeader} client sent {ClientSentLength} bytes to server", LogHeader, readLength);
 				}
 
 				//Read response
 				var responseHeadersStr = await ReadHttpHeadersAsync(socks5Pipe.Input, cancellationToken);
-				_logger.LogDebug("{0} server headers received: \n{1}", LogHeader, responseHeadersStr);
+				_logger.LogDebug("{LogHeader} server headers received: \n{Headers}", LogHeader, responseHeadersStr);
 				var responseHeaders = ReadHeaders(responseHeadersStr);
 
 				incomingPipe.Output.Write(responseHeadersStr);
@@ -96,11 +96,11 @@ namespace HttpProxy
 				{
 					if (serverResponseContentLength > 0)
 					{
-						_logger.LogDebug(@"{0} Waiting for up to {1} bytes from server", LogHeader, serverResponseContentLength);
+						_logger.LogDebug(@"{LogHeader} Waiting for up to {ContentLength} bytes from server", LogHeader, serverResponseContentLength);
 
 						var readLength = await socks5Pipe.Input.CopyToAsync(incomingPipe.Output, serverResponseContentLength, cancellationToken);
 
-						_logger.LogDebug(@"{0} server sent {1} bytes to client", LogHeader, readLength);
+						_logger.LogDebug(@"{LogHeader} server sent {ServerSentLength} bytes to client", LogHeader, readLength);
 					}
 				}
 			}

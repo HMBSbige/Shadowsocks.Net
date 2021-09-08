@@ -2,15 +2,15 @@ namespace Shadowsocks.Protocol.Models
 {
 	public record ShadowsocksServerInfo
 	{
-		public string? Address { set; get; }
+		public string? Address { get; set; }
 
-		public ushort Port { set; get; }
+		public ushort Port { get; set; }
 
-		public string? Password { set; get; }
+		public string? Password { get; set; }
 
-		public string? Method { set; get; }
+		public string? Method { get; set; }
 
-		public string? Remark { set; get; }
+		public string? Remark { get; set; }
 
 		public override string? ToString()
 		{

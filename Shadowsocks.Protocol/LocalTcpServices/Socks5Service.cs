@@ -59,7 +59,7 @@ namespace Shadowsocks.Protocol.LocalTcpServices
 
 					await using var client = await _serversController.GetServerAsync(target);
 
-					_logger.LogInformation($@"SOCKS5 Connect to {target} via {client}");
+					_logger.LogInformation(@"SOCKS5 Connect to {Target} via {Client}", target, client);
 
 					var bound = new ServerBound
 					{

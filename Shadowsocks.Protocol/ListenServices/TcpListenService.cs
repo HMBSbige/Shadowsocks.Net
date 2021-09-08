@@ -41,20 +41,20 @@ namespace Shadowsocks.Protocol.ListenServices
 			try
 			{
 				TCPListener.Start();
-				_logger.LogInformation(@"{0} {1} Start", LoggerHeader, TCPListener.LocalEndpoint);
+				_logger.LogInformation(@"{LoggerHeader} {$Local} Start", LoggerHeader, TCPListener.LocalEndpoint);
 
 				while (!_cts.IsCancellationRequested)
 				{
 					var socket = await TCPListener.AcceptSocketAsync();
 					socket.NoDelay = true;
 
-					_logger.LogInformation(@"{0} {1} => {2}", LoggerHeader, socket.RemoteEndPoint, socket.LocalEndPoint);
+					_logger.LogInformation(@"{LoggerHeader} {$Remote} => {$Local}", LoggerHeader, socket.RemoteEndPoint, socket.LocalEndPoint);
 					HandleAsync(socket, _cts.Token).Forget();
 				}
 			}
 			catch (Exception ex)
 			{
-				_logger.LogError(ex, @"{0} {1} Stop!", LoggerHeader, TCPListener.LocalEndpoint);
+				_logger.LogError(ex, @"{LoggerHeader} {$Local} Stop!", LoggerHeader, TCPListener.LocalEndpoint);
 				Stop();
 			}
 		}
@@ -95,12 +95,12 @@ namespace Shadowsocks.Protocol.ListenServices
 			}
 			catch (Exception ex)
 			{
-				_logger.LogError(ex, @"{0} Handle Error", LoggerHeader);
+				_logger.LogError(ex, @"{LoggerHeader} Handle Error", LoggerHeader);
 			}
 			finally
 			{
 				socket.FullClose();
-				_logger.LogInformation(@"{0} {1} disconnected", LoggerHeader, remoteEndPoint);
+				_logger.LogInformation(@"{LoggerHeader} {$Remote} disconnected", LoggerHeader, remoteEndPoint);
 			}
 		}
 

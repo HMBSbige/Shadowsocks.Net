@@ -79,7 +79,7 @@ namespace Shadowsocks.Protocol.LocalUdpServices
 					_cache.Set(receiveResult.RemoteEndPoint, client, _cacheOptions);
 				}
 
-				_logger.LogInformation(@"Udp Send to {0} via {1}", target, client);
+				_logger.LogInformation(@"Udp Send to {Target} via {Client}", target, client);
 				var sendBuffer = receiveResult.Buffer.AsMemory(3); //TODO Only support ss now
 				await client.SendAsync(sendBuffer, cancellationToken);
 

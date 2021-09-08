@@ -61,8 +61,8 @@ namespace Pipelines.Extensions
 				{
 					buffer = buffer.Slice(0, size);
 				}
-				SequencePosition position = buffer.Start;
-				SequencePosition consumed = position;
+				var position = buffer.Start;
+				var consumed = position;
 
 				try
 				{
