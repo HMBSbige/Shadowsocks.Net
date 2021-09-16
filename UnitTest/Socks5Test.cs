@@ -1,6 +1,5 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.VisualStudio.Threading;
-using Socks5.Enums;
 using Socks5.Models;
 using Socks5.Servers;
 using Socks5.Utils;
@@ -50,15 +49,6 @@ namespace UnitTest
 				Password = @"1919810￥"
 			};
 			var server = new SimpleSocks5Server(serverEndpoint, userPass);
-			var udpServer = new SimpleSocks5UdpServer(serverEndpoint);
-			udpServer.StartAsync().Forget();
-			server.ReplyUdpBound = new ServerBound
-			{
-				Type = AddressType.IPv4,
-				Address = ((IPEndPoint)udpServer.UdpListener.Client.LocalEndPoint!).Address,
-				Domain = default,
-				Port = (ushort)((IPEndPoint)udpServer.UdpListener.Client.LocalEndPoint!).Port,
-			};
 			server.StartAsync().Forget();
 			try
 			{
@@ -74,7 +64,6 @@ namespace UnitTest
 			finally
 			{
 				server.Stop();
-				udpServer.Stop();
 			}
 		}
 	}

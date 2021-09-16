@@ -1,5 +1,4 @@
 using Microsoft;
-using Microsoft.VisualStudio.Threading;
 using Socks5.Enums;
 using Socks5.Utils;
 using System;
@@ -14,14 +13,21 @@ namespace Socks5.Servers
 	/// <summary>
 	/// Just for test use only
 	/// </summary>
-	public class SimpleSocks5UdpServer
+	public class SimpleSocks5UdpServer : IDisposable
 	{
 		public UdpClient UdpListener { get; }
+		private readonly IPEndPoint _remoteEndpoint;
 
 		private readonly CancellationTokenSource _cts;
 
-		public SimpleSocks5UdpServer(IPEndPoint bindEndPoint)
+		private const int MaxUdpSize = 0x10000;
+
+		public SimpleSocks5UdpServer(IPEndPoint bindEndPoint, IPEndPoint remoteEndpoint)
 		{
+			_remoteEndpoint = remoteEndpoint;
+			Requires.NotNull(bindEndPoint, nameof(bindEndPoint));
+			Requires.NotNull(remoteEndpoint, nameof(remoteEndpoint));
+
 			UdpListener = new UdpClient(bindEndPoint);
 
 			_cts = new CancellationTokenSource();
@@ -35,13 +41,15 @@ namespace Socks5.Servers
 				{
 					//TODO .NET6.0
 					var message = await UdpListener.ReceiveAsync();
-
-					HandleAsync(message, _cts.Token).Forget();
+					if (Equals(message.RemoteEndPoint.Address, _remoteEndpoint.Address))
+					{
+						await HandleAsync(message, _cts.Token);
+					}
 				}
 			}
 			catch (Exception)
 			{
-				Stop();
+				Dispose();
 			}
 		}
 
@@ -74,7 +82,7 @@ namespace Socks5.Servers
 			await client.Client.SendAsync(socks5UdpPacket.Data, SocketFlags.None, token);
 
 			var headerLength = result.Buffer.Length - socks5UdpPacket.Data.Length;
-			var receiveBuffer = ArrayPool<byte>.Shared.Rent(0x10000);
+			var receiveBuffer = ArrayPool<byte>.Shared.Rent(MaxUdpSize);
 			try
 			{
 				var receiveLength = await client.Client.ReceiveAsync(receiveBuffer.AsMemory(headerLength), SocketFlags.None, token);
@@ -93,7 +101,7 @@ namespace Socks5.Servers
 			}
 		}
 
-		public void Stop()
+		public void Dispose()
 		{
 			try
 			{

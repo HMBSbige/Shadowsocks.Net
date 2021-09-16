@@ -26,14 +26,6 @@ namespace Socks5.Servers
 			Port = IPEndPoint.MinPort,
 		};
 
-		public ServerBound ReplyUdpBound { get; set; } = new()
-		{
-			Type = AddressType.IPv4,
-			Address = IPAddress.Any,
-			Domain = default,
-			Port = IPEndPoint.MinPort,
-		};
-
 		private readonly UsernamePassword? _credential;
 		private readonly CancellationTokenSource _cts;
 
@@ -102,11 +94,25 @@ namespace Socks5.Servers
 					}
 					case Command.UdpAssociate:
 					{
-						await service.SendReplyAsync(Socks5Reply.Succeeded, ReplyUdpBound, token);
+						var remote = (IPEndPoint)socket.RemoteEndPoint!;
+						var local = new IPEndPoint(((IPEndPoint)TcpListener.LocalEndpoint).Address, IPEndPoint.MinPort);
+						using var udpServer = new SimpleSocks5UdpServer(local, remote);
+						udpServer.StartAsync().Forget();
+
+						ServerBound replyUdpBound = new()
+						{
+							Type = AddressType.IPv4,
+							Address = local.Address,
+							Domain = default,
+							Port = (ushort)((IPEndPoint)udpServer.UdpListener.Client.LocalEndPoint!).Port,
+						};
+
+						await service.SendReplyAsync(Socks5Reply.Succeeded, replyUdpBound, token);
 
 						// wait remote close
 						var result = await pipe.Input.ReadAsync(token);
 						Report.IfNot(result.IsCompleted);
+
 						break;
 					}
 					default:
