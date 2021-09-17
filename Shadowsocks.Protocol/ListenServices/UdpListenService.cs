@@ -38,7 +38,7 @@ namespace Shadowsocks.Protocol.ListenServices
 			try
 			{
 				UdpListener.Client.Bind(_local);
-				_logger.LogInformation(@"{LoggerHeader} {$Local} Start", LoggerHeader, UdpListener.Client.LocalEndPoint);
+				_logger.LogInformation(@"{LoggerHeader} {Local} Start", LoggerHeader, UdpListener.Client.LocalEndPoint);
 
 				while (!_cts.IsCancellationRequested)
 				{
@@ -46,7 +46,7 @@ namespace Shadowsocks.Protocol.ListenServices
 					var message = await UdpListener.ReceiveAsync();
 #if DEBUG
 					_logger.LogDebug(
-						@"{LoggerHeader}: {ReceiveLength} bytes {Remote} => {$Local}",
+						@"{LoggerHeader}: {ReceiveLength} bytes {Remote} => {Local}",
 						LoggerHeader,
 						message.Buffer.Length,
 						message.RemoteEndPoint,
@@ -58,7 +58,7 @@ namespace Shadowsocks.Protocol.ListenServices
 			}
 			catch (Exception ex)
 			{
-				_logger.LogError(ex, @"{$Local} Stop!", UdpListener.Client.LocalEndPoint);
+				_logger.LogError(ex, @"{Local} Stop!", UdpListener.Client.LocalEndPoint);
 				Stop();
 			}
 		}

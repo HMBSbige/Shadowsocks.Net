@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
-using Microsoft.VisualStudio.Threading;
 using Shadowsocks.Protocol.ServersControllers;
 using Shadowsocks.Protocol.UdpClients;
 using Socks5.Enums;
@@ -30,9 +29,9 @@ namespace Shadowsocks.Protocol.LocalUdpServices
 			.RegisterPostEvictionCallback(
 				(key, value, reason, state) =>
 				{
-					if (value is System.IAsyncDisposable disposable)
+					if (value is IDisposable disposable)
 					{
-						disposable.DisposeAsync().Forget();
+						disposable.Dispose();
 					}
 				}
 			);

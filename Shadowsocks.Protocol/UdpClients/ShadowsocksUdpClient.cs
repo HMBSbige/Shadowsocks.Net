@@ -1,4 +1,5 @@
 using Microsoft;
+using Pipelines.Extensions;
 using Shadowsocks.Crypto;
 using Shadowsocks.Protocol.Models;
 using System;
@@ -13,39 +14,51 @@ namespace Shadowsocks.Protocol.UdpClients
 	{
 		private readonly ShadowsocksServerInfo _serverInfo;
 
-		private const int MaxUDPSize = 0x10000;
+		private const int MaxUdpSize = 0x10000;
 
-		public UdpClient Client { get; }
+		private readonly Socket _client;
 
-		public ShadowsocksUdpClient(ShadowsocksServerInfo serverInfo, bool isIPv6 = false)
+		public ShadowsocksUdpClient(ShadowsocksServerInfo serverInfo)
 		{
+			Requires.NotNull(serverInfo, nameof(serverInfo));
+			Requires.NotNullAllowStructs(serverInfo.Method, nameof(serverInfo));
+			Requires.NotNullAllowStructs(serverInfo.Password, nameof(serverInfo));
+			Requires.NotNullAllowStructs(serverInfo.Address, nameof(serverInfo));
+
 			_serverInfo = serverInfo;
 
-			Client = new UdpClient(0, isIPv6 ? AddressFamily.InterNetworkV6 : AddressFamily.InterNetwork);
+			_client = new Socket(SocketType.Dgram, ProtocolType.Udp);
+			_client.Connect(serverInfo.Address, serverInfo.Port);
 		}
 
 		public async ValueTask<int> ReceiveAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
 		{
-			//TODO .NET6.0
-			var res = await Client.ReceiveAsync();
+			var encBuffer = ArrayPool<byte>.Shared.Rent(MaxUdpSize);
+			try
+			{
+				var res = await _client.ReceiveAsync(encBuffer, SocketFlags.None, cancellationToken);
 
-			using var decryptor = ShadowsocksCrypto.Create(_serverInfo.Method!, _serverInfo.Password!);
+				using var decryptor = ShadowsocksCrypto.Create(_serverInfo.Method!, _serverInfo.Password!);
 
-			return decryptor.DecryptUDP(res.Buffer, buffer.Span);
+				return decryptor.DecryptUDP(encBuffer.AsSpan(0, res), buffer.Span);
+			}
+			finally
+			{
+				ArrayPool<byte>.Shared.Return(encBuffer);
+			}
 		}
 
 		public async ValueTask<int> SendAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
 		{
-			using var encryptor = ShadowsocksCrypto.Create(_serverInfo.Method!, _serverInfo.Password!);
-			var encBuffer = ArrayPool<byte>.Shared.Rent(MaxUDPSize);
+			var encBuffer = ArrayPool<byte>.Shared.Rent(MaxUdpSize);
 			try
 			{
+				using var encryptor = ShadowsocksCrypto.Create(_serverInfo.Method!, _serverInfo.Password!);
 				var length = encryptor.EncryptUDP(buffer.Span, encBuffer);
 
-				//TODO .NET6.0
-				var sendLength = await Client.SendAsync(encBuffer, length, _serverInfo.Address, _serverInfo.Port);
+				var sendLength = await _client.SendAsync(encBuffer.AsMemory(0, length), SocketFlags.None, cancellationToken);
 				Report.IfNot(sendLength == length, @"Send Udp {0}/{1}", sendLength, length);
-				return sendLength == length ? buffer.Length : 0;
+				return sendLength == length ? buffer.Length : default;
 			}
 			finally
 			{
@@ -58,11 +71,9 @@ namespace Shadowsocks.Protocol.UdpClients
 			return _serverInfo.ToString();
 		}
 
-		public ValueTask DisposeAsync()
+		public void Dispose()
 		{
-			Client.Dispose();
-
-			return default;
+			_client.FullClose();
 		}
 	}
 }
