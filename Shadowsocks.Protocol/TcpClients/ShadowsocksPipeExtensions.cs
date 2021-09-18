@@ -1,8 +1,8 @@
+using Pipelines.Extensions;
 using Shadowsocks.Protocol.Models;
 using Socks5.Utils;
 using System.IO.Pipelines;
 using System.Runtime.CompilerServices;
-using System.Threading;
 
 namespace Shadowsocks.Protocol.TcpClients
 {
@@ -13,17 +13,14 @@ namespace Shadowsocks.Protocol.TcpClients
 			this IDuplexPipe pipe,
 			ShadowsocksServerInfo serverInfo,
 			string targetAddress, ushort targetPort,
-			PipeOptions? pipeOptions = null,
-			CancellationToken cancellationToken = default)
+			PipeOptions? readerOptions = null,
+			PipeOptions? writerOptions = null)
 		{
-			return new ShadowsocksDuplexPipe(
-				pipe,
-				serverInfo,
-				targetAddress,
-				targetPort,
-				pipeOptions,
-				cancellationToken
-			);
+			var reader = pipe.Input.AsShadowsocksPipeReader(serverInfo, readerOptions);
+			var writer = pipe.Output.AsShadowsocksPipeWriter(serverInfo, writerOptions);
+			writer.WriteShadowsocksHeader(targetAddress, targetPort);
+
+			return DefaultDuplexPipe.Create(reader, writer);
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -34,6 +31,24 @@ namespace Shadowsocks.Protocol.TcpClients
 			var span = writer.GetSpan(1 + 1 + byte.MaxValue + 2);
 			var addressLength = Pack.DestinationAddressAndPort(targetAddress, default, targetPort, span);
 			writer.Advance(addressLength);
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static PipeWriter AsShadowsocksPipeWriter(
+			this PipeWriter writer,
+			ShadowsocksServerInfo serverInfo,
+			PipeOptions? pipeOptions = null)
+		{
+			return new ShadowsocksPipeWriter(writer, serverInfo, pipeOptions);
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public static PipeReader AsShadowsocksPipeReader(
+			this PipeReader reader,
+			ShadowsocksServerInfo serverInfo,
+			PipeOptions? pipeOptions = null)
+		{
+			return new ShadowsocksPipeReader(reader, serverInfo, pipeOptions);
 		}
 	}
 }

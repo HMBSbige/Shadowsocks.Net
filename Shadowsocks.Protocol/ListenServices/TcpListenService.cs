@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.Threading;
 using Pipelines.Extensions;
-using Pipelines.Extensions.SocketPipe;
 using Shadowsocks.Protocol.LocalTcpServices;
 using System;
 using System.Collections.Generic;
@@ -11,6 +10,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using static Shadowsocks.Protocol.ShadowsocksProtocolConstants;
 
 namespace Shadowsocks.Protocol.ListenServices
 {
@@ -24,8 +24,6 @@ namespace Shadowsocks.Protocol.ListenServices
 		private readonly CancellationTokenSource _cts;
 
 		private const string LoggerHeader = @"[TcpListenService]";
-		private const int FirstBufferSize = 8192;
-		private static readonly SocketPipeReaderOptions LocalPipeReaderOptions = new(sizeHint: FirstBufferSize);
 
 		public TcpListenService(ILogger<TcpListenService> logger, IPEndPoint local, IEnumerable<ILocalTcpService> services)
 		{
@@ -64,7 +62,7 @@ namespace Shadowsocks.Protocol.ListenServices
 			var remoteEndPoint = socket.RemoteEndPoint;
 			try
 			{
-				var pipe = socket.AsDuplexPipe(LocalPipeReaderOptions);
+				var pipe = socket.AsDuplexPipe(SocketPipeReaderOptions, SocketPipeWriterOptions);
 				var result = await pipe.Input.ReadAsync(token);
 				var buffer = result.Buffer;
 

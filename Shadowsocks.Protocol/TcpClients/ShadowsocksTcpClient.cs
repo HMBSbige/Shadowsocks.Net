@@ -5,6 +5,7 @@ using System.IO.Pipelines;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using static Shadowsocks.Protocol.ShadowsocksProtocolConstants;
 
 namespace Shadowsocks.Protocol.TcpClients
 {
@@ -21,19 +22,27 @@ namespace Shadowsocks.Protocol.TcpClients
 			_serverInfo = serverInfo;
 		}
 
-		public async ValueTask ConnectAsync(CancellationToken token)
+		public async ValueTask ConnectAsync(CancellationToken cancellationToken = default)
 		{
+			Verify.Operation(_client is null || _client.Connected, @"Client has already connected!");
 			Requires.NotNullAllowStructs(_serverInfo.Address, nameof(_serverInfo.Address));
 
 			_client = new TcpClient { NoDelay = true };
-			await _client.ConnectAsync(_serverInfo.Address, _serverInfo.Port, token);
+			await _client.ConnectAsync(_serverInfo.Address, _serverInfo.Port, cancellationToken);
 		}
 
 		public IDuplexPipe GetPipe(string targetAddress, ushort targetPort)
 		{
 			Verify.Operation(_client is not null && _client.Connected, @"You must connect to the server first!");
 
-			return _pipe ??= _client.Client.AsDuplexPipe().AsShadowsocksPipe(_serverInfo, targetAddress, targetPort);
+			return _pipe ??= _client.Client
+				.AsDuplexPipe(SocketPipeReaderOptions, SocketPipeWriterOptions)
+				.AsShadowsocksPipe(
+					_serverInfo,
+					targetAddress, targetPort,
+					DefaultPipeOptions,
+					DefaultPipeOptions
+				);
 		}
 
 		public override string? ToString()
