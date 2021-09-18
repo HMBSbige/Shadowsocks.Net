@@ -52,17 +52,13 @@ namespace Shadowsocks.Protocol.TcpClients
 							var result = await Reader.ReadAsync(cancellationToken);
 							var buffer = result.Buffer;
 
-							if (!buffer.IsEmpty)
+							foreach (var segment in buffer)
 							{
-								foreach (var segment in buffer)
-								{
-									SendToRemote(segment.Span);
-								}
-
+								SendToRemote(segment.Span);
 								var flushResult = await InternalWriter.FlushAsync(cancellationToken);
 								if (flushResult.IsCompleted)
 								{
-									break;
+									goto NoData;
 								}
 							}
 
@@ -73,7 +69,7 @@ namespace Shadowsocks.Protocol.TcpClients
 								break;
 							}
 						}
-
+					NoData:
 						await Reader.CompleteAsync();
 					}
 					catch (Exception ex)

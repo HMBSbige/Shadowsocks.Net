@@ -4,7 +4,6 @@ using Pipelines.Extensions;
 using Shadowsocks.Crypto;
 using Shadowsocks.Protocol.Models;
 using System;
-using System.Buffers;
 using System.IO.Pipelines;
 using System.Threading;
 using System.Threading.Tasks;
@@ -56,10 +55,25 @@ namespace Shadowsocks.Protocol.TcpClients
 
 							try
 							{
-								if (ReceiveFromRemote(ref buffer))
+								while (!buffer.IsEmpty)
 								{
-									var writerFlushResult = await Writer.FlushAsync(cancellationToken);
-									if (writerFlushResult.IsCompleted)
+									var oldLength = buffer.Length;
+
+									var memory = Writer.GetMemory(BufferSize);
+
+									var outLength = decryptor.DecryptTCP(ref buffer, memory.Span);
+
+									Writer.Advance(outLength);
+									if (outLength > 0)
+									{
+										var writerFlushResult = await Writer.FlushAsync(cancellationToken);
+										if (writerFlushResult.IsCompleted)
+										{
+											goto NoData;
+										}
+									}
+
+									if (oldLength == buffer.Length)
 									{
 										break;
 									}
@@ -75,7 +89,7 @@ namespace Shadowsocks.Protocol.TcpClients
 								InternalReader.AdvanceTo(buffer.Start, buffer.End);
 							}
 						}
-
+					NoData:
 						await Writer.CompleteAsync();
 					}
 					catch (Exception ex)
@@ -89,32 +103,6 @@ namespace Shadowsocks.Protocol.TcpClients
 				},
 				default
 			);
-
-			bool ReceiveFromRemote(ref ReadOnlySequence<byte> sequence)
-			{
-				var result = false;
-				while (!sequence.IsEmpty)
-				{
-					var oldLength = sequence.Length;
-
-					var span = Writer.GetSpan(BufferSize);
-
-					var outLength = decryptor.DecryptTCP(ref sequence, span);
-
-					Writer.Advance(outLength);
-					if (outLength > 0)
-					{
-						result = true;
-					}
-
-					if (oldLength == sequence.Length)
-					{
-						break;
-					}
-				}
-
-				return result;
-			}
 		}
 
 		public override void AdvanceTo(SequencePosition consumed)
