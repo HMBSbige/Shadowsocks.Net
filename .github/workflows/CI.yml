@@ -9,16 +9,13 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v1
         with:
-          dotnet-version: 5.0.x
-
-      - name: Install dotnet-format
-        run: dotnet tool update -g dotnet-format
+          dotnet-version: 6.0.x
 
       - name: Checkout code
         uses: actions/checkout@v2
 
       - name: Run dotnet format check
-        run: dotnet format -wsa -v diag --check
+        run: dotnet format -v diag --verify-no-changes
 
   test:
     name: Test
@@ -34,7 +31,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v1
         with:
-          dotnet-version: 5.0.x
+          dotnet-version: 6.0.x
 
       - name: Test
         shell: pwsh
@@ -63,7 +60,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v1
         with:
-          dotnet-version: 5.0.x
+          dotnet-version: 6.0.x
 
       - name: Build
         shell: pwsh

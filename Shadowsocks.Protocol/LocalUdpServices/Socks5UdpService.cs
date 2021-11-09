@@ -88,11 +88,11 @@ namespace Shadowsocks.Protocol.LocalUdpServices
 					var receiveLength = await client.ReceiveAsync(receiveBuffer.AsMemory(3), cancellationToken);
 					receiveBuffer.AsSpan(0, 3).Clear();
 
-					//TODO .NET6.0
 					await incoming.Client.SendToAsync(
-						new ArraySegment<byte>(receiveBuffer, 0, 3 + receiveLength),
+						receiveBuffer.AsMemory(0, 3 + receiveLength),
 						SocketFlags.None,
-						receiveResult.RemoteEndPoint
+						receiveResult.RemoteEndPoint,
+						cancellationToken
 					);
 				}
 				finally

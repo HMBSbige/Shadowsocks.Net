@@ -40,10 +40,9 @@ namespace Shadowsocks.Protocol.ListenServices
 				UdpListener.Client.Bind(_local);
 				_logger.LogInformation(@"{LoggerHeader} {Local} Start", LoggerHeader, UdpListener.Client.LocalEndPoint);
 
-				while (!_cts.IsCancellationRequested)
+				while (true)
 				{
-					//TODO .NET6.0
-					var message = await UdpListener.ReceiveAsync();
+					var message = await UdpListener.ReceiveAsync(_cts.Token);
 #if DEBUG
 					_logger.LogDebug(
 						@"{LoggerHeader}: {ReceiveLength} bytes {Remote} => {Local}",

@@ -37,10 +37,9 @@ namespace Socks5.Servers
 		{
 			try
 			{
-				while (!_cts.IsCancellationRequested)
+				while (true)
 				{
-					//TODO .NET6.0
-					var message = await UdpListener.ReceiveAsync();
+					var message = await UdpListener.ReceiveAsync(_cts.Token);
 					if (Equals(message.RemoteEndPoint.Address, _remoteEndpoint.Address))
 					{
 						await HandleAsync(message, _cts.Token);
@@ -88,11 +87,11 @@ namespace Socks5.Servers
 				var receiveLength = await client.Client.ReceiveAsync(receiveBuffer.AsMemory(headerLength), SocketFlags.None, token);
 				result.Buffer.AsSpan(0, headerLength).CopyTo(receiveBuffer);
 
-				//TODO .NET6.0
 				await UdpListener.Client.SendToAsync(
-					new ArraySegment<byte>(receiveBuffer, 0, headerLength + receiveLength),
+					receiveBuffer.AsMemory(0, headerLength + receiveLength),
 					SocketFlags.None,
-					result.RemoteEndPoint
+					result.RemoteEndPoint,
+					token
 				);
 			}
 			finally

@@ -11,8 +11,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.VisualStudio.Threading" Version="17.0.63" />
-    <PackageReference Include="System.IO.Pipelines" Version="5.0.1" />
+    <PackageReference Include="Microsoft.VisualStudio.Threading" Version="17.0.64" />
+    <PackageReference Include="System.IO.Pipelines" Version="6.0.0" />
   </ItemGroup>
 
 </Project>
