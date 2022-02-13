@@ -4,6 +4,7 @@ using Socks5.Exceptions;
 using Socks5.Models;
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Text;
 
@@ -295,7 +296,7 @@ public static class Unpack
 		return true;
 	}
 
-	public static bool ReadClientAuth(ref ReadOnlySequence<byte> buffer, ref UsernamePassword? clientCredential)
+	public static bool ReadClientAuth(ref ReadOnlySequence<byte> buffer, [NotNullWhen(true)] ref UsernamePassword? clientCredential)
 	{
 		// +----+------+----------+------+----------+
 		// |VER | ULEN |  UNAME   | PLEN |  PASSWD  |

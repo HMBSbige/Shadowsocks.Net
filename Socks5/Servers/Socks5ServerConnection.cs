@@ -106,9 +106,7 @@ public sealed class Socks5ServerConnection
 		UsernamePassword? clientCredential = null;
 		await _pipe.Input.ReadAsync(TryReadClientAuth, token);
 
-		bool isAuth = clientCredential is not null
-					&& clientCredential.UserName == _credential!.UserName
-					&& clientCredential.Password == _credential.Password;
+		bool isAuth = clientCredential == _credential;
 
 		await _pipe.Output.WriteAsync(2, PackReply, token);
 
