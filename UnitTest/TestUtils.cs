@@ -17,7 +17,7 @@ internal static class TestUtils
 
 		foreach (int i in orderedIndex)
 		{
-			last = last.Append(source.Slice(length, i - length));
+			last = last.Append(source[length..i]);
 			length = i;
 		}
 
