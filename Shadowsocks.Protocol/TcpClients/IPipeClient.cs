@@ -1,14 +1,10 @@
-using System;
 using System.IO.Pipelines;
-using System.Threading;
-using System.Threading.Tasks;
 
-namespace Shadowsocks.Protocol.TcpClients
+namespace Shadowsocks.Protocol.TcpClients;
+
+public interface IPipeClient : IAsyncDisposable
 {
-	public interface IPipeClient : IAsyncDisposable
-	{
-		ValueTask ConnectAsync(CancellationToken cancellationToken = default);
+	ValueTask ConnectAsync(CancellationToken cancellationToken = default);
 
-		IDuplexPipe GetPipe(string targetAddress, ushort targetPort);
-	}
+	IDuplexPipe GetPipe(string targetAddress, ushort targetPort);
 }

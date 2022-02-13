@@ -1,9 +1,8 @@
-namespace Pipelines.Extensions
+namespace Pipelines.Extensions;
+
+public enum ParseResult
 {
-	public enum ParseResult
-	{
-		Unknown,
-		NeedsMoreData,
-		Success
-	}
+	Unknown,
+	NeedsMoreData,
+	Success
 }

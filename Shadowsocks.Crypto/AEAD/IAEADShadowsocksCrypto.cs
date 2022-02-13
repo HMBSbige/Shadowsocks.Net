@@ -1,15 +1,14 @@
-namespace Shadowsocks.Crypto.AEAD
+namespace Shadowsocks.Crypto.AEAD;
+
+public interface IAEADShadowsocksCrypto : IShadowsocksCrypto
 {
-	public interface IAEADShadowsocksCrypto : IShadowsocksCrypto
-	{
-		byte[] SessionKey { get; }
+	byte[] SessionKey { get; }
 
-		byte[] Nonce { get; }
+	byte[] Nonce { get; }
 
-		int NonceLength { get; }
+	int NonceLength { get; }
 
-		byte[] Salt { get; }
+	byte[] Salt { get; }
 
-		int SaltLength { get; }
-	}
+	int SaltLength { get; }
 }

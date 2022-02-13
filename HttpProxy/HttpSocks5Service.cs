@@ -2,101 +2,98 @@ using Microsoft;
 using Microsoft.VisualStudio.Threading;
 using Pipelines.Extensions;
 using Socks5.Models;
-using System;
 using System.Buffers;
+using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
-using System.Threading;
-using System.Threading.Tasks;
 
-namespace HttpProxy
+namespace HttpProxy;
+
+public class HttpSocks5Service
 {
-	public class HttpSocks5Service
+	public TcpListener TcpListener { get; }
+
+	private readonly HttpToSocks5 _httpToSocks5;
+	private readonly Socks5CreateOption _socks5CreateOption;
+	private readonly CancellationTokenSource _cts;
+
+	public HttpSocks5Service(IPEndPoint bindEndPoint, HttpToSocks5 httpToSocks5, Socks5CreateOption socks5CreateOption)
 	{
-		public TcpListener TcpListener { get; }
+		Requires.NotNullAllowStructs(socks5CreateOption.Address, nameof(socks5CreateOption.Address));
 
-		private readonly HttpToSocks5 _httpToSocks5;
-		private readonly Socks5CreateOption _socks5CreateOption;
-		private readonly CancellationTokenSource _cts;
+		TcpListener = new TcpListener(bindEndPoint);
+		_httpToSocks5 = httpToSocks5;
+		_socks5CreateOption = socks5CreateOption;
 
-		public HttpSocks5Service(IPEndPoint bindEndPoint, HttpToSocks5 httpToSocks5, Socks5CreateOption socks5CreateOption)
+		_cts = new CancellationTokenSource();
+	}
+
+	public async ValueTask StartAsync()
+	{
+		try
 		{
-			Requires.NotNullAllowStructs(socks5CreateOption.Address, nameof(socks5CreateOption.Address));
-
-			TcpListener = new TcpListener(bindEndPoint);
-			_httpToSocks5 = httpToSocks5;
-			_socks5CreateOption = socks5CreateOption;
-
-			_cts = new CancellationTokenSource();
-		}
-
-		public async ValueTask StartAsync()
-		{
-			try
+			TcpListener.Start();
+			while (!_cts.IsCancellationRequested)
 			{
-				TcpListener.Start();
-				while (!_cts.IsCancellationRequested)
-				{
-					var socket = await TcpListener.AcceptSocketAsync();
-					socket.NoDelay = true;
-					HandleAsync(socket, _cts.Token).Forget();
-				}
-			}
-			catch (Exception)
-			{
-				Stop();
+				Socket socket = await TcpListener.AcceptSocketAsync();
+				socket.NoDelay = true;
+				HandleAsync(socket, _cts.Token).Forget();
 			}
 		}
-
-		private async Task HandleAsync(Socket socket, CancellationToken token)
+		catch (Exception)
 		{
-			try
+			Stop();
+		}
+	}
+
+	private async Task HandleAsync(Socket socket, CancellationToken token)
+	{
+		try
+		{
+			IDuplexPipe pipe = socket.AsDuplexPipe();
+			ReadResult result = await pipe.Input.ReadAsync(token);
+			ReadOnlySequence<byte> buffer = result.Buffer;
+
+			if (IsSocks5Header(buffer))
 			{
-				var pipe = socket.AsDuplexPipe();
-				var result = await pipe.Input.ReadAsync(token);
-				var buffer = result.Buffer;
+				using TcpClient socks5 = new();
+				await socks5.ConnectAsync(_socks5CreateOption.Address!, _socks5CreateOption.Port, token);
+				IDuplexPipe socks5Pipe = socks5.Client.AsDuplexPipe();
 
-				if (IsSocks5Header(buffer))
-				{
-					using var socks5 = new TcpClient();
-					await socks5.ConnectAsync(_socks5CreateOption.Address!, _socks5CreateOption.Port, token);
-					var socks5Pipe = socks5.Client.AsDuplexPipe();
+				await socks5Pipe.Output.WriteAsync(buffer, token);
+				pipe.Input.AdvanceTo(buffer.End);
 
-					await socks5Pipe.Output.WriteAsync(buffer, token);
-					pipe.Input.AdvanceTo(buffer.End);
-
-					await socks5Pipe.LinkToAsync(pipe, token);
-				}
-				else
-				{
-					pipe.Input.AdvanceTo(buffer.Start, buffer.End);
-					pipe.Input.CancelPendingRead();
-
-					await _httpToSocks5.ForwardToSocks5Async(pipe, _socks5CreateOption, token);
-				}
+				await socks5Pipe.LinkToAsync(pipe, token);
 			}
-			finally
+			else
 			{
-				socket.FullClose();
-			}
+				pipe.Input.AdvanceTo(buffer.Start, buffer.End);
+				pipe.Input.CancelPendingRead();
 
-			static bool IsSocks5Header(ReadOnlySequence<byte> buffer)
-			{
-				var reader = new SequenceReader<byte>(buffer);
-				return reader.TryRead(out var ver) && ver is 0x05;
+				await _httpToSocks5.ForwardToSocks5Async(pipe, _socks5CreateOption, token);
 			}
 		}
-
-		public void Stop()
+		finally
 		{
-			try
-			{
-				TcpListener.Stop();
-			}
-			finally
-			{
-				_cts.Cancel();
-			}
+			socket.FullClose();
+		}
+
+		static bool IsSocks5Header(ReadOnlySequence<byte> buffer)
+		{
+			SequenceReader<byte> reader = new(buffer);
+			return reader.TryRead(out byte ver) && ver is 0x05;
+		}
+	}
+
+	public void Stop()
+	{
+		try
+		{
+			TcpListener.Stop();
+		}
+		finally
+		{
+			_cts.Cancel();
 		}
 	}
 }

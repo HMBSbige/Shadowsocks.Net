@@ -1,49 +1,46 @@
 using Microsoft;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using System;
 using System.Buffers;
-using System.Linq;
 
-namespace UnitTest
+namespace UnitTest;
+
+internal static class TestUtils
 {
-	internal static class TestUtils
+	public static ReadOnlySequence<byte> GetMultiSegmentSequence(Memory<byte> source, params int[] index)
 	{
-		public static ReadOnlySequence<byte> GetMultiSegmentSequence(Memory<byte> source, params int[] index)
+		Requires.Argument(index.LongLength > 1, nameof(index), @"index length must >1");
+		IOrderedEnumerable<int> orderedIndex = index.OrderBy(x => x);
+
+		BufferSegment first = BufferSegment.Empty;
+		BufferSegment last = first;
+		int length = 0;
+
+		foreach (int i in orderedIndex)
 		{
-			Requires.Argument(index.LongLength > 1, nameof(index), @"index length must >1");
-			var orderedIndex = index.OrderBy(x => x);
-
-			var first = BufferSegment.Empty;
-			var last = first;
-			var length = 0;
-
-			foreach (var i in orderedIndex)
-			{
-				last = last.Append(source.Slice(length, i - length));
-				length = i;
-			}
-
-			last = last.Append(source[length..]);
-
-			var sequence = new ReadOnlySequence<byte>(first, 0, last, last.Memory.Length);
-			Assert.AreEqual(source.Length, sequence.Length);
-
-			return sequence;
+			last = last.Append(source.Slice(length, i - length));
+			length = i;
 		}
 
-		public static ReadOnlySequence<byte> GetMultiSegmentSequence(params Memory<byte>[] memories)
-		{
-			Requires.Argument(memories.LongLength > 1, nameof(memories), @"index length must >1");
-			var first = BufferSegment.Empty;
+		last = last.Append(source[length..]);
 
-			var last = memories.Aggregate(first, (current, memory) => current.Append(memory));
+		ReadOnlySequence<byte> sequence = new(first, 0, last, last.Memory.Length);
+		Assert.AreEqual(source.Length, sequence.Length);
 
-			var sequence = new ReadOnlySequence<byte>(first, 0, last, last.Memory.Length);
+		return sequence;
+	}
 
-			var length = memories.Sum(x => (long)x.Length);
-			Assert.AreEqual(length, sequence.Length);
+	public static ReadOnlySequence<byte> GetMultiSegmentSequence(params Memory<byte>[] memories)
+	{
+		Requires.Argument(memories.LongLength > 1, nameof(memories), @"index length must >1");
+		BufferSegment first = BufferSegment.Empty;
 
-			return sequence;
-		}
+		BufferSegment last = memories.Aggregate(first, (current, memory) => current.Append(memory));
+
+		ReadOnlySequence<byte> sequence = new(first, 0, last, last.Memory.Length);
+
+		long length = memories.Sum(x => (long)x.Length);
+		Assert.AreEqual(length, sequence.Length);
+
+		return sequence;
 	}
 }

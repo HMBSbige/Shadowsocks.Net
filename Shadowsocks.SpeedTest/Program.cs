@@ -1,6 +1,5 @@
 using Shadowsocks.Crypto;
 using Shadowsocks.SpeedTest;
-using System;
 using System.Diagnostics;
 
 Console.WriteLine(@"Start Shadowsocks.SpeedTest..");

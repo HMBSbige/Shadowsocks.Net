@@ -3,48 +3,44 @@ using Shadowsocks.Protocol.Models;
 using Shadowsocks.Protocol.ServersControllers;
 using Shadowsocks.Protocol.TcpClients;
 using Shadowsocks.Protocol.UdpClients;
-using System;
-using System.Threading;
-using System.Threading.Tasks;
 
-namespace TestConsoleApp
+namespace TestConsoleApp;
+
+public class TestServersController : IServersController
 {
-	public class TestServersController : IServersController
+	public async ValueTask<IPipeClient> GetServerAsync(string target)
 	{
-		public async ValueTask<IPipeClient> GetServerAsync(string target)
+		ShadowsocksServerInfo info = new()
 		{
-			var info = new ShadowsocksServerInfo
-			{
-				Address = @"",
-				Port = 0,
-				Method = ShadowsocksCrypto.Aes128GcmMethod,
-				Password = @"",
-				Remark = @""
-			};
+			Address = @"",
+			Port = 0,
+			Method = ShadowsocksCrypto.Aes128GcmMethod,
+			Password = @"",
+			Remark = @""
+		};
 
-			IPipeClient client = new ShadowsocksTcpClient(info);
+		IPipeClient client = new ShadowsocksTcpClient(info);
 
-			var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+		CancellationTokenSource cts = new(TimeSpan.FromSeconds(3));
 
-			await client.ConnectAsync(cts.Token);
+		await client.ConnectAsync(cts.Token);
 
-			return client;
-		}
+		return client;
+	}
 
-		public ValueTask<IUdpClient> GetServerUdpAsync(string target)
+	public ValueTask<IUdpClient> GetServerUdpAsync(string target)
+	{
+		ShadowsocksServerInfo info = new()
 		{
-			var info = new ShadowsocksServerInfo
-			{
-				Address = @"",
-				Port = 0,
-				Method = ShadowsocksCrypto.Aes128GcmMethod,
-				Password = @"",
-				Remark = @""
-			};
+			Address = @"",
+			Port = 0,
+			Method = ShadowsocksCrypto.Aes128GcmMethod,
+			Password = @"",
+			Remark = @""
+		};
 
-			IUdpClient client = new ShadowsocksUdpClient(info);
+		IUdpClient client = new ShadowsocksUdpClient(info);
 
-			return ValueTask.FromResult(client);
-		}
+		return ValueTask.FromResult(client);
 	}
 }

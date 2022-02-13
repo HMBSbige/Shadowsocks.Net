@@ -1,19 +1,18 @@
 using System.Net.Sockets;
 
-namespace Pipelines.Extensions
+namespace Pipelines.Extensions;
+
+public static class SocketExtensions
 {
-	public static class SocketExtensions
+	public static void FullClose(this Socket socket)
 	{
-		public static void FullClose(this Socket socket)
+		try
 		{
-			try
-			{
-				socket.Shutdown(SocketShutdown.Both);
-			}
-			finally
-			{
-				socket.Dispose();
-			}
+			socket.Shutdown(SocketShutdown.Both);
+		}
+		finally
+		{
+			socket.Dispose();
 		}
 	}
 }

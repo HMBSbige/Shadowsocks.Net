@@ -1,36 +1,34 @@
 using Shadowsocks.Crypto;
 using Shadowsocks.Crypto.AEAD;
-using System;
 using System.Diagnostics;
 
-namespace Shadowsocks.SpeedTest
+namespace Shadowsocks.SpeedTest;
+
+public static class CryptoTest
 {
-	public static class CryptoTest
+	private const string Password = @"密码";
+
+	private const int Step = 1 * 1024 * 1024;
+
+	public static void Test(string method)
 	{
-		private const string Password = @"密码";
+		Console.Write($@"Testing {method}: ");
 
-		private const int Step = 1 * 1024 * 1024;
+		ReadOnlySpan<byte> i = new byte[Step];
+		Span<byte> o = new byte[AEADShadowsocksCrypto.GetBufferSize(i.Length)];
 
-		public static void Test(string method)
+		using IShadowsocksCrypto crypto = ShadowsocksCrypto.Create(method, Password);
+		ulong length = 0ul;
+		Stopwatch sw = Stopwatch.StartNew();
+
+		do
 		{
-			Console.Write($@"Testing {method}: ");
+			crypto.EncryptTCP(i, o, out int pLength, out _);
+			length += (uint)pLength;
+		} while (sw.ElapsedMilliseconds < 2000);
 
-			ReadOnlySpan<byte> i = new byte[Step];
-			Span<byte> o = new byte[AEADShadowsocksCrypto.GetBufferSize(i.Length)];
-
-			using var crypto = ShadowsocksCrypto.Create(method, Password);
-			var length = 0ul;
-			var sw = Stopwatch.StartNew();
-
-			do
-			{
-				crypto.EncryptTCP(i, o, out var pLength, out _);
-				length += (uint)pLength;
-			} while (sw.ElapsedMilliseconds < 2000);
-
-			sw.Stop();
-			var result = length / sw.Elapsed.TotalSeconds / 1024.0 / 1024.0;
-			Console.WriteLine($@"{result:F2} MB/s");
-		}
+		sw.Stop();
+		double result = length / sw.Elapsed.TotalSeconds / 1024.0 / 1024.0;
+		Console.WriteLine($@"{result:F2} MB/s");
 	}
 }

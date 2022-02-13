@@ -1,82 +1,79 @@
 using Microsoft;
-using System;
+using System.Buffers;
 using System.IO.Pipelines;
 using System.Net.WebSockets;
-using System.Threading;
-using System.Threading.Tasks;
 
-namespace Pipelines.Extensions.WebSocketPipe
+namespace Pipelines.Extensions.WebSocketPipe;
+
+internal sealed class WebSocketPipeWriter : PipeWriter
 {
-	internal sealed class WebSocketPipeWriter : PipeWriter
+	public WebSocket InternalWebSocket { get; }
+
+	private readonly Pipe _pipe;
+	private PipeWriter Writer => _pipe.Writer;
+	private PipeReader Reader => _pipe.Reader;
+
+	public WebSocketPipeWriter(WebSocket webSocket, WebSocketPipeWriterOptions options)
 	{
-		public WebSocket InternalWebSocket { get; }
+		Requires.NotNull(webSocket, nameof(webSocket));
+		Requires.NotNull(options, nameof(options));
 
-		private readonly Pipe _pipe;
-		private PipeWriter Writer => _pipe.Writer;
-		private PipeReader Reader => _pipe.Reader;
+		InternalWebSocket = webSocket;
+		_pipe = new Pipe(options.PipeOptions);
+	}
 
-		public WebSocketPipeWriter(WebSocket webSocket, WebSocketPipeWriterOptions options)
+	public override void Advance(int bytes)
+	{
+		Writer.Advance(bytes);
+	}
+
+	public override Memory<byte> GetMemory(int sizeHint = 0)
+	{
+		return Writer.GetMemory(sizeHint);
+	}
+
+	public override Span<byte> GetSpan(int sizeHint = 0)
+	{
+		return Writer.GetSpan(sizeHint);
+	}
+
+	public override void CancelPendingFlush()
+	{
+		Writer.CancelPendingFlush();
+	}
+
+	public override void Complete(Exception? exception = null)
+	{
+		Writer.Complete(exception);
+	}
+
+	public override async ValueTask<FlushResult> FlushAsync(CancellationToken cancellationToken = default)
+	{
+		ValueTask<FlushResult> flushTask = Writer.FlushAsync(cancellationToken);
+
+		try
 		{
-			Requires.NotNull(webSocket, nameof(webSocket));
-			Requires.NotNull(options, nameof(options));
+			ReadResult result = await Reader.ReadAsync(cancellationToken);
+			ReadOnlySequence<byte> buffer = result.Buffer;
 
-			InternalWebSocket = webSocket;
-			_pipe = new Pipe(options.PipeOptions);
-		}
-
-		public override void Advance(int bytes)
-		{
-			Writer.Advance(bytes);
-		}
-
-		public override Memory<byte> GetMemory(int sizeHint = 0)
-		{
-			return Writer.GetMemory(sizeHint);
-		}
-
-		public override Span<byte> GetSpan(int sizeHint = 0)
-		{
-			return Writer.GetSpan(sizeHint);
-		}
-
-		public override void CancelPendingFlush()
-		{
-			Writer.CancelPendingFlush();
-		}
-
-		public override void Complete(Exception? exception = null)
-		{
-			Writer.Complete(exception);
-		}
-
-		public override async ValueTask<FlushResult> FlushAsync(CancellationToken cancellationToken = default)
-		{
-			var flushTask = Writer.FlushAsync(cancellationToken);
-
-			try
+			foreach (ReadOnlyMemory<byte> memory in buffer)
 			{
-				var result = await Reader.ReadAsync(cancellationToken);
-				var buffer = result.Buffer;
-
-				foreach (var memory in buffer)
-				{
-					await InternalWebSocket.SendAsync(memory, WebSocketMessageType.Binary, true, cancellationToken);
-				}
-
-				Reader.AdvanceTo(buffer.End);
-
-				if (result.IsCompleted)
-				{
-					await Reader.CompleteAsync();
-				}
-			}
-			catch (Exception ex)
-			{
-				await Reader.CompleteAsync(ex);
-				throw;
+				await InternalWebSocket.SendAsync(memory, WebSocketMessageType.Binary, true, cancellationToken);
 			}
 
-			return await flushTask;
+			Reader.AdvanceTo(buffer.End);
+
+			if (result.IsCompleted)
+			{
+				await Reader.CompleteAsync();
+			}
 		}
+		catch (Exception ex)
+		{
+			await Reader.CompleteAsync(ex);
+			throw;
+		}
+
+		return await flushTask;
 	}
 }

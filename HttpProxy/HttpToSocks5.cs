@@ -4,404 +4,397 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Pipelines.Extensions;
 using Socks5.Clients;
 using Socks5.Models;
-using System;
 using System.Buffers;
-using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using System.IO;
 using System.IO.Pipelines;
-using System.Linq;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using static HttpProxy.HttpUtils;
 
-namespace HttpProxy
+namespace HttpProxy;
+
+public class HttpToSocks5
 {
-	public class HttpToSocks5
+	private const string LogHeader = @"[HttpToSocks5]";
+
+	private readonly ILogger<HttpToSocks5> _logger;
+
+	public HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 	{
-		private const string LogHeader = @"[HttpToSocks5]";
+		_logger = logger ?? NullLogger<HttpToSocks5>.Instance;
+	}
 
-		private readonly ILogger<HttpToSocks5> _logger;
+	public async ValueTask ForwardToSocks5Async(IDuplexPipe incomingPipe, Socks5CreateOption socks5CreateOption, CancellationToken cancellationToken = default)
+	{
+		string headers = await ReadHttpHeadersAsync(incomingPipe.Input, cancellationToken);
+		_logger.LogDebug("{LogHeader} Client headers received: \n{Headers}", LogHeader, headers);
 
-		public HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
+		if (!TryParseHeader(headers, out HttpHeaders? httpHeaders))
 		{
-			_logger = logger ?? NullLogger<HttpToSocks5>.Instance;
+			await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.InvalidRequest, token: cancellationToken);
+			return;
 		}
+		_logger.LogDebug("{LogHeader} New request headers: \n{Headers}", LogHeader, httpHeaders);
 
-		public async ValueTask ForwardToSocks5Async(IDuplexPipe incomingPipe, Socks5CreateOption socks5CreateOption, CancellationToken cancellationToken = default)
+		if (httpHeaders.IsConnect)
 		{
-			var headers = await ReadHttpHeadersAsync(incomingPipe.Input, cancellationToken);
-			_logger.LogDebug("{LogHeader} Client headers received: \n{Headers}", LogHeader, headers);
-
-			if (!TryParseHeader(headers, out var httpHeaders))
+			if (httpHeaders.Hostname is null)
 			{
-				await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.InvalidRequest, token: cancellationToken);
+				await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.InvalidRequest, httpHeaders.HttpVersion, cancellationToken);
 				return;
 			}
-			_logger.LogDebug("{LogHeader} New request headers: \n{Headers}", LogHeader, httpHeaders);
 
-			if (httpHeaders.IsConnect)
+			using Socks5Client socks5Client = new(socks5CreateOption);
+			await socks5Client.ConnectAsync(httpHeaders.Hostname, httpHeaders.Port, cancellationToken);
+
+			await SendConnectSuccessAsync(incomingPipe.Output, httpHeaders.HttpVersion, cancellationToken);
+
+			IDuplexPipe socks5Pipe = socks5Client.GetPipe();
+
+			await socks5Pipe.LinkToAsync(incomingPipe, cancellationToken);
+		}
+		else
+		{
+			if (httpHeaders.Hostname is null || httpHeaders.Request is null)
 			{
-				if (httpHeaders.Hostname is null)
-				{
-					await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.InvalidRequest, httpHeaders.HttpVersion, cancellationToken);
-					return;
-				}
-
-				using var socks5Client = new Socks5Client(socks5CreateOption);
-				await socks5Client.ConnectAsync(httpHeaders.Hostname, httpHeaders.Port, cancellationToken);
-
-				await SendConnectSuccessAsync(incomingPipe.Output, httpHeaders.HttpVersion, cancellationToken);
-
-				var socks5Pipe = socks5Client.GetPipe();
-
-				await socks5Pipe.LinkToAsync(incomingPipe, cancellationToken);
+				await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.InvalidRequest, httpHeaders.HttpVersion, cancellationToken);
+				return;
 			}
-			else
+			using Socks5Client socks5Client = new(socks5CreateOption);
+			await socks5Client.ConnectAsync(httpHeaders.Hostname, httpHeaders.Port, cancellationToken);
+			IDuplexPipe socks5Pipe = socks5Client.GetPipe();
+
+			await socks5Pipe.Output.WriteAsync(httpHeaders.Request, cancellationToken);
+			if (httpHeaders.ContentLength > 0)
 			{
-				if (httpHeaders.Hostname is null || httpHeaders.Request is null)
+				_logger.LogDebug(@"{LogHeader} Waiting for up to {ContentLength} bytes from client", LogHeader, httpHeaders.ContentLength);
+
+				long readLength = await incomingPipe.Input.CopyToAsync(socks5Pipe.Output, httpHeaders.ContentLength, cancellationToken);
+
+				_logger.LogDebug(@"{LogHeader} client sent {ClientSentLength} bytes to server", LogHeader, readLength);
+			}
+
+			//Read response
+			string responseHeadersStr = await ReadHttpHeadersAsync(socks5Pipe.Input, cancellationToken);
+			_logger.LogDebug("{LogHeader} server headers received: \n{Headers}", LogHeader, responseHeadersStr);
+			Dictionary<string, string> responseHeaders = ReadHeaders(responseHeadersStr);
+
+			incomingPipe.Output.Write(responseHeadersStr);
+			incomingPipe.Output.Write(HttpHeaderEnd);
+			await incomingPipe.Output.FlushAsync(cancellationToken);
+
+			if (IsChunked(responseHeaders))
+			{
+				await CopyChunksAsync(socks5Pipe.Input, incomingPipe.Output, cancellationToken);
+			}
+			else if (TryReadContentLength(responseHeaders, out long serverResponseContentLength))
+			{
+				if (serverResponseContentLength > 0)
 				{
-					await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.InvalidRequest, httpHeaders.HttpVersion, cancellationToken);
-					return;
-				}
-				using var socks5Client = new Socks5Client(socks5CreateOption);
-				await socks5Client.ConnectAsync(httpHeaders.Hostname, httpHeaders.Port, cancellationToken);
-				var socks5Pipe = socks5Client.GetPipe();
+					_logger.LogDebug(@"{LogHeader} Waiting for up to {ContentLength} bytes from server", LogHeader, serverResponseContentLength);
 
-				await socks5Pipe.Output.WriteAsync(httpHeaders.Request, cancellationToken);
-				if (httpHeaders.ContentLength > 0)
-				{
-					_logger.LogDebug(@"{LogHeader} Waiting for up to {ContentLength} bytes from client", LogHeader, httpHeaders.ContentLength);
+					long readLength = await socks5Pipe.Input.CopyToAsync(incomingPipe.Output, serverResponseContentLength, cancellationToken);
 
-					var readLength = await incomingPipe.Input.CopyToAsync(socks5Pipe.Output, httpHeaders.ContentLength, cancellationToken);
-
-					_logger.LogDebug(@"{LogHeader} client sent {ClientSentLength} bytes to server", LogHeader, readLength);
-				}
-
-				//Read response
-				var responseHeadersStr = await ReadHttpHeadersAsync(socks5Pipe.Input, cancellationToken);
-				_logger.LogDebug("{LogHeader} server headers received: \n{Headers}", LogHeader, responseHeadersStr);
-				var responseHeaders = ReadHeaders(responseHeadersStr);
-
-				incomingPipe.Output.Write(responseHeadersStr);
-				incomingPipe.Output.Write(HttpHeaderEnd);
-				await incomingPipe.Output.FlushAsync(cancellationToken);
-
-				if (IsChunked(responseHeaders))
-				{
-					await CopyChunksAsync(socks5Pipe.Input, incomingPipe.Output, cancellationToken);
-				}
-				else if (TryReadContentLength(responseHeaders, out var serverResponseContentLength))
-				{
-					if (serverResponseContentLength > 0)
-					{
-						_logger.LogDebug(@"{LogHeader} Waiting for up to {ContentLength} bytes from server", LogHeader, serverResponseContentLength);
-
-						var readLength = await socks5Pipe.Input.CopyToAsync(incomingPipe.Output, serverResponseContentLength, cancellationToken);
-
-						_logger.LogDebug(@"{LogHeader} server sent {ServerSentLength} bytes to client", LogHeader, readLength);
-					}
+					_logger.LogDebug(@"{LogHeader} server sent {ServerSentLength} bytes to client", LogHeader, readLength);
 				}
 			}
 		}
+	}
 
-		private static async ValueTask SendErrorAsync(PipeWriter writer, ConnectionErrorResult error, string httpVersion = @"HTTP/1.1", CancellationToken token = default)
+	private static async ValueTask SendErrorAsync(PipeWriter writer, ConnectionErrorResult error, string httpVersion = @"HTTP/1.1", CancellationToken token = default)
+	{
+		string str = BuildErrorResponse(error, httpVersion);
+		await writer.WriteAsync(str, token);
+	}
+
+	private static async ValueTask SendConnectSuccessAsync(PipeWriter writer, string httpVersion = @"HTTP/1.1", CancellationToken token = default)
+	{
+		string str = $"{httpVersion} 200 Connection Established\r\n\r\n";
+		await writer.WriteAsync(str, token);
+	}
+
+	private static bool TryParseHeader(string raw, [NotNullWhen(true)] out HttpHeaders? httpHeaders)
+	{
+		string[] headerLines = raw.SplitLines();
+
+		if (headerLines.Length <= 0)
 		{
-			var str = BuildErrorResponse(error, httpVersion);
-			await writer.WriteAsync(str, token);
+			goto InvalidRequest;
 		}
 
-		private static async ValueTask SendConnectSuccessAsync(PipeWriter writer, string httpVersion = @"HTTP/1.1", CancellationToken token = default)
+		string[] methodLine = headerLines[0].Split(' ');
+		if (methodLine.Length is not 3) // METHOD URI HTTP/X.Y
 		{
-			var str = $"{httpVersion} 200 Connection Established\r\n\r\n";
-			await writer.WriteAsync(str, token);
+			goto InvalidRequest;
 		}
 
-		private static bool TryParseHeader(string raw, [NotNullWhen(true)] out HttpHeaders? httpHeaders)
-		{
-			var headerLines = raw.SplitLines();
+		#region Read Headers
 
-			if (headerLines.Length <= 0)
+		Dictionary<string, string> headers = new(StringComparer.OrdinalIgnoreCase);
+		foreach (string headerLine in headerLines.Skip(1))
+		{
+			string[] sp = headerLine.Split(':', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+			if (sp.Length != 2)
 			{
 				goto InvalidRequest;
 			}
 
-			var methodLine = headerLines[0].Split(' ');
-			if (methodLine.Length is not 3) // METHOD URI HTTP/X.Y
+			string headerName = sp[0];
+			string headerValue = sp[1];
+
+			if (headerName.IsHopByHopHeader())
+			{
+				continue;
+			}
+
+			headers[headerName] = headerValue;
+		}
+
+		headers[@"Connection"] = @"close";
+
+		#endregion
+
+		httpHeaders = new HttpHeaders
+		{
+			Method = methodLine[0],
+			HostUriString = methodLine[1],
+			HttpVersion = methodLine[2]
+		};
+
+		#region Host
+
+		headers.TryGetValue(@"Host", out string? hostHeader);
+		if (string.IsNullOrEmpty(hostHeader) && httpHeaders.IsConnect)
+		{
+			hostHeader = httpHeaders.HostUriString;
+		}
+
+		Uri hostUri = new(httpHeaders.HostUriString);
+		if (string.IsNullOrEmpty(hostHeader))
+		{
+			httpHeaders.Hostname = hostUri.Host;
+			httpHeaders.Port = (ushort)hostUri.Port;
+		}
+		else
+		{
+			string[] sp = hostHeader.Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+			if (sp.Length <= 0)
 			{
 				goto InvalidRequest;
 			}
 
-			#region Read Headers
+			httpHeaders.Hostname = sp[0];
 
-			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-			foreach (var headerLine in headerLines.Skip(1))
+			if (sp.Length > 1)
 			{
-				var sp = headerLine.Split(':', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-				if (sp.Length != 2)
+				if (!ushort.TryParse(sp[1], out ushort port))
 				{
 					goto InvalidRequest;
 				}
 
-				var headerName = sp[0];
-				var headerValue = sp[1];
-
-				if (headerName.IsHopByHopHeader())
-				{
-					continue;
-				}
-
-				headers[headerName] = headerValue;
+				httpHeaders.Port = port;
 			}
+		}
 
-			headers[@"Connection"] = @"close";
+		#endregion
 
-			#endregion
+		#region Content-Length
 
-			httpHeaders = new HttpHeaders
+		if (!httpHeaders.IsConnect)
+		{
+			headers.TryGetValue(@"Content-Length", out string? contentLengthStr);
+			if (contentLengthStr is not null && long.TryParse(contentLengthStr, out long contentLength))
 			{
-				Method = methodLine[0],
-				HostUriString = methodLine[1],
-				HttpVersion = methodLine[2]
-			};
-
-			#region Host
-
-			headers.TryGetValue(@"Host", out var hostHeader);
-			if (string.IsNullOrEmpty(hostHeader) && httpHeaders.IsConnect)
-			{
-				hostHeader = httpHeaders.HostUriString;
+				httpHeaders.ContentLength = contentLength;
 			}
+		}
 
-			var hostUri = new Uri(httpHeaders.HostUriString);
-			if (string.IsNullOrEmpty(hostHeader))
+		#endregion
+
+		#region Request String
+
+		if (!httpHeaders.IsConnect)
+		{
+			StringBuilder request = new(8192);
+
+			request.Append(httpHeaders.Method);
+			request.Append(' ');
+			request.Append(hostUri.PathAndQuery);
+			request.Append(hostUri.Fragment);
+			request.Append(' ');
+			request.Append(httpHeaders.HttpVersion);
+			request.Append(HttpNewLine);
+
+			foreach ((string name, string value) in headers)
 			{
-				httpHeaders.Hostname = hostUri.Host;
-				httpHeaders.Port = (ushort)hostUri.Port;
-			}
-			else
-			{
-				var sp = hostHeader.Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-				if (sp.Length <= 0)
-				{
-					goto InvalidRequest;
-				}
-
-				httpHeaders.Hostname = sp[0];
-
-				if (sp.Length > 1)
-				{
-					if (!ushort.TryParse(sp[1], out var port))
-					{
-						goto InvalidRequest;
-					}
-
-					httpHeaders.Port = port;
-				}
-			}
-
-			#endregion
-
-			#region Content-Length
-
-			if (!httpHeaders.IsConnect)
-			{
-				headers.TryGetValue(@"Content-Length", out var contentLengthStr);
-				if (contentLengthStr is not null && long.TryParse(contentLengthStr, out var contentLength))
-				{
-					httpHeaders.ContentLength = contentLength;
-				}
-			}
-
-			#endregion
-
-			#region Request String
-
-			if (!httpHeaders.IsConnect)
-			{
-				var request = new StringBuilder(8192);
-
-				request.Append(httpHeaders.Method);
+				request.Append(name);
+				request.Append(':');
 				request.Append(' ');
-				request.Append(hostUri.PathAndQuery);
-				request.Append(hostUri.Fragment);
-				request.Append(' ');
-				request.Append(httpHeaders.HttpVersion);
+				request.Append(value);
 				request.Append(HttpNewLine);
-
-				foreach (var (name, value) in headers)
-				{
-					request.Append(name);
-					request.Append(':');
-					request.Append(' ');
-					request.Append(value);
-					request.Append(HttpNewLine);
-				}
-
-				request.Append(HttpNewLine);
-				httpHeaders.Request = request.ToString();
 			}
 
-			#endregion
+			request.Append(HttpNewLine);
+			httpHeaders.Request = request.ToString();
+		}
 
+		#endregion
+
+		return true;
+	InvalidRequest:
+		httpHeaders = null;
+		return false;
+	}
+
+	private static bool TryReadContentLength(IDictionary<string, string> headers, out long contentLength)
+	{
+		if (headers.TryGetValue(@"Content-Length", out string? value) && long.TryParse(value, out contentLength))
+		{
 			return true;
-		InvalidRequest:
-			httpHeaders = null;
-			return false;
 		}
 
-		private static bool TryReadContentLength(IDictionary<string, string> headers, out long contentLength)
-		{
-			if (headers.TryGetValue(@"Content-Length", out var value) && long.TryParse(value, out contentLength))
-			{
-				return true;
-			}
+		contentLength = 0;
+		return false;
+	}
 
-			contentLength = 0;
-			return false;
-		}
-
-		private static async ValueTask<string> ReadHttpHeadersAsync(PipeReader reader, CancellationToken cancellationToken = default)
+	private static async ValueTask<string> ReadHttpHeadersAsync(PipeReader reader, CancellationToken cancellationToken = default)
+	{
+		while (true)
 		{
-			while (true)
+			ReadResult result = await reader.ReadAsync(cancellationToken);
+			ReadOnlySequence<byte> buffer = result.Buffer;
+			try
 			{
-				var result = await reader.ReadAsync(cancellationToken);
-				var buffer = result.Buffer;
-				try
+				if (TryReadHeaders(ref buffer, out string? headers))
 				{
-					if (TryReadHeaders(ref buffer, out var headers))
+					if (!buffer.IsEmpty)
 					{
-						if (!buffer.IsEmpty)
-						{
-							reader.CancelPendingRead();
-						}
-						return headers;
+						reader.CancelPendingRead();
 					}
-
-					if (result.IsCompleted)
-					{
-						break;
-					}
-				}
-				finally
-				{
-					reader.AdvanceTo(buffer.Start, buffer.End);
-				}
-			}
-
-			throw new InvalidDataException(@"Cannot read HTTP headers.");
-		}
-
-		private static bool TryReadHeaders(ref ReadOnlySequence<byte> sequence, [NotNullWhen(true)] out string? headers)
-		{
-			var reader = new SequenceReader<byte>(sequence);
-			if (reader.TryReadTo(out ReadOnlySequence<byte> headerBuffer, HttpHeaderEnd))
-			{
-				sequence = sequence.Slice(reader.Consumed);
-				headers = Encoding.UTF8.GetString(headerBuffer); // 不包括结尾的 \r\n\r\n
-				return true;
-			}
-
-			headers = default;
-			return false;
-		}
-
-		private static Dictionary<string, string> ReadHeaders(string raw)
-		{
-			var headerLines = raw.SplitLines();
-			var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-			foreach (var headerLine in headerLines.Skip(1))
-			{
-				var sp = headerLine.Split(':', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-				if (sp.Length != 2)
-				{
-					continue;
+					return headers;
 				}
 
-				var headerName = sp[0];
-				var headerValue = sp[1];
-
-				headers[headerName] = headerValue;
-			}
-			return headers;
-		}
-
-		private static bool IsChunked(IDictionary<string, string> headers)
-		{
-			//Transfer-Encoding: chunked
-			return headers.TryGetValue(@"Transfer-Encoding", out var value) && value.Equals(@"chunked", StringComparison.OrdinalIgnoreCase);
-		}
-
-		private static async ValueTask CopyChunksAsync(
-			PipeReader reader,
-			PipeWriter target,
-			CancellationToken cancellationToken = default)
-		{
-			while (true)
-			{
-				var result = await reader.ReadAsync(cancellationToken);
-				var buffer = result.Buffer;
-
-				try
+				if (result.IsCompleted)
 				{
-					while (true)
-					{
-						var lengthOfChunkLength = ReadLine(buffer, out var chunkLengthBuffer);
-						if (lengthOfChunkLength <= 0)
-						{
-							break;
-						}
+					break;
+				}
+			}
+			finally
+			{
+				reader.AdvanceTo(buffer.Start, buffer.End);
+			}
+		}
 
-						var chunkLength = GetChunkLength(chunkLengthBuffer);
+		throw new InvalidDataException(@"Cannot read HTTP headers.");
+	}
 
-						var length = lengthOfChunkLength + chunkLength + 2;
-						if (buffer.Length < length)
-						{
-							break;
-						}
+	private static bool TryReadHeaders(ref ReadOnlySequence<byte> sequence, [NotNullWhen(true)] out string? headers)
+	{
+		SequenceReader<byte> reader = new(sequence);
+		if (reader.TryReadTo(out ReadOnlySequence<byte> headerBuffer, HttpHeaderEnd))
+		{
+			sequence = sequence.Slice(reader.Consumed);
+			headers = Encoding.UTF8.GetString(headerBuffer); // 不包括结尾的 \r\n\r\n
+			return true;
+		}
 
-						var flushResult = await target.WriteAsync(buffer.Slice(0, length), cancellationToken);
-						buffer = buffer.Slice(length);
+		headers = default;
+		return false;
+	}
 
-						if (flushResult.IsCompleted || chunkLength is 0L)
-						{
-							return;
-						}
-					}
-					if (result.IsCompleted)
+	private static Dictionary<string, string> ReadHeaders(string raw)
+	{
+		string[] headerLines = raw.SplitLines();
+		Dictionary<string, string> headers = new(StringComparer.OrdinalIgnoreCase);
+		foreach (string headerLine in headerLines.Skip(1))
+		{
+			string[] sp = headerLine.Split(':', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+			if (sp.Length != 2)
+			{
+				continue;
+			}
+
+			string headerName = sp[0];
+			string headerValue = sp[1];
+
+			headers[headerName] = headerValue;
+		}
+		return headers;
+	}
+
+	private static bool IsChunked(IDictionary<string, string> headers)
+	{
+		//Transfer-Encoding: chunked
+		return headers.TryGetValue(@"Transfer-Encoding", out string? value) && value.Equals(@"chunked", StringComparison.OrdinalIgnoreCase);
+	}
+
+	private static async ValueTask CopyChunksAsync(
+		PipeReader reader,
+		PipeWriter target,
+		CancellationToken cancellationToken = default)
+	{
+		while (true)
+		{
+			ReadResult result = await reader.ReadAsync(cancellationToken);
+			ReadOnlySequence<byte> buffer = result.Buffer;
+
+			try
+			{
+				while (true)
+				{
+					long lengthOfChunkLength = ReadLine(buffer, out ReadOnlySequence<byte> chunkLengthBuffer);
+					if (lengthOfChunkLength <= 0)
 					{
 						break;
 					}
+
+					long chunkLength = GetChunkLength(chunkLengthBuffer);
+
+					long length = lengthOfChunkLength + chunkLength + 2;
+					if (buffer.Length < length)
+					{
+						break;
+					}
+
+					FlushResult flushResult = await target.WriteAsync(buffer.Slice(0, length), cancellationToken);
+					buffer = buffer.Slice(length);
+
+					if (flushResult.IsCompleted || chunkLength is 0L)
+					{
+						return;
+					}
 				}
-				finally
+				if (result.IsCompleted)
 				{
-					reader.AdvanceTo(buffer.Start, buffer.End);
+					break;
 				}
 			}
-
-			static long GetChunkLength(ReadOnlySequence<byte> sequence)
+			finally
 			{
-				var reader = new SequenceReader<byte>(sequence);
-				var length = 0L;
-				while (reader.TryRead(out var c))
-				{
-					length <<= 4;
-					length += c > '9' ? (c > 'Z' ? (c - 'a' + 10) : (c - 'A' + 10)) : (c - '0');
-				}
-				return length;
+				reader.AdvanceTo(buffer.Start, buffer.End);
 			}
+		}
 
-			static long ReadLine(ReadOnlySequence<byte> sequence, out ReadOnlySequence<byte> value)
+		static long GetChunkLength(ReadOnlySequence<byte> sequence)
+		{
+			SequenceReader<byte> reader = new(sequence);
+			long length = 0L;
+			while (reader.TryRead(out byte c))
 			{
-				var reader = new SequenceReader<byte>(sequence);
-				if (reader.TryReadTo(out value, HttpNewLineSpan))
-				{
-					// value 不包括结尾的 \r\n
-				}
-
-				return reader.Consumed;
+				length <<= 4;
+				length += c > '9' ? (c > 'Z' ? (c - 'a' + 10) : (c - 'A' + 10)) : (c - '0');
 			}
+			return length;
+		}
+
+		static long ReadLine(ReadOnlySequence<byte> sequence, out ReadOnlySequence<byte> value)
+		{
+			SequenceReader<byte> reader = new(sequence);
+			if (reader.TryReadTo(out value, HttpNewLineSpan))
+			{
+				// value 不包括结尾的 \r\n
+			}
+
+			return reader.Consumed;
 		}
 	}
 }

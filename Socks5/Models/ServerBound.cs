@@ -1,13 +1,12 @@
 using Socks5.Enums;
 using System.Net;
 
-namespace Socks5.Models
+namespace Socks5.Models;
+
+public struct ServerBound
 {
-	public struct ServerBound
-	{
-		public AddressType Type;
-		public IPAddress? Address;
-		public string? Domain;
-		public ushort Port;
-	}
+	public AddressType Type;
+	public IPAddress? Address;
+	public string? Domain;
+	public ushort Port;
 }

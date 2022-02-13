@@ -1,12 +1,11 @@
-namespace HttpProxy.Enums
+namespace HttpProxy.Enums;
+
+internal enum ConnectionErrorResult
 {
-	internal enum ConnectionErrorResult
-	{
-		UnknownError,
-		InvalidRequest,
-		AuthenticationError,
-		HostUnreachable,
-		ConnectionRefused,
-		ConnectionReset,
-	}
+	UnknownError,
+	InvalidRequest,
+	AuthenticationError,
+	HostUnreachable,
+	ConnectionRefused,
+	ConnectionReset,
 }

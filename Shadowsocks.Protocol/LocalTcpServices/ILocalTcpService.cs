@@ -1,14 +1,11 @@
 using System.Buffers;
 using System.IO.Pipelines;
-using System.Threading;
-using System.Threading.Tasks;
 
-namespace Shadowsocks.Protocol.LocalTcpServices
+namespace Shadowsocks.Protocol.LocalTcpServices;
+
+public interface ILocalTcpService
 {
-	public interface ILocalTcpService
-	{
-		bool IsHandle(ReadOnlySequence<byte> buffer);
+	bool IsHandle(ReadOnlySequence<byte> buffer);
 
-		ValueTask HandleAsync(IDuplexPipe pipe, CancellationToken token = default);
-	}
+	ValueTask HandleAsync(IDuplexPipe pipe, CancellationToken token = default);
 }

@@ -1,14 +1,12 @@
 using CryptoBase.Abstractions;
-using System;
 
-namespace Shadowsocks.Crypto.Stream
+namespace Shadowsocks.Crypto.Stream;
+
+public interface IStreamShadowsocksCrypto : IShadowsocksCrypto, ICanReset
 {
-	public interface IStreamShadowsocksCrypto : IShadowsocksCrypto, ICanReset
-	{
-		byte[] Iv { get; }
+	byte[] Iv { get; }
 
-		int IvLength { get; }
+	int IvLength { get; }
 
-		void SetIv(ReadOnlySpan<byte> iv);
-	}
+	void SetIv(ReadOnlySpan<byte> iv);
 }

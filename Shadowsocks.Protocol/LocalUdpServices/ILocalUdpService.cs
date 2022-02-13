@@ -1,14 +1,10 @@
-using System;
 using System.Net.Sockets;
-using System.Threading;
-using System.Threading.Tasks;
 
-namespace Shadowsocks.Protocol.LocalUdpServices
+namespace Shadowsocks.Protocol.LocalUdpServices;
+
+public interface ILocalUdpService
 {
-	public interface ILocalUdpService
-	{
-		bool IsHandle(ReadOnlyMemory<byte> buffer);
+	bool IsHandle(ReadOnlyMemory<byte> buffer);
 
-		ValueTask HandleAsync(UdpReceiveResult receiveResult, UdpClient incoming, CancellationToken cancellationToken = default);
-	}
+	ValueTask HandleAsync(UdpReceiveResult receiveResult, UdpClient incoming, CancellationToken cancellationToken = default);
 }

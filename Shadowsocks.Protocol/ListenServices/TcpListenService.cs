@@ -2,116 +2,111 @@ using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.Threading;
 using Pipelines.Extensions;
 using Shadowsocks.Protocol.LocalTcpServices;
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
+using System.Buffers;
+using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
-using System.Threading;
-using System.Threading.Tasks;
 using static Shadowsocks.Protocol.ShadowsocksProtocolConstants;
 
-namespace Shadowsocks.Protocol.ListenServices
+namespace Shadowsocks.Protocol.ListenServices;
+
+public class TcpListenService : IListenService
 {
-	public class TcpListenService : IListenService
+	public TcpListener TCPListener { get; }
+
+	private readonly ILogger<TcpListenService> _logger;
+	private readonly IEnumerable<ILocalTcpService> _services;
+
+	private readonly CancellationTokenSource _cts;
+
+	private const string LoggerHeader = @"[TcpListenService]";
+
+	public TcpListenService(ILogger<TcpListenService> logger, IPEndPoint local, IEnumerable<ILocalTcpService> services)
 	{
-		public TcpListener TCPListener { get; }
+		_logger = logger;
+		_services = services;
 
-		private readonly ILogger<TcpListenService> _logger;
-		private readonly IEnumerable<ILocalTcpService> _services;
+		TCPListener = new TcpListener(local);
+		_cts = new CancellationTokenSource();
+	}
 
-		private readonly CancellationTokenSource _cts;
-
-		private const string LoggerHeader = @"[TcpListenService]";
-
-		public TcpListenService(ILogger<TcpListenService> logger, IPEndPoint local, IEnumerable<ILocalTcpService> services)
+	public async ValueTask StartAsync()
+	{
+		try
 		{
-			_logger = logger;
-			_services = services;
+			TCPListener.Start();
+			_logger.LogInformation(@"{LoggerHeader} {Local} Start", LoggerHeader, TCPListener.LocalEndpoint);
 
-			TCPListener = new TcpListener(local);
-			_cts = new CancellationTokenSource();
-		}
-
-		public async ValueTask StartAsync()
-		{
-			try
+			while (!_cts.IsCancellationRequested)
 			{
-				TCPListener.Start();
-				_logger.LogInformation(@"{LoggerHeader} {Local} Start", LoggerHeader, TCPListener.LocalEndpoint);
+				Socket socket = await TCPListener.AcceptSocketAsync();
+				socket.NoDelay = true;
 
-				while (!_cts.IsCancellationRequested)
-				{
-					var socket = await TCPListener.AcceptSocketAsync();
-					socket.NoDelay = true;
-
-					_logger.LogInformation(@"{LoggerHeader} {Remote} => {Local}", LoggerHeader, socket.RemoteEndPoint, socket.LocalEndPoint);
-					HandleAsync(socket, _cts.Token).Forget();
-				}
-			}
-			catch (Exception ex)
-			{
-				_logger.LogError(ex, @"{LoggerHeader} {Local} Stop!", LoggerHeader, TCPListener.LocalEndpoint);
-				Stop();
+				_logger.LogInformation(@"{LoggerHeader} {Remote} => {Local}", LoggerHeader, socket.RemoteEndPoint, socket.LocalEndPoint);
+				HandleAsync(socket, _cts.Token).Forget();
 			}
 		}
-
-		private async Task HandleAsync(Socket socket, CancellationToken token)
+		catch (Exception ex)
 		{
-			var remoteEndPoint = socket.RemoteEndPoint;
-			try
-			{
-				var pipe = socket.AsDuplexPipe(SocketPipeReaderOptions, SocketPipeWriterOptions);
-				var result = await pipe.Input.ReadAsync(token);
-				var buffer = result.Buffer;
-
-				var service = _services.FirstOrDefault(tcpService => tcpService.IsHandle(buffer));
-
-				if (service is null)
-				{
-					throw new InvalidDataException(@"Cannot handle incoming pipe.");
-				}
-
-				pipe.Input.AdvanceTo(buffer.Start, buffer.End);
-				pipe.Input.CancelPendingRead();
-
-				// In every service.HandleAsync, first ReadResult.IsCanceled always true
-				await service.HandleAsync(pipe, token);
-			}
-			catch (ObjectDisposedException)
-			{
-
-			}
-			catch (IOException ex) when (ex.InnerException is SocketException)
-			{
-
-			}
-			catch (OperationCanceledException)
-			{
-
-			}
-			catch (Exception ex)
-			{
-				_logger.LogError(ex, @"{LoggerHeader} Handle Error", LoggerHeader);
-			}
-			finally
-			{
-				socket.FullClose();
-				_logger.LogInformation(@"{LoggerHeader} {Remote} disconnected", LoggerHeader, remoteEndPoint);
-			}
+			_logger.LogError(ex, @"{LoggerHeader} {Local} Stop!", LoggerHeader, TCPListener.LocalEndpoint);
+			Stop();
 		}
+	}
 
-		public void Stop()
+	private async Task HandleAsync(Socket socket, CancellationToken token)
+	{
+		EndPoint? remoteEndPoint = socket.RemoteEndPoint;
+		try
 		{
-			try
+			IDuplexPipe pipe = socket.AsDuplexPipe(SocketPipeReaderOptions, SocketPipeWriterOptions);
+			ReadResult result = await pipe.Input.ReadAsync(token);
+			ReadOnlySequence<byte> buffer = result.Buffer;
+
+			ILocalTcpService? service = _services.FirstOrDefault(tcpService => tcpService.IsHandle(buffer));
+
+			if (service is null)
 			{
-				TCPListener.Stop();
+				throw new InvalidDataException(@"Cannot handle incoming pipe.");
 			}
-			finally
-			{
-				_cts.Cancel();
-			}
+
+			pipe.Input.AdvanceTo(buffer.Start, buffer.End);
+			pipe.Input.CancelPendingRead();
+
+			// In every service.HandleAsync, first ReadResult.IsCanceled always true
+			await service.HandleAsync(pipe, token);
+		}
+		catch (ObjectDisposedException)
+		{
+
+		}
+		catch (IOException ex) when (ex.InnerException is SocketException)
+		{
+
+		}
+		catch (OperationCanceledException)
+		{
+
+		}
+		catch (Exception ex)
+		{
+			_logger.LogError(ex, @"{LoggerHeader} Handle Error", LoggerHeader);
+		}
+		finally
+		{
+			socket.FullClose();
+			_logger.LogInformation(@"{LoggerHeader} {Remote} disconnected", LoggerHeader, remoteEndPoint);
+		}
+	}
+
+	public void Stop()
+	{
+		try
+		{
+			TCPListener.Stop();
+		}
+		finally
+		{
+			_cts.Cancel();
 		}
 	}
 }

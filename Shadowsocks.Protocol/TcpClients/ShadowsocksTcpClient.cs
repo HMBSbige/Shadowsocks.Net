@@ -3,57 +3,54 @@ using Pipelines.Extensions;
 using Shadowsocks.Protocol.Models;
 using System.IO.Pipelines;
 using System.Net.Sockets;
-using System.Threading;
-using System.Threading.Tasks;
 using static Shadowsocks.Protocol.ShadowsocksProtocolConstants;
 
-namespace Shadowsocks.Protocol.TcpClients
+namespace Shadowsocks.Protocol.TcpClients;
+
+public sealed class ShadowsocksTcpClient : IPipeClient
 {
-	public sealed class ShadowsocksTcpClient : IPipeClient
+	private TcpClient? _client;
+
+	private IDuplexPipe? _pipe;
+
+	private readonly ShadowsocksServerInfo _serverInfo;
+
+	public ShadowsocksTcpClient(ShadowsocksServerInfo serverInfo)
 	{
-		private TcpClient? _client;
+		_serverInfo = serverInfo;
+	}
 
-		private IDuplexPipe? _pipe;
+	public async ValueTask ConnectAsync(CancellationToken cancellationToken = default)
+	{
+		Verify.Operation(_client is null || _client.Connected, @"Client has already connected!");
+		Requires.NotNullAllowStructs(_serverInfo.Address, nameof(_serverInfo.Address));
 
-		private readonly ShadowsocksServerInfo _serverInfo;
+		_client = new TcpClient { NoDelay = true };
+		await _client.ConnectAsync(_serverInfo.Address, _serverInfo.Port, cancellationToken);
+	}
 
-		public ShadowsocksTcpClient(ShadowsocksServerInfo serverInfo)
-		{
-			_serverInfo = serverInfo;
-		}
+	public IDuplexPipe GetPipe(string targetAddress, ushort targetPort)
+	{
+		Verify.Operation(_client is not null && _client.Connected, @"You must connect to the server first!");
 
-		public async ValueTask ConnectAsync(CancellationToken cancellationToken = default)
-		{
-			Verify.Operation(_client is null || _client.Connected, @"Client has already connected!");
-			Requires.NotNullAllowStructs(_serverInfo.Address, nameof(_serverInfo.Address));
+		return _pipe ??= _client.Client
+			.AsDuplexPipe(SocketPipeReaderOptions, SocketPipeWriterOptions)
+			.AsShadowsocksPipe(
+				_serverInfo,
+				targetAddress, targetPort,
+				DefaultPipeOptions,
+				DefaultPipeOptions
+			);
+	}
 
-			_client = new TcpClient { NoDelay = true };
-			await _client.ConnectAsync(_serverInfo.Address, _serverInfo.Port, cancellationToken);
-		}
+	public override string? ToString()
+	{
+		return _serverInfo.ToString();
+	}
 
-		public IDuplexPipe GetPipe(string targetAddress, ushort targetPort)
-		{
-			Verify.Operation(_client is not null && _client.Connected, @"You must connect to the server first!");
-
-			return _pipe ??= _client.Client
-				.AsDuplexPipe(SocketPipeReaderOptions, SocketPipeWriterOptions)
-				.AsShadowsocksPipe(
-					_serverInfo,
-					targetAddress, targetPort,
-					DefaultPipeOptions,
-					DefaultPipeOptions
-				);
-		}
-
-		public override string? ToString()
-		{
-			return _serverInfo.ToString();
-		}
-
-		public ValueTask DisposeAsync()
-		{
-			_client?.Dispose();
-			return default;
-		}
+	public ValueTask DisposeAsync()
+	{
+		_client?.Dispose();
+		return default;
 	}
 }

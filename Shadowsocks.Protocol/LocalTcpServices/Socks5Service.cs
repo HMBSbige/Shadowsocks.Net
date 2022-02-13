@@ -2,6 +2,7 @@ using Microsoft;
 using Microsoft.Extensions.Logging;
 using Pipelines.Extensions;
 using Shadowsocks.Protocol.ServersControllers;
+using Shadowsocks.Protocol.TcpClients;
 using Socks5.Enums;
 using Socks5.Models;
 using Socks5.Servers;
@@ -9,115 +10,112 @@ using System.Buffers;
 using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
-using System.Threading;
-using System.Threading.Tasks;
 
-namespace Shadowsocks.Protocol.LocalTcpServices
+namespace Shadowsocks.Protocol.LocalTcpServices;
+
+public class Socks5Service : ILocalTcpService
 {
-	public class Socks5Service : ILocalTcpService
+	private readonly ILogger _logger;
+	private readonly IServersController _serversController;
+
+	public Socks5CreateOption? Socks5CreateOption { get; set; }
+
+	public Socks5Service(
+		ILogger<Socks5Service> logger,
+		IServersController serversController)
 	{
-		private readonly ILogger _logger;
-		private readonly IServersController _serversController;
+		_logger = logger;
+		_serversController = serversController;
+	}
 
-		public Socks5CreateOption? Socks5CreateOption { get; set; }
+	public bool IsHandle(ReadOnlySequence<byte> buffer)
+	{
+		return Socks5ServerConnection.IsClientHeader(buffer);
+	}
 
-		public Socks5Service(
-			ILogger<Socks5Service> logger,
-			IServersController serversController)
+	public async ValueTask HandleAsync(IDuplexPipe pipe, CancellationToken token = default)
+	{
+		Verify.Operation(Socks5CreateOption is not null, @"You must set {0}", nameof(Socks5CreateOption));
+		Verify.Operation(Socks5CreateOption.Address is not null, @"You must set socks5 address");
+
+		Socks5ServerConnection socks5 = new(pipe, Socks5CreateOption.UsernamePassword);
+
+		await socks5.AcceptClientAsync(token);
+
+		AddressType outType = Socks5CreateOption.Address.AddressFamily is AddressFamily.InterNetwork ? AddressType.IPv4 : AddressType.IPv6;
+
+		switch (socks5.Command)
 		{
-			_logger = logger;
-			_serversController = serversController;
-		}
-
-		public bool IsHandle(ReadOnlySequence<byte> buffer)
-		{
-			return Socks5ServerConnection.IsClientHeader(buffer);
-		}
-
-		public async ValueTask HandleAsync(IDuplexPipe pipe, CancellationToken token = default)
-		{
-			Verify.Operation(Socks5CreateOption is not null, @"You must set {0}", nameof(Socks5CreateOption));
-			Verify.Operation(Socks5CreateOption.Address is not null, @"You must set socks5 address");
-
-			var socks5 = new Socks5ServerConnection(pipe, Socks5CreateOption.UsernamePassword);
-
-			await socks5.AcceptClientAsync(token);
-
-			var outType = Socks5CreateOption.Address.AddressFamily is AddressFamily.InterNetwork ? AddressType.IPv4 : AddressType.IPv6;
-
-			switch (socks5.Command)
+			case Command.Connect:
 			{
-				case Command.Connect:
+				_logger.LogDebug(@"SOCKS5 Connect");
+
+				string target = socks5.Target.Type switch
 				{
-					_logger.LogDebug(@"SOCKS5 Connect");
+					AddressType.Domain => socks5.Target.Domain!,
+					_ => socks5.Target.Address!.ToString()
+				};
 
-					var target = socks5.Target.Type switch
-					{
-						AddressType.Domain => socks5.Target.Domain!,
-						_ => socks5.Target.Address!.ToString()
-					};
+				await using IPipeClient client = await _serversController.GetServerAsync(target);
 
-					await using var client = await _serversController.GetServerAsync(target);
+				_logger.LogInformation(@"SOCKS5 Connect to {Target} via {Client}", target, client);
 
-					_logger.LogInformation(@"SOCKS5 Connect to {Target} via {Client}", target, client);
-
-					var bound = new ServerBound
-					{
-						Type = outType,
-						Address = Socks5CreateOption.Address,
-						Port = IPEndPoint.MinPort
-					};
-					await socks5.SendReplyAsync(Socks5Reply.Succeeded, bound, token);
-
-					var clientPipe = client.GetPipe(target, socks5.Target.Port);
-
-					await clientPipe.LinkToAsync(pipe, token);
-
-					break;
-				}
-				case Command.Bind:
+				ServerBound bound = new()
 				{
-					_logger.LogDebug(@"SOCKS5 Bind");
+					Type = outType,
+					Address = Socks5CreateOption.Address,
+					Port = IPEndPoint.MinPort
+				};
+				await socks5.SendReplyAsync(Socks5Reply.Succeeded, bound, token);
 
-					var bound = new ServerBound
-					{
-						Type = outType,
-						Address = Socks5CreateOption.Address,
-						Port = IPEndPoint.MinPort
-					};
-					await socks5.SendReplyAsync(Socks5Reply.CommandNotSupported, bound, token);
-					break;
-				}
-				case Command.UdpAssociate:
-				{
-					_logger.LogDebug(@"SOCKS5 UdpAssociate");
+				IDuplexPipe clientPipe = client.GetPipe(target, socks5.Target.Port);
 
-					var bound = new ServerBound
-					{
-						Type = outType,
-						Address = Socks5CreateOption.Address,
-						Port = Socks5CreateOption.Port
-					};
-					await socks5.SendReplyAsync(Socks5Reply.Succeeded, bound, token);
+				await clientPipe.LinkToAsync(pipe, token);
 
-					// wait remote close
-					var result = await pipe.Input.ReadAsync(token);
-					Report.IfNot(result.IsCompleted);
-					break;
-				}
-				default:
-				{
-					var bound = new ServerBound
-					{
-						Type = outType,
-						Address = Socks5CreateOption.Address,
-						Port = IPEndPoint.MinPort
-					};
-					await socks5.SendReplyAsync(Socks5Reply.GeneralFailure, bound, token);
-					break;
-				}
+				break;
 			}
+			case Command.Bind:
+			{
+				_logger.LogDebug(@"SOCKS5 Bind");
 
+				ServerBound bound = new()
+				{
+					Type = outType,
+					Address = Socks5CreateOption.Address,
+					Port = IPEndPoint.MinPort
+				};
+				await socks5.SendReplyAsync(Socks5Reply.CommandNotSupported, bound, token);
+				break;
+			}
+			case Command.UdpAssociate:
+			{
+				_logger.LogDebug(@"SOCKS5 UdpAssociate");
+
+				ServerBound bound = new()
+				{
+					Type = outType,
+					Address = Socks5CreateOption.Address,
+					Port = Socks5CreateOption.Port
+				};
+				await socks5.SendReplyAsync(Socks5Reply.Succeeded, bound, token);
+
+				// wait remote close
+				ReadResult result = await pipe.Input.ReadAsync(token);
+				Report.IfNot(result.IsCompleted);
+				break;
+			}
+			default:
+			{
+				ServerBound bound = new()
+				{
+					Type = outType,
+					Address = Socks5CreateOption.Address,
+					Port = IPEndPoint.MinPort
+				};
+				await socks5.SendReplyAsync(Socks5Reply.GeneralFailure, bound, token);
+				break;
+			}
 		}
+
 	}
 }

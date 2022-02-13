@@ -8,9 +8,7 @@ using Shadowsocks.Protocol.LocalTcpServices;
 using Shadowsocks.Protocol.LocalUdpServices;
 using Shadowsocks.Protocol.ServersControllers;
 using Socks5.Models;
-using System;
 using System.Net;
-using System.Threading.Tasks;
 using TestConsoleApp;
 
 const string outputTemplate = @"[{Timestamp:yyyy-MM-dd HH:mm:ss}] [{Level}] {Message:lj}{NewLine}{Exception}";
@@ -26,7 +24,7 @@ Log.Logger = new LoggerConfiguration()
 	.WriteTo.Async(c => c.Console(outputTemplate: outputTemplate))
 	.CreateLogger();
 
-var services = new ServiceCollection();
+ServiceCollection services = new();
 services.AddLogging(c => c.AddSerilog());
 services.AddSingleton<IServersController, TestServersController>();
 services.AddTransient<HttpService>();
@@ -35,13 +33,13 @@ services.AddTransient<Socks5UdpService>();
 services.AddTransient<HttpToSocks5>();
 services.AddMemoryCache();
 
-await using var provide = services.BuildServiceProvider();
+await using ServiceProvider provide = services.BuildServiceProvider();
 
 const ushort port = 1080;
-var local = new IPEndPoint(IPAddress.Loopback, port);
-var httpService = provide.GetRequiredService<HttpService>();
-var socks5Service = provide.GetRequiredService<Socks5Service>();
-var socks5UdpService = provide.GetRequiredService<Socks5UdpService>();
+IPEndPoint local = new(IPAddress.Loopback, port);
+HttpService httpService = provide.GetRequiredService<HttpService>();
+Socks5Service socks5Service = provide.GetRequiredService<Socks5Service>();
+Socks5UdpService socks5UdpService = provide.GetRequiredService<Socks5UdpService>();
 
 httpService.Socks5CreateOption = new Socks5CreateOption
 {
@@ -54,7 +52,7 @@ socks5Service.Socks5CreateOption = new Socks5CreateOption
 	Port = port
 };
 
-var tcp = new TcpListenService(
+TcpListenService tcp = new(
 	provide.GetRequiredService<ILogger<TcpListenService>>(),
 	local,
 	new ILocalTcpService[]
@@ -64,7 +62,7 @@ var tcp = new TcpListenService(
 	}
 );
 
-var udp = new UdpListenService(
+UdpListenService udp = new(
 	provide.GetRequiredService<ILogger<UdpListenService>>(),
 	local,
 	new ILocalUdpService[]

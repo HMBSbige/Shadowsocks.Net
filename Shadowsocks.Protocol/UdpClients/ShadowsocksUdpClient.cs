@@ -2,78 +2,74 @@ using Microsoft;
 using Pipelines.Extensions;
 using Shadowsocks.Crypto;
 using Shadowsocks.Protocol.Models;
-using System;
 using System.Buffers;
 using System.Net.Sockets;
-using System.Threading;
-using System.Threading.Tasks;
 
-namespace Shadowsocks.Protocol.UdpClients
+namespace Shadowsocks.Protocol.UdpClients;
+
+public class ShadowsocksUdpClient : IUdpClient
 {
-	public class ShadowsocksUdpClient : IUdpClient
+	private readonly ShadowsocksServerInfo _serverInfo;
+
+	private const int MaxUdpSize = 0x10000;
+
+	private readonly Socket _client;
+
+	public ShadowsocksUdpClient(ShadowsocksServerInfo serverInfo)
 	{
-		private readonly ShadowsocksServerInfo _serverInfo;
+		Requires.NotNull(serverInfo, nameof(serverInfo));
+		Requires.NotNullAllowStructs(serverInfo.Method, nameof(serverInfo));
+		Requires.NotNullAllowStructs(serverInfo.Password, nameof(serverInfo));
+		Requires.NotNullAllowStructs(serverInfo.Address, nameof(serverInfo));
 
-		private const int MaxUdpSize = 0x10000;
+		_serverInfo = serverInfo;
 
-		private readonly Socket _client;
+		_client = new Socket(SocketType.Dgram, ProtocolType.Udp);
+		_client.Connect(serverInfo.Address, serverInfo.Port);
+	}
 
-		public ShadowsocksUdpClient(ShadowsocksServerInfo serverInfo)
+	public async ValueTask<int> ReceiveAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+	{
+		byte[] encBuffer = ArrayPool<byte>.Shared.Rent(MaxUdpSize);
+		try
 		{
-			Requires.NotNull(serverInfo, nameof(serverInfo));
-			Requires.NotNullAllowStructs(serverInfo.Method, nameof(serverInfo));
-			Requires.NotNullAllowStructs(serverInfo.Password, nameof(serverInfo));
-			Requires.NotNullAllowStructs(serverInfo.Address, nameof(serverInfo));
+			int res = await _client.ReceiveAsync(encBuffer, SocketFlags.None, cancellationToken);
 
-			_serverInfo = serverInfo;
+			using IShadowsocksCrypto decryptor = ShadowsocksCrypto.Create(_serverInfo.Method!, _serverInfo.Password!);
 
-			_client = new Socket(SocketType.Dgram, ProtocolType.Udp);
-			_client.Connect(serverInfo.Address, serverInfo.Port);
+			return decryptor.DecryptUDP(encBuffer.AsSpan(0, res), buffer.Span);
 		}
-
-		public async ValueTask<int> ReceiveAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+		finally
 		{
-			var encBuffer = ArrayPool<byte>.Shared.Rent(MaxUdpSize);
-			try
-			{
-				var res = await _client.ReceiveAsync(encBuffer, SocketFlags.None, cancellationToken);
-
-				using var decryptor = ShadowsocksCrypto.Create(_serverInfo.Method!, _serverInfo.Password!);
-
-				return decryptor.DecryptUDP(encBuffer.AsSpan(0, res), buffer.Span);
-			}
-			finally
-			{
-				ArrayPool<byte>.Shared.Return(encBuffer);
-			}
+			ArrayPool<byte>.Shared.Return(encBuffer);
 		}
+	}
 
-		public async ValueTask<int> SendAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+	public async ValueTask<int> SendAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+	{
+		byte[] encBuffer = ArrayPool<byte>.Shared.Rent(MaxUdpSize);
+		try
 		{
-			var encBuffer = ArrayPool<byte>.Shared.Rent(MaxUdpSize);
-			try
-			{
-				using var encryptor = ShadowsocksCrypto.Create(_serverInfo.Method!, _serverInfo.Password!);
-				var length = encryptor.EncryptUDP(buffer.Span, encBuffer);
+			using IShadowsocksCrypto encryptor = ShadowsocksCrypto.Create(_serverInfo.Method!, _serverInfo.Password!);
+			int length = encryptor.EncryptUDP(buffer.Span, encBuffer);
 
-				var sendLength = await _client.SendAsync(encBuffer.AsMemory(0, length), SocketFlags.None, cancellationToken);
-				Report.IfNot(sendLength == length, @"Send Udp {0}/{1}", sendLength, length);
-				return sendLength == length ? buffer.Length : default;
-			}
-			finally
-			{
-				ArrayPool<byte>.Shared.Return(encBuffer);
-			}
+			int sendLength = await _client.SendAsync(encBuffer.AsMemory(0, length), SocketFlags.None, cancellationToken);
+			Report.IfNot(sendLength == length, @"Send Udp {0}/{1}", sendLength, length);
+			return sendLength == length ? buffer.Length : default;
 		}
-
-		public override string? ToString()
+		finally
 		{
-			return _serverInfo.ToString();
+			ArrayPool<byte>.Shared.Return(encBuffer);
 		}
+	}
 
-		public void Dispose()
-		{
-			_client.FullClose();
-		}
+	public override string? ToString()
+	{
+		return _serverInfo.ToString();
+	}
+
+	public void Dispose()
+	{
+		_client.FullClose();
 	}
 }

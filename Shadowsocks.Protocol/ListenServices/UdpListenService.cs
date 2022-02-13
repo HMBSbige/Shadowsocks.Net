@@ -1,96 +1,90 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.Threading;
 using Shadowsocks.Protocol.LocalUdpServices;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Net;
 using System.Net.Sockets;
-using System.Threading;
-using System.Threading.Tasks;
 
-namespace Shadowsocks.Protocol.ListenServices
+namespace Shadowsocks.Protocol.ListenServices;
+
+public class UdpListenService : IListenService
 {
-	public class UdpListenService : IListenService
+	public UdpClient UdpListener { get; }
+
+	private readonly ILogger<UdpListenService> _logger;
+	private readonly IPEndPoint _local;
+	private readonly IEnumerable<ILocalUdpService> _services;
+
+	private readonly CancellationTokenSource _cts;
+
+	private const string LoggerHeader = @"[UdpListenService]";
+
+	public UdpListenService(ILogger<UdpListenService> logger, IPEndPoint local, IEnumerable<ILocalUdpService> services)
 	{
-		public UdpClient UdpListener { get; }
+		_logger = logger;
+		_local = local;
+		_services = services;
 
-		private readonly ILogger<UdpListenService> _logger;
-		private readonly IPEndPoint _local;
-		private readonly IEnumerable<ILocalUdpService> _services;
+		UdpListener = new UdpClient(local.AddressFamily);
+		_cts = new CancellationTokenSource();
+	}
 
-		private readonly CancellationTokenSource _cts;
-
-		private const string LoggerHeader = @"[UdpListenService]";
-
-		public UdpListenService(ILogger<UdpListenService> logger, IPEndPoint local, IEnumerable<ILocalUdpService> services)
+	public async ValueTask StartAsync()
+	{
+		try
 		{
-			_logger = logger;
-			_local = local;
-			_services = services;
+			UdpListener.Client.Bind(_local);
+			_logger.LogInformation(@"{LoggerHeader} {Local} Start", LoggerHeader, UdpListener.Client.LocalEndPoint);
 
-			UdpListener = new UdpClient(local.AddressFamily);
-			_cts = new CancellationTokenSource();
-		}
-
-		public async ValueTask StartAsync()
-		{
-			try
+			while (true)
 			{
-				UdpListener.Client.Bind(_local);
-				_logger.LogInformation(@"{LoggerHeader} {Local} Start", LoggerHeader, UdpListener.Client.LocalEndPoint);
-
-				while (true)
-				{
-					var message = await UdpListener.ReceiveAsync(_cts.Token);
+				UdpReceiveResult message = await UdpListener.ReceiveAsync(_cts.Token);
 #if DEBUG
-					_logger.LogDebug(
-						@"{LoggerHeader}: {ReceiveLength} bytes {Remote} => {Local}",
-						LoggerHeader,
-						message.Buffer.Length,
-						message.RemoteEndPoint,
-						UdpListener.Client.LocalEndPoint
-					);
+				_logger.LogDebug(
+					@"{LoggerHeader}: {ReceiveLength} bytes {Remote} => {Local}",
+					LoggerHeader,
+					message.Buffer.Length,
+					message.RemoteEndPoint,
+					UdpListener.Client.LocalEndPoint
+				);
 #endif
-					HandleAsync(message, _cts.Token).Forget();
-				}
-			}
-			catch (Exception ex)
-			{
-				_logger.LogError(ex, @"{Local} Stop!", UdpListener.Client.LocalEndPoint);
-				Stop();
+				HandleAsync(message, _cts.Token).Forget();
 			}
 		}
-
-		private async Task HandleAsync(UdpReceiveResult result, CancellationToken token)
+		catch (Exception ex)
 		{
-			try
-			{
-				var service = _services.FirstOrDefault(udpService => udpService.IsHandle(result.Buffer));
-
-				if (service is null)
-				{
-					return;
-				}
-
-				await service.HandleAsync(result, UdpListener, token);
-			}
-			catch (Exception ex)
-			{
-				_logger.LogError(ex, @"{LoggerHeader} Handle Error", LoggerHeader);
-			}
+			_logger.LogError(ex, @"{Local} Stop!", UdpListener.Client.LocalEndPoint);
+			Stop();
 		}
+	}
 
-		public void Stop()
+	private async Task HandleAsync(UdpReceiveResult result, CancellationToken token)
+	{
+		try
 		{
-			try
+			ILocalUdpService? service = _services.FirstOrDefault(udpService => udpService.IsHandle(result.Buffer));
+
+			if (service is null)
 			{
-				UdpListener.Dispose();
+				return;
 			}
-			finally
-			{
-				_cts.Cancel();
-			}
+
+			await service.HandleAsync(result, UdpListener, token);
+		}
+		catch (Exception ex)
+		{
+			_logger.LogError(ex, @"{LoggerHeader} Handle Error", LoggerHeader);
+		}
+	}
+
+	public void Stop()
+	{
+		try
+		{
+			UdpListener.Dispose();
+		}
+		finally
+		{
+			_cts.Cancel();
 		}
 	}
 }

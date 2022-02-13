@@ -1,10 +1,7 @@
-using System.Threading.Tasks;
+namespace Shadowsocks.Protocol.ListenServices;
 
-namespace Shadowsocks.Protocol.ListenServices
+public interface IListenService
 {
-	public interface IListenService
-	{
-		ValueTask StartAsync();
-		void Stop();
-	}
+	ValueTask StartAsync();
+	void Stop();
 }
