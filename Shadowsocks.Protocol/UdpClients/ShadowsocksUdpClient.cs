@@ -71,5 +71,6 @@ public class ShadowsocksUdpClient : IUdpClient
 	public void Dispose()
 	{
 		_client.FullClose();
+		GC.SuppressFinalize(this);
 	}
 }

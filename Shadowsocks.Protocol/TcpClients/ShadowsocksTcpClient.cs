@@ -24,6 +24,7 @@ public sealed class ShadowsocksTcpClient : IPipeClient
 	{
 		Verify.Operation(_client is null || _client.Connected, @"Client has already connected!");
 		Requires.NotNullAllowStructs(_serverInfo.Address, nameof(_serverInfo.Address));
+		Requires.NotDefault(_serverInfo.Port, nameof(_serverInfo.Port));
 
 		_client = new TcpClient { NoDelay = true };
 		await _client.ConnectAsync(_serverInfo.Address, _serverInfo.Port, cancellationToken);
@@ -48,9 +49,8 @@ public sealed class ShadowsocksTcpClient : IPipeClient
 		return _serverInfo.ToString();
 	}
 
-	public ValueTask DisposeAsync()
+	public void Dispose()
 	{
 		_client?.Dispose();
-		return default;
 	}
 }

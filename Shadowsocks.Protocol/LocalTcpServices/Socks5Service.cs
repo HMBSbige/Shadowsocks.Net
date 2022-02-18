@@ -56,7 +56,7 @@ public class Socks5Service : ILocalTcpService
 					_ => socks5.Target.Address!.ToString()
 				};
 
-				await using IPipeClient client = await _serversController.GetServerAsync(target);
+				using IPipeClient client = await _serversController.GetServerAsync(target);
 
 				_logger.LogInformation(@"SOCKS5 Connect to {Target} via {Client}", target, client);
 

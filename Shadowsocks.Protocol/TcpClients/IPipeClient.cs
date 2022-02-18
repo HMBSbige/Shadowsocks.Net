@@ -2,7 +2,7 @@ using System.IO.Pipelines;
 
 namespace Shadowsocks.Protocol.TcpClients;
 
-public interface IPipeClient : IAsyncDisposable
+public interface IPipeClient : IDisposable
 {
 	ValueTask ConnectAsync(CancellationToken cancellationToken = default);
 

@@ -10,15 +10,12 @@ public record ShadowsocksServerInfo
 
 	public string? Method { get; set; }
 
-	public string? Remark { get; set; }
+	public string? Plugin { get; set; }
+
+	public string? PluginOpts { get; set; }
 
 	public override string? ToString()
 	{
-		if (!string.IsNullOrEmpty(Remark))
-		{
-			return Remark;
-		}
-
 		if (Address is null)
 		{
 			return base.ToString();
