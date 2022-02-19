@@ -4,53 +4,61 @@ using Shadowsocks.Protocol.ServersControllers;
 using Shadowsocks.Protocol.TcpClients;
 using Shadowsocks.Protocol.TcpClients.SIP003;
 using Shadowsocks.Protocol.UdpClients;
+using System.Net;
 
 namespace TestConsoleApp;
 
 public class TestServersController : IServersController
 {
-	private static readonly Dictionary<ShadowsocksServerInfo, ISip003PluginService> PluginServices = new();
+	private static readonly ISip003PluginService PluginServices = new Sip003PluginService();
+
+	private static readonly ShadowsocksServerInfo TestInfo = new()
+	{
+		Remarks = default,
+		Address = @"",
+		Port = 0,
+		Method = ShadowsocksCrypto.Aes128GcmMethod,
+		Password = @"",
+		Plugin = @"",
+		PluginOpts = @""
+	};
 
 	private static ShadowsocksServerInfo GetInfo()
 	{
-		return new ShadowsocksServerInfo
-		{
-			Address = @"",
-			Port = 0,
-			Method = ShadowsocksCrypto.Aes128GcmMethod,
-			Password = @"",
-			Plugin = @"",
-			PluginOpts = @""
-		};
+		return TestInfo;
 	}
 
 	public async ValueTask<IPipeClient> GetServerAsync(string target)
 	{
 		ShadowsocksServerInfo info = GetInfo();
 
-		if (!string.IsNullOrEmpty(info.Plugin))
+		if (string.IsNullOrEmpty(info.Plugin))
 		{
-			ISip003PluginService? service;
-			lock (PluginServices)
-			{
-				if (!PluginServices.TryGetValue(info, out service))
-				{
-					service = OperatingSystem.IsWindows() ? new Sip003PluginWindowsService() : new Sip003PluginService();
-					service.Start(info);
-					PluginServices.Add(info, service);
-				}
-			}
-
-			info = info with { Address = service.LocalEndPoint!.Address.ToString(), Port = (ushort)service.LocalEndPoint.Port };
+			return await ConnectAsync(info, TimeSpan.FromSeconds(3));
 		}
 
-		IPipeClient client = new ShadowsocksTcpClient(info);
+		IPEndPoint pluginIpEndPoint = PluginServices.GetPluginService(info);
+		ShadowsocksServerInfo newInfo = info with { Address = pluginIpEndPoint.Address.ToString(), Port = (ushort)pluginIpEndPoint.Port };
 
-		using CancellationTokenSource cts = new(TimeSpan.FromSeconds(3));
+		try
+		{
+			return await ConnectAsync(newInfo, TimeSpan.FromSeconds(1));
+		}
+		catch
+		{
+			PluginServices.RemoveService(info);
+			pluginIpEndPoint = PluginServices.GetPluginService(info);
+			newInfo = info with { Address = pluginIpEndPoint.Address.ToString(), Port = (ushort)pluginIpEndPoint.Port };
+			return await ConnectAsync(newInfo, TimeSpan.FromSeconds(1));
+		}
 
-		await client.ConnectAsync(cts.Token);
-
-		return client;
+		async ValueTask<IPipeClient> ConnectAsync(ShadowsocksServerInfo serverInfo, TimeSpan timeout)
+		{
+			IPipeClient client = new ShadowsocksTcpClient(serverInfo);
+			using CancellationTokenSource cts = new(timeout);
+			await client.ConnectAsync(cts.Token);
+			return client;
+		}
 	}
 
 	public ValueTask<IUdpClient> GetServerUdpAsync(string target)

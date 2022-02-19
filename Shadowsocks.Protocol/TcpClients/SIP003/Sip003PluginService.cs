@@ -1,100 +1,52 @@
-using Microsoft;
 using Shadowsocks.Protocol.Models;
-using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.Net;
-using System.Net.Sockets;
 
 namespace Shadowsocks.Protocol.TcpClients.SIP003;
 
 public class Sip003PluginService : ISip003PluginService
 {
-	private const string EnvRemoteHost = @"SS_REMOTE_HOST";
-	private const string EnvRemotePort = @"SS_REMOTE_PORT";
-	private const string EnvLocalHost = @"SS_LOCAL_HOST";
-	private const string EnvLocalPort = @"SS_LOCAL_PORT";
-	private const string EnvPluginOpts = @"SS_PLUGIN_OPTIONS";
+	private readonly Dictionary<ShadowsocksServerInfo, ISip003Plugin> _services = new();
 
-	public IPEndPoint? LocalEndPoint { get; private set; }
-
-	protected Process? Process;
-
-	[MemberNotNull(nameof(Process))]
-	public virtual void Start(ShadowsocksServerInfo info)
+	public IPEndPoint GetPluginService(ShadowsocksServerInfo serverInfo)
 	{
-		Verify.NotDisposed(this);
-		Verify.Operation(Process is null || Process.HasExited, @"Process has started!");
-		Requires.NotNullAllowStructs(info.Plugin, nameof(info.Plugin));
-
-		LocalEndPoint = GetFreeLocalEndpoint();
-
-		Process = new Process
+		lock (_services)
 		{
-			StartInfo = new ProcessStartInfo(info.Plugin)
+			if (_services.TryGetValue(serverInfo, out ISip003Plugin? plugin))
 			{
-				UseShellExecute = false,
-				CreateNoWindow = true,
-				Environment =
+				if (plugin.LocalEndPoint is not null)
 				{
-					[EnvRemoteHost] = info.Address,
-					[EnvRemotePort] = info.Port.ToString(),
-					[EnvLocalHost] = LocalEndPoint.Address.ToString(),
-					[EnvLocalPort] = LocalEndPoint.Port.ToString(),
-					[EnvPluginOpts] = info.PluginOpts
+					return plugin.LocalEndPoint;
 				}
+				plugin.Dispose();
 			}
-		};
 
-		Process.Start();
+			plugin = OperatingSystem.IsWindows() ? new Sip003PluginWindows() : new Sip003Plugin();
+			plugin.Start(serverInfo);
+			_services[serverInfo] = plugin;
+			return plugin.LocalEndPoint;
+		}
+	}
 
-		static IPEndPoint GetFreeLocalEndpoint()
+	public void RemoveService(ShadowsocksServerInfo serverInfo)
+	{
+		lock (_services)
 		{
-			TcpListener listener = Socket.OSSupportsIPv6 ?
-				new TcpListener(IPAddress.IPv6Loopback, default) { Server = { DualMode = true } } :
-				new TcpListener(IPAddress.Loopback, default);
-			try
+			if (_services.Remove(serverInfo, out ISip003Plugin? plugin))
 			{
-				listener.Start();
-				return (IPEndPoint)listener.LocalEndpoint;
-			}
-			finally
-			{
-				listener.Stop();
+				plugin.Dispose();
 			}
 		}
 	}
 
-	public bool IsDisposed { get; private set; }
-
-	public virtual void Dispose()
+	public void RemoveAll()
 	{
-		if (IsDisposed)
+		lock (_services)
 		{
-			return;
-		}
-
-		if (Process is null)
-		{
-			return;
-		}
-
-		try
-		{
-			if (!Process.HasExited)
+			foreach ((ShadowsocksServerInfo _, ISip003Plugin plugin) in _services)
 			{
-				Process.Kill();
+				plugin.Dispose();
 			}
-		}
-		catch
-		{
-			// ignored
-		}
-		finally
-		{
-			Process.Dispose();
-			Process = null;
-			IsDisposed = true;
-			GC.SuppressFinalize(this);
+			_services.Clear();
 		}
 	}
 }
