@@ -11,7 +11,7 @@ using Socks5.Models;
 using System.Net;
 using TestConsoleApp;
 
-const string outputTemplate = @"[{Timestamp:yyyy-MM-dd HH:mm:ss}] [{Level}] {Message:lj}{NewLine}{Exception}";
+const string outputTemplate = @"[{Timestamp:yyyy-MM-dd HH:mm:ss}] [{Level}] [{SourceContext}] {Message:lj}{NewLine}{Exception}";
 Log.Logger = new LoggerConfiguration()
 #if DEBUG
 	.MinimumLevel.Debug()
@@ -21,6 +21,7 @@ Log.Logger = new LoggerConfiguration()
 	.MinimumLevel.Override(@"Microsoft", LogEventLevel.Information)
 	.MinimumLevel.Override(@"Volo.Abp", LogEventLevel.Warning)
 	.Enrich.FromLogContext()
+	.Enrich.With<SourceContextToClassNameEnricher>()
 	.WriteTo.Async(c => c.Console(outputTemplate: outputTemplate))
 	.CreateLogger();
 

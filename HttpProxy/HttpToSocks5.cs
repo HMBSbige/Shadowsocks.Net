@@ -14,8 +14,6 @@ namespace HttpProxy;
 
 public class HttpToSocks5
 {
-	private const string LogHeader = @"[HttpToSocks5]";
-
 	private readonly ILogger<HttpToSocks5> _logger;
 
 	public HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
@@ -26,14 +24,14 @@ public class HttpToSocks5
 	public async ValueTask ForwardToSocks5Async(IDuplexPipe incomingPipe, Socks5CreateOption socks5CreateOption, CancellationToken cancellationToken = default)
 	{
 		string headers = await ReadHttpHeadersAsync(incomingPipe.Input, cancellationToken);
-		_logger.LogDebug("{LogHeader} Client headers received: \n{Headers}", LogHeader, headers);
+		_logger.LogDebug("Client headers received: \n{Headers}", headers);
 
 		if (!TryParseHeader(headers, out HttpHeaders? httpHeaders))
 		{
 			await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.InvalidRequest, token: cancellationToken);
 			return;
 		}
-		_logger.LogDebug("{LogHeader} New request headers: \n{Headers}", LogHeader, httpHeaders);
+		_logger.LogDebug("New request headers: \n{Headers}", httpHeaders);
 
 		if (httpHeaders.IsConnect)
 		{
@@ -66,16 +64,16 @@ public class HttpToSocks5
 			await socks5Pipe.Output.WriteAsync(httpHeaders.Request, cancellationToken);
 			if (httpHeaders.ContentLength > 0)
 			{
-				_logger.LogDebug(@"{LogHeader} Waiting for up to {ContentLength} bytes from client", LogHeader, httpHeaders.ContentLength);
+				_logger.LogDebug(@"Waiting for up to {ContentLength} bytes from client", httpHeaders.ContentLength);
 
 				long readLength = await incomingPipe.Input.CopyToAsync(socks5Pipe.Output, httpHeaders.ContentLength, cancellationToken);
 
-				_logger.LogDebug(@"{LogHeader} client sent {ClientSentLength} bytes to server", LogHeader, readLength);
+				_logger.LogDebug(@"client sent {ClientSentLength} bytes to server", readLength);
 			}
 
 			//Read response
 			string responseHeadersStr = await ReadHttpHeadersAsync(socks5Pipe.Input, cancellationToken);
-			_logger.LogDebug("{LogHeader} server headers received: \n{Headers}", LogHeader, responseHeadersStr);
+			_logger.LogDebug("server headers received: \n{Headers}", responseHeadersStr);
 			Dictionary<string, string> responseHeaders = ReadHeaders(responseHeadersStr);
 
 			incomingPipe.Output.Write(responseHeadersStr);
@@ -90,11 +88,11 @@ public class HttpToSocks5
 			{
 				if (serverResponseContentLength > 0)
 				{
-					_logger.LogDebug(@"{LogHeader} Waiting for up to {ContentLength} bytes from server", LogHeader, serverResponseContentLength);
+					_logger.LogDebug(@"Waiting for up to {ContentLength} bytes from server", serverResponseContentLength);
 
 					long readLength = await socks5Pipe.Input.CopyToAsync(incomingPipe.Output, serverResponseContentLength, cancellationToken);
 
-					_logger.LogDebug(@"{LogHeader} server sent {ServerSentLength} bytes to client", LogHeader, readLength);
+					_logger.LogDebug(@"server sent {ServerSentLength} bytes to client", readLength);
 				}
 			}
 		}

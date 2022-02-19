@@ -19,8 +19,6 @@ public class TcpListenService : IListenService
 
 	private readonly CancellationTokenSource _cts;
 
-	private const string LoggerHeader = @"[TcpListenService]";
-
 	public TcpListenService(ILogger<TcpListenService> logger, IPEndPoint local, IEnumerable<ILocalTcpService> services)
 	{
 		_logger = logger;
@@ -35,20 +33,20 @@ public class TcpListenService : IListenService
 		try
 		{
 			TCPListener.Start();
-			_logger.LogInformation(@"{LoggerHeader} {Local} Start", LoggerHeader, TCPListener.LocalEndpoint);
+			_logger.LogInformation(@"{Local} Start", TCPListener.LocalEndpoint);
 
 			while (!_cts.IsCancellationRequested)
 			{
 				Socket socket = await TCPListener.AcceptSocketAsync();
 				socket.NoDelay = true;
 
-				_logger.LogInformation(@"{LoggerHeader} {Remote} => {Local}", LoggerHeader, socket.RemoteEndPoint, socket.LocalEndPoint);
+				_logger.LogInformation(@"{Remote} => {Local}", socket.RemoteEndPoint, socket.LocalEndPoint);
 				HandleAsync(socket, _cts.Token).Forget();
 			}
 		}
 		catch (Exception ex)
 		{
-			_logger.LogError(ex, @"{LoggerHeader} {Local} Stop!", LoggerHeader, TCPListener.LocalEndpoint);
+			_logger.LogError(ex, @"{Local} Stop!", TCPListener.LocalEndpoint);
 			Stop();
 		}
 	}
@@ -89,12 +87,12 @@ public class TcpListenService : IListenService
 		}
 		catch (Exception ex)
 		{
-			_logger.LogError(ex, @"{LoggerHeader} Handle Error", LoggerHeader);
+			_logger.LogError(ex, @"Handle Error");
 		}
 		finally
 		{
 			socket.FullClose();
-			_logger.LogInformation(@"{LoggerHeader} {Remote} disconnected", LoggerHeader, remoteEndPoint);
+			_logger.LogInformation(@"{Remote} disconnected", remoteEndPoint);
 		}
 	}
 

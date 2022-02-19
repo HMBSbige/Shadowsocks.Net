@@ -16,8 +16,6 @@ public class UdpListenService : IListenService
 
 	private readonly CancellationTokenSource _cts;
 
-	private const string LoggerHeader = @"[UdpListenService]";
-
 	public UdpListenService(ILogger<UdpListenService> logger, IPEndPoint local, IEnumerable<ILocalUdpService> services)
 	{
 		_logger = logger;
@@ -33,15 +31,14 @@ public class UdpListenService : IListenService
 		try
 		{
 			UdpListener.Client.Bind(_local);
-			_logger.LogInformation(@"{LoggerHeader} {Local} Start", LoggerHeader, UdpListener.Client.LocalEndPoint);
+			_logger.LogInformation(@"{Local} Start", UdpListener.Client.LocalEndPoint);
 
 			while (true)
 			{
 				UdpReceiveResult message = await UdpListener.ReceiveAsync(_cts.Token);
 #if DEBUG
 				_logger.LogDebug(
-					@"{LoggerHeader}: {ReceiveLength} bytes {Remote} => {Local}",
-					LoggerHeader,
+					@"{ReceiveLength} bytes {Remote} => {Local}",
 					message.Buffer.Length,
 					message.RemoteEndPoint,
 					UdpListener.Client.LocalEndPoint
@@ -72,7 +69,7 @@ public class UdpListenService : IListenService
 		}
 		catch (Exception ex)
 		{
-			_logger.LogError(ex, @"{LoggerHeader} Handle Error", LoggerHeader);
+			_logger.LogError(ex, @"Handle Error");
 		}
 	}
 
