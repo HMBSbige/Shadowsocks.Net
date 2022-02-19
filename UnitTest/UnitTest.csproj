@@ -16,7 +16,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Benchmark\Benchmark.csproj" />
     <ProjectReference Include="..\HttpProxy\HttpProxy.csproj" />
-    <ProjectReference Include="..\Shadowsocks.Crypto\Shadowsocks.Crypto.csproj" />
+    <ProjectReference Include="..\Shadowsocks.Protocol\Shadowsocks.Protocol.csproj" />
     <ProjectReference Include="..\Socks5\Socks5.csproj" />
   </ItemGroup>
 

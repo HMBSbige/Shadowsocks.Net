@@ -7,10 +7,16 @@ public class Sip003PluginService : ISip003PluginService
 {
 	private readonly Dictionary<ShadowsocksServerInfo, ISip003Plugin> _services = new();
 
+	private static ShadowsocksServerInfo GetRealInfo(ShadowsocksServerInfo info)
+	{
+		return info with { Id = default, Remarks = default };
+	}
+
 	public IPEndPoint GetPluginService(ShadowsocksServerInfo serverInfo)
 	{
 		lock (_services)
 		{
+			serverInfo = GetRealInfo(serverInfo);
 			if (_services.TryGetValue(serverInfo, out ISip003Plugin? plugin))
 			{
 				if (plugin.LocalEndPoint is not null)
@@ -31,6 +37,7 @@ public class Sip003PluginService : ISip003PluginService
 	{
 		lock (_services)
 		{
+			serverInfo = GetRealInfo(serverInfo);
 			if (_services.Remove(serverInfo, out ISip003Plugin? plugin))
 			{
 				plugin.Dispose();
