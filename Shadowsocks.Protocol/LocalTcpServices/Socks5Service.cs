@@ -55,12 +55,30 @@ public class Socks5Service : ILocalTcpService
 					AddressType.Domain => socks5.Target.Domain!,
 					_ => socks5.Target.Address!.ToString()
 				};
+				ushort targetPort = socks5.Target.Port;
 
-				using IPipeClient client = await _serversController.GetServerAsync(target);
+				IPipeClient? tmpClient = null;
+				try
+				{
+					tmpClient = await _serversController.GetServerAsync(target, targetPort);
+				}
+				catch (Exception)
+				{
+					tmpClient?.Dispose();
+					ServerBound failBound = new()
+					{
+						Type = outType,
+						Address = Socks5CreateOption.Address,
+						Port = IPEndPoint.MinPort
+					};
+					await socks5.SendReplyAsync(Socks5Reply.HostUnreachable, failBound, token);
+					throw;
+				}
 
+				using IPipeClient client = tmpClient;
 				if (client is ConnectionRefusedTcpClient)
 				{
-					_logger.LogInformation(@"SOCKS5 Connect to {Target} Refused", target);
+					_logger.LogInformation(@"SOCKS5 Connect to {Target}:{Port} Refused", target, targetPort);
 					ServerBound failBound = new()
 					{
 						Type = outType,
@@ -71,7 +89,7 @@ public class Socks5Service : ILocalTcpService
 					break;
 				}
 
-				_logger.LogInformation(@"SOCKS5 Connect to {Target} via {Client}", target, client);
+				_logger.LogInformation(@"SOCKS5 Connect to {Target}:{Port} via {Client}", target, targetPort, client);
 
 				ServerBound bound = new()
 				{
@@ -81,23 +99,10 @@ public class Socks5Service : ILocalTcpService
 				};
 				await socks5.SendReplyAsync(Socks5Reply.Succeeded, bound, token);
 
-				IDuplexPipe clientPipe = client.GetPipe(target, socks5.Target.Port);
+				IDuplexPipe clientPipe = client.GetPipe();
 
 				await clientPipe.LinkToAsync(pipe, token);
 
-				break;
-			}
-			case Command.Bind:
-			{
-				_logger.LogDebug(@"SOCKS5 Bind");
-
-				ServerBound bound = new()
-				{
-					Type = outType,
-					Address = Socks5CreateOption.Address,
-					Port = IPEndPoint.MinPort
-				};
-				await socks5.SendReplyAsync(Socks5Reply.CommandNotSupported, bound, token);
 				break;
 			}
 			case Command.UdpAssociate:
@@ -125,7 +130,7 @@ public class Socks5Service : ILocalTcpService
 					Address = Socks5CreateOption.Address,
 					Port = IPEndPoint.MinPort
 				};
-				await socks5.SendReplyAsync(Socks5Reply.GeneralFailure, bound, token);
+				await socks5.SendReplyAsync(Socks5Reply.CommandNotSupported, bound, token);
 				break;
 			}
 		}

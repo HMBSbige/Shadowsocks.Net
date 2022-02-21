@@ -18,6 +18,6 @@ internal static class ShadowsocksProtocolConstants
 		resumeWriterThreshold: ResumeWriterThreshold,
 		minimumSegmentSize: MinimumSegmentSize);
 
-	public static readonly SocketPipeReaderOptions SocketPipeReaderOptions = new(DefaultPipeOptions, sizeHint: ReceiveBufferSize);
-	public static readonly SocketPipeWriterOptions SocketPipeWriterOptions = new(DefaultPipeOptions);
+	public static readonly SocketPipeReaderOptions DefaultSocketPipeReaderOptions = new(DefaultPipeOptions, sizeHint: ReceiveBufferSize);
+	public static readonly SocketPipeWriterOptions DefaultSocketPipeWriterOptions = new(DefaultPipeOptions);
 }

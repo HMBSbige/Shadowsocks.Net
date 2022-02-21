@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Pipelines.Extensions;
 using Socks5.Clients;
+using Socks5.Enums;
 using Socks5.Exceptions;
 using Socks5.Models;
 using System.Buffers;
@@ -24,86 +25,102 @@ public class HttpToSocks5
 
 	public async ValueTask ForwardToSocks5Async(IDuplexPipe incomingPipe, Socks5CreateOption socks5CreateOption, CancellationToken cancellationToken = default)
 	{
-		string headers = await ReadHttpHeadersAsync(incomingPipe.Input, cancellationToken);
-		_logger.LogDebug("Client headers received: \n{Headers}", headers);
-
-		if (!TryParseHeader(headers, out HttpHeaders? httpHeaders))
+		try
 		{
-			await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.InvalidRequest, token: cancellationToken);
-			return;
-		}
-		_logger.LogDebug("New request headers: \n{Headers}", httpHeaders);
+			string headers = await ReadHttpHeadersAsync(incomingPipe.Input, cancellationToken);
+			_logger.LogDebug("Client headers received: \n{Headers}", headers);
 
-		if (httpHeaders.IsConnect)
-		{
-			if (httpHeaders.Hostname is null)
+			if (!TryParseHeader(headers, out HttpHeaders? httpHeaders))
+			{
+				await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.InvalidRequest, token: cancellationToken);
+				return;
+			}
+			_logger.LogDebug("New request headers: \n{Headers}", httpHeaders);
+
+			if (httpHeaders.Hostname is null || !httpHeaders.IsConnect && httpHeaders.Request is null)
 			{
 				await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.InvalidRequest, httpHeaders.HttpVersion, cancellationToken);
 				return;
 			}
 
-			using Socks5Client socks5Client = new(socks5CreateOption);
-			await socks5Client.ConnectAsync(httpHeaders.Hostname, httpHeaders.Port, cancellationToken);
-
-			await SendConnectSuccessAsync(incomingPipe.Output, httpHeaders.HttpVersion, cancellationToken);
-
-			IDuplexPipe socks5Pipe = socks5Client.GetPipe();
-
-			await socks5Pipe.LinkToAsync(incomingPipe, cancellationToken);
-		}
-		else
-		{
-			if (httpHeaders.Hostname is null || httpHeaders.Request is null)
-			{
-				await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.InvalidRequest, httpHeaders.HttpVersion, cancellationToken);
-				return;
-			}
 			using Socks5Client socks5Client = new(socks5CreateOption);
 			try
 			{
 				await socks5Client.ConnectAsync(httpHeaders.Hostname, httpHeaders.Port, cancellationToken);
+			}
+			catch (Socks5ProtocolErrorException ex) when (ex.Socks5Reply == Socks5Reply.ConnectionNotAllowed)
+			{
+				await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.AuthenticationError, httpHeaders.HttpVersion, cancellationToken);
+				return;
+			}
+			catch (Socks5ProtocolErrorException ex) when (ex.Socks5Reply == Socks5Reply.HostUnreachable)
+			{
+				await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.HostUnreachable, httpHeaders.HttpVersion, cancellationToken);
+				return;
+			}
+			catch (Socks5ProtocolErrorException ex) when (ex.Socks5Reply == Socks5Reply.ConnectionRefused)
+			{
+				await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.ConnectionRefused, httpHeaders.HttpVersion, cancellationToken);
+				return;
 			}
 			catch (Socks5ProtocolErrorException)
 			{
 				await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.InvalidRequest, httpHeaders.HttpVersion, cancellationToken);
 				return;
 			}
-			IDuplexPipe socks5Pipe = socks5Client.GetPipe();
 
-			await socks5Pipe.Output.WriteAsync(httpHeaders.Request, cancellationToken);
-			if (httpHeaders.ContentLength > 0)
+			if (httpHeaders.IsConnect)
 			{
-				_logger.LogDebug(@"Waiting for up to {ContentLength} bytes from client", httpHeaders.ContentLength);
+				await SendConnectSuccessAsync(incomingPipe.Output, httpHeaders.HttpVersion, cancellationToken);
 
-				long readLength = await incomingPipe.Input.CopyToAsync(socks5Pipe.Output, httpHeaders.ContentLength, cancellationToken);
+				IDuplexPipe socks5Pipe = socks5Client.GetPipe();
 
-				_logger.LogDebug(@"client sent {ClientSentLength} bytes to server", readLength);
+				await socks5Pipe.LinkToAsync(incomingPipe, cancellationToken);
 			}
-
-			//Read response
-			string responseHeadersStr = await ReadHttpHeadersAsync(socks5Pipe.Input, cancellationToken);
-			_logger.LogDebug("server headers received: \n{Headers}", responseHeadersStr);
-			Dictionary<string, string> responseHeaders = ReadHeaders(responseHeadersStr);
-
-			incomingPipe.Output.Write(responseHeadersStr);
-			incomingPipe.Output.Write(HttpHeaderEnd);
-			await incomingPipe.Output.FlushAsync(cancellationToken);
-
-			if (IsChunked(responseHeaders))
+			else
 			{
-				await CopyChunksAsync(socks5Pipe.Input, incomingPipe.Output, cancellationToken);
-			}
-			else if (TryReadContentLength(responseHeaders, out long serverResponseContentLength))
-			{
-				if (serverResponseContentLength > 0)
+				IDuplexPipe socks5Pipe = socks5Client.GetPipe();
+
+				await socks5Pipe.Output.WriteAsync(httpHeaders.Request!, cancellationToken);
+				if (httpHeaders.ContentLength > 0)
 				{
-					_logger.LogDebug(@"Waiting for up to {ContentLength} bytes from server", serverResponseContentLength);
+					_logger.LogDebug(@"Waiting for up to {ContentLength} bytes from client", httpHeaders.ContentLength);
 
-					long readLength = await socks5Pipe.Input.CopyToAsync(incomingPipe.Output, serverResponseContentLength, cancellationToken);
+					long readLength = await incomingPipe.Input.CopyToAsync(socks5Pipe.Output, httpHeaders.ContentLength, cancellationToken);
 
-					_logger.LogDebug(@"server sent {ServerSentLength} bytes to client", readLength);
+					_logger.LogDebug(@"client sent {ClientSentLength} bytes to server", readLength);
+				}
+
+				//Read response
+				string responseHeadersStr = await ReadHttpHeadersAsync(socks5Pipe.Input, cancellationToken);
+				_logger.LogDebug("server headers received: \n{Headers}", responseHeadersStr);
+				Dictionary<string, string> responseHeaders = ReadHeaders(responseHeadersStr);
+
+				incomingPipe.Output.Write(responseHeadersStr);
+				incomingPipe.Output.Write(HttpHeaderEnd);
+				await incomingPipe.Output.FlushAsync(cancellationToken);
+
+				if (IsChunked(responseHeaders))
+				{
+					await CopyChunksAsync(socks5Pipe.Input, incomingPipe.Output, cancellationToken);
+				}
+				else if (TryReadContentLength(responseHeaders, out long serverResponseContentLength))
+				{
+					if (serverResponseContentLength > 0)
+					{
+						_logger.LogDebug(@"Waiting for up to {ContentLength} bytes from server", serverResponseContentLength);
+
+						long readLength = await socks5Pipe.Input.CopyToAsync(incomingPipe.Output, serverResponseContentLength, cancellationToken);
+
+						_logger.LogDebug(@"server sent {ServerSentLength} bytes to client", readLength);
+					}
 				}
 			}
+		}
+		catch (Exception)
+		{
+			await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.UnknownError, token: cancellationToken);
+			throw;
 		}
 	}
 

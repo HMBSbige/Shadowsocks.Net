@@ -28,8 +28,18 @@ public class TestServersController : IServersController
 		return TestInfo;
 	}
 
-	public async ValueTask<IPipeClient> GetServerAsync(string target)
+	public async ValueTask<IPipeClient> GetServerAsync(string target, ushort targetPort)
 	{
+		if (target.Contains(@"baidu", StringComparison.OrdinalIgnoreCase))
+		{
+			return ConnectionRefusedTcpClient.Default;
+		}
+
+		if (target.Contains(@"ip.sb", StringComparison.OrdinalIgnoreCase) || IPAddress.TryParse(target, out _))
+		{
+			return await DirectConnectAsync(TimeSpan.FromSeconds(3));
+		}
+
 		ShadowsocksServerInfo info = GetInfo();
 
 		if (string.IsNullOrEmpty(info.Plugin))
@@ -54,14 +64,22 @@ public class TestServersController : IServersController
 
 		async ValueTask<IPipeClient> ConnectAsync(ShadowsocksServerInfo serverInfo, TimeSpan timeout)
 		{
-			IPipeClient client = new ShadowsocksTcpClient(serverInfo);
+			IPipeClient client = new ShadowsocksTcpClient(serverInfo, target, targetPort);
+			using CancellationTokenSource cts = new(timeout);
+			await client.ConnectAsync(cts.Token);
+			return client;
+		}
+
+		async ValueTask<IPipeClient> DirectConnectAsync(TimeSpan timeout)
+		{
+			IPipeClient client = new DirectConnectTcpClient(target, targetPort);
 			using CancellationTokenSource cts = new(timeout);
 			await client.ConnectAsync(cts.Token);
 			return client;
 		}
 	}
 
-	public ValueTask<IUdpClient> GetServerUdpAsync(string target)
+	public ValueTask<IUdpClient> GetServerUdpAsync(string target, ushort targetPort)
 	{
 		ShadowsocksServerInfo info = GetInfo();
 

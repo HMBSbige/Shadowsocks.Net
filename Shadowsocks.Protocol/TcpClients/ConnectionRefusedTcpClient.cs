@@ -12,7 +12,7 @@ public class ConnectionRefusedTcpClient : IPipeClient
 		throw Assumes.NotReachable();
 	}
 
-	public IDuplexPipe GetPipe(string targetAddress, ushort targetPort)
+	public IDuplexPipe GetPipe()
 	{
 		throw Assumes.NotReachable();
 	}

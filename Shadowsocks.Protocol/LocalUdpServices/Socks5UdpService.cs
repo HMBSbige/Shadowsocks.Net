@@ -71,7 +71,7 @@ public class Socks5UdpService : ILocalUdpService
 
 			if (!_cache.TryGetValue(receiveResult.RemoteEndPoint, out IUdpClient client))
 			{
-				client = await _serversController.GetServerUdpAsync(target);
+				client = await _serversController.GetServerUdpAsync(target, socks5UdpPacket.Port);
 				if (client is ConnectionRefusedUdpClient)
 				{
 					_logger.LogInformation(@"Udp Send to {Target} Refused", target);

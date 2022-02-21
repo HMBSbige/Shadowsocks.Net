@@ -6,5 +6,5 @@ public interface IPipeClient : IDisposable
 {
 	ValueTask ConnectAsync(CancellationToken cancellationToken = default);
 
-	IDuplexPipe GetPipe(string targetAddress, ushort targetPort);
+	IDuplexPipe GetPipe();
 }

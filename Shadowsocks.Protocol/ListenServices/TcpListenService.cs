@@ -56,7 +56,7 @@ public class TcpListenService : IListenService
 		EndPoint? remoteEndPoint = socket.RemoteEndPoint;
 		try
 		{
-			IDuplexPipe pipe = socket.AsDuplexPipe(SocketPipeReaderOptions, SocketPipeWriterOptions);
+			IDuplexPipe pipe = socket.AsDuplexPipe(DefaultSocketPipeReaderOptions, DefaultSocketPipeWriterOptions);
 			ReadResult result = await pipe.Input.ReadAsync(token);
 			ReadOnlySequence<byte> buffer = result.Buffer;
 
