@@ -58,6 +58,19 @@ public class Socks5Service : ILocalTcpService
 
 				using IPipeClient client = await _serversController.GetServerAsync(target);
 
+				if (client is ConnectionRefusedTcpClient)
+				{
+					_logger.LogInformation(@"SOCKS5 Connect to {Target} Refused", target);
+					ServerBound failBound = new()
+					{
+						Type = outType,
+						Address = Socks5CreateOption.Address,
+						Port = IPEndPoint.MinPort
+					};
+					await socks5.SendReplyAsync(Socks5Reply.ConnectionRefused, failBound, token);
+					break;
+				}
+
 				_logger.LogInformation(@"SOCKS5 Connect to {Target} via {Client}", target, client);
 
 				ServerBound bound = new()

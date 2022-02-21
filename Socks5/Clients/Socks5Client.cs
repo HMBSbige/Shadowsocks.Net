@@ -288,7 +288,7 @@ public sealed class Socks5Client : IDisposable
 
 		if (!await pipe.Input.ReadAsync(HandleResponse, token))
 		{
-			throw new ProtocolErrorException(@"Auth failed!");
+			throw new Socks5ProtocolErrorException(@"Auth failed!");
 		}
 
 		int PackUsernamePassword(Span<byte> span)
@@ -316,7 +316,7 @@ public sealed class Socks5Client : IDisposable
 
 		if (!await pipe.Input.ReadAsync(HandleResponse, token))
 		{
-			throw new ProtocolErrorException(@"Send command failed!");
+			throw new Socks5ProtocolErrorException(@"Send command failed!");
 		}
 
 		return bound;

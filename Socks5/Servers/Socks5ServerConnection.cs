@@ -82,7 +82,7 @@ public sealed class Socks5ServerConnection
 
 		if (method is Method.UsernamePassword && !await UsernamePasswordAuthAsync(token))
 		{
-			throw new ProtocolErrorException(@"SOCKS5 auth username password error.");
+			throw new Socks5ProtocolErrorException(@"SOCKS5 auth username password error.");
 		}
 
 		if (method is not Method.NoAcceptable)
@@ -143,7 +143,7 @@ public sealed class Socks5ServerConnection
 			}
 			if (ver is not Constants.ProtocolVersion)
 			{
-				throw new ProtocolErrorException($@"client version is not 0x05: 0x{ver:X2}.");
+				throw new Socks5ProtocolErrorException($@"client version is not 0x05: 0x{ver:X2}.");
 			}
 
 			if (!reader.TryRead(out byte cmd))
@@ -154,7 +154,7 @@ public sealed class Socks5ServerConnection
 			Command = (Command)cmd;
 			if (!Enum.IsDefined(typeof(Command), Command))
 			{
-				throw new ProtocolErrorException($@"client sent an unknown command: {Command}.");
+				throw new Socks5ProtocolErrorException($@"client sent an unknown command: {Command}.");
 			}
 
 			if (!reader.TryRead(out byte rsv))
@@ -163,7 +163,7 @@ public sealed class Socks5ServerConnection
 			}
 			if (rsv is not Constants.Rsv)
 			{
-				throw new ProtocolErrorException($@"Protocol failed, RESERVED is not 0x00: 0x{rsv:X2}.");
+				throw new Socks5ProtocolErrorException($@"Protocol failed, RESERVED is not 0x00: 0x{rsv:X2}.");
 			}
 
 			if (!reader.TryRead(out byte type))

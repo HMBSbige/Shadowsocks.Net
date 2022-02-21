@@ -34,14 +34,14 @@ public static class Unpack
 		reader.TryRead(out byte b0);
 		if (b0 is not Constants.ProtocolVersion)
 		{
-			throw new ProtocolErrorException($@"Server version is not 0x05: 0x{b0:X2}.");
+			throw new Socks5ProtocolErrorException($@"Server version is not 0x05: 0x{b0:X2}.");
 		}
 
 		reader.TryRead(out byte b1);
 		method = (Method)b1;
 		if (!Enum.IsDefined(typeof(Method), method))
 		{
-			throw new ProtocolErrorException($@"Server sent an unknown method: 0x{b1:X2}.");
+			throw new Socks5ProtocolErrorException($@"Server sent an unknown method: 0x{b1:X2}.");
 		}
 
 		buffer = buffer.Slice(2);
@@ -66,7 +66,7 @@ public static class Unpack
 		reader.TryRead(out byte b0);
 		if (b0 is not Constants.AuthVersion)
 		{
-			throw new ProtocolErrorException($@"Authentication version is not 0x01: 0x{b0:X2}.");
+			throw new Socks5ProtocolErrorException($@"Authentication version is not 0x01: 0x{b0:X2}.");
 		}
 
 		reader.TryRead(out byte status);
@@ -110,7 +110,7 @@ public static class Unpack
 			}
 			default:
 			{
-				throw new ProtocolErrorException($@"Server reply an unknown address type: {type}.");
+				throw new Socks5ProtocolErrorException($@"Server reply an unknown address type: {type}.");
 			}
 		}
 
@@ -132,7 +132,7 @@ public static class Unpack
 
 		if (span[0] is not Constants.Rsv || span[1] is not Constants.Rsv)
 		{
-			throw new ProtocolErrorException($@"Protocol failed, RESERVED is not 0x0000: 0x{span[0]:X2}{span[1]:X2}.");
+			throw new Socks5ProtocolErrorException($@"Protocol failed, RESERVED is not 0x0000: 0x{span[0]:X2}{span[1]:X2}.");
 		}
 
 		res.Fragment = span[2];
@@ -198,7 +198,7 @@ public static class Unpack
 			}
 			default:
 			{
-				throw new ProtocolErrorException($@"Server reply an unknown address type: {type}.");
+				throw new Socks5ProtocolErrorException($@"Server reply an unknown address type: {type}.");
 			}
 		}
 	}
@@ -222,20 +222,20 @@ public static class Unpack
 		reader.TryRead(out byte b0);
 		if (b0 is not Constants.ProtocolVersion)
 		{
-			throw new ProtocolErrorException($@"Server version is not 0x05: 0x{b0:X2}.");
+			throw new Socks5ProtocolErrorException($@"Server version is not 0x05: 0x{b0:X2}.");
 		}
 
 		reader.TryRead(out byte b1);
 		Socks5Reply reply = (Socks5Reply)b1;
 		if (reply is not Socks5Reply.Succeeded)
 		{
-			throw new ProtocolErrorException($@"Protocol failed, server reply: {reply}.", reply);
+			throw new Socks5ProtocolErrorException($@"Protocol failed, server reply: {reply}.", reply);
 		}
 
 		reader.TryRead(out byte b2);
 		if (b2 is not Constants.Rsv)
 		{
-			throw new ProtocolErrorException($@"Protocol failed, RESERVED is not 0x00: 0x{b2:X2}.");
+			throw new Socks5ProtocolErrorException($@"Protocol failed, RESERVED is not 0x00: 0x{b2:X2}.");
 		}
 
 		reader.TryRead(out byte b3);
@@ -273,7 +273,7 @@ public static class Unpack
 
 		if (ver is not Constants.ProtocolVersion)
 		{
-			throw new ProtocolErrorException($@"Server version is not 0x05: 0x{ver:X2}.");
+			throw new Socks5ProtocolErrorException($@"Server version is not 0x05: 0x{ver:X2}.");
 		}
 
 		if (!reader.TryRead(out byte num))
@@ -312,7 +312,7 @@ public static class Unpack
 
 		if (ver is not Constants.AuthVersion)
 		{
-			throw new ProtocolErrorException($@"Client auth version is not 0x01: 0x{ver:X2}.");
+			throw new Socks5ProtocolErrorException($@"Client auth version is not 0x01: 0x{ver:X2}.");
 		}
 
 		if (!reader.TryRead(out byte uLen))

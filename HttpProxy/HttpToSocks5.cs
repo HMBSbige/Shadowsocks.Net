@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Pipelines.Extensions;
 using Socks5.Clients;
+using Socks5.Exceptions;
 using Socks5.Models;
 using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
@@ -58,7 +59,15 @@ public class HttpToSocks5
 				return;
 			}
 			using Socks5Client socks5Client = new(socks5CreateOption);
-			await socks5Client.ConnectAsync(httpHeaders.Hostname, httpHeaders.Port, cancellationToken);
+			try
+			{
+				await socks5Client.ConnectAsync(httpHeaders.Hostname, httpHeaders.Port, cancellationToken);
+			}
+			catch (Socks5ProtocolErrorException)
+			{
+				await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.InvalidRequest, httpHeaders.HttpVersion, cancellationToken);
+				return;
+			}
 			IDuplexPipe socks5Pipe = socks5Client.GetPipe();
 
 			await socks5Pipe.Output.WriteAsync(httpHeaders.Request, cancellationToken);
