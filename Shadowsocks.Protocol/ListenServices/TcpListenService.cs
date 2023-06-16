@@ -60,12 +60,7 @@ public class TcpListenService : IListenService
 			ReadResult result = await pipe.Input.ReadAsync(token);
 			ReadOnlySequence<byte> buffer = result.Buffer;
 
-			ILocalTcpService? service = _services.FirstOrDefault(tcpService => tcpService.IsHandle(buffer));
-
-			if (service is null)
-			{
-				throw new InvalidDataException(@"Cannot handle incoming pipe.");
-			}
+			ILocalTcpService service = _services.FirstOrDefault(tcpService => tcpService.IsHandle(buffer)) ?? throw new InvalidDataException(@"Cannot handle incoming pipe.");
 
 			pipe.Input.AdvanceTo(buffer.Start, buffer.End);
 			pipe.Input.CancelPendingRead();
