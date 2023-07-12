@@ -3,7 +3,7 @@
   <Import Project="..\common.props" />
 
   <ItemGroup>
-    <PackageReference Include="BenchmarkDotNet" Version="0.13.5" />
+    <PackageReference Include="BenchmarkDotNet" Version="0.13.6" />
   </ItemGroup>
 
   <ItemGroup>
