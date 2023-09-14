@@ -9,6 +9,6 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/HMBSbige/Shadowsocks.Net</PackageProjectUrl>
     <RepositoryUrl>https://github.com/HMBSbige/Shadowsocks.Net</RepositoryUrl>
-    <Version>1.0.1</Version>
+    <Version>1.0.2</Version>
   </PropertyGroup>
 </Project>
