@@ -57,4 +57,10 @@ public static partial class PipelinesExtensions
 
 		return DefaultDuplexPipe.Create(reader, writer);
 	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	public static Stream AsStream(this IDuplexPipe pipe, bool leaveOpen = false)
+	{
+		return new DuplexPipeStream(pipe, leaveOpen);
+	}
 }
