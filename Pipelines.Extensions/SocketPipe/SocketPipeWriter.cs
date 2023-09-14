@@ -77,6 +77,11 @@ internal sealed class SocketPipeWriter : PipeWriter
 
 	public override async ValueTask<FlushResult> FlushAsync(CancellationToken cancellationToken = default)
 	{
+		if (Writer.UnflushedBytes <= 0)
+		{
+			return await Writer.FlushAsync(cancellationToken);
+		}
+
 		ValueTask<FlushResult> flushTask = Writer.FlushAsync(cancellationToken);
 
 		try
