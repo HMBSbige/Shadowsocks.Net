@@ -17,12 +17,12 @@ public sealed class Socks5Client : IDisposable
 
 	public Status Status { get; private set; } = Status.Initial;
 	public Socket? UdpClient { get; private set; }
+	public TcpClient TcpClient { get; private set; }
 
 	#endregion
 
 	#region Private Fields
 
-	private readonly TcpClient _tcpClient;
 	private readonly Socks5CreateOption _option;
 
 	private IDuplexPipe? _pipe;
@@ -37,7 +37,7 @@ public sealed class Socks5Client : IDisposable
 		Requires.NotNullAllowStructs(option.Address, nameof(option.Address));
 
 		_option = option;
-		_tcpClient = new TcpClient(option.Address.AddressFamily);
+		TcpClient = new TcpClient(option.Address.AddressFamily);
 	}
 
 	#endregion
@@ -211,9 +211,9 @@ public sealed class Socks5Client : IDisposable
 	{
 		Verify.Operation(Status is Status.Initial, @"Socks5 already connected.");
 
-		await _tcpClient.ConnectAsync(_option.Address!, _option.Port, token);
+		await TcpClient.ConnectAsync(_option.Address!, _option.Port, token);
 
-		IDuplexPipe pipe = _tcpClient.Client.AsDuplexPipe();
+		IDuplexPipe pipe = TcpClient.Client.AsDuplexPipe();
 
 		await HandshakeWithAuthAsync(pipe, token);
 
@@ -345,7 +345,7 @@ public sealed class Socks5Client : IDisposable
 	public void Dispose()
 	{
 		Status = Status.Closed;
-		_tcpClient.Dispose();
+		TcpClient.Dispose();
 		UdpClient?.Dispose();
 	}
 
