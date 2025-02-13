@@ -12,7 +12,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.VisualStudio.Threading" Version="17.12.19" />
-    <PackageReference Include="System.IO.Pipelines" Version="9.0.1" />
+    <PackageReference Include="System.IO.Pipelines" Version="9.0.2" />
   </ItemGroup>
 
 </Project>
