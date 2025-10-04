@@ -1,4 +1,3 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Pipelines.Extensions;
 using System.IO.Pipelines;
 using System.Net;
@@ -20,15 +19,16 @@ public class PipelinesTest
 
 		TcpListener server = TcpListener.Create(default);
 		server.Start();
+
 		try
 		{
-			Task t = Task.Run(
-				async () =>
+			Task t = Task.Run(async () =>
 				{
 					using Socket socket = await server.AcceptSocketAsync();
 					IDuplexPipe pipe = socket.AsDuplexPipe();
 					PipeReader reader = pipe.Input;
 					long read = 0L;
+
 					while (read < length)
 					{
 						ReadResult result = await reader.ReadAsync();
@@ -42,6 +42,7 @@ public class PipelinesTest
 			await client.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)server.LocalEndpoint).Port);
 
 			PipeWriter writer = client.Client.AsDuplexPipe().AsStream().AsPipeWriter();
+
 			for (long i = 0L; i < length; i += bufferSize)
 			{
 				await writer.WriteAsync(buffer);

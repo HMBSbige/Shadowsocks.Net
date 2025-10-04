@@ -1,4 +1,3 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.VisualStudio.Threading;
 using Socks5.Models;
 using Socks5.Servers;
@@ -21,6 +20,7 @@ public class Socks5Test
 		};
 		SimpleSocks5Server server = new(serverEndpoint, userPass);
 		server.StartAsync().Forget();
+
 		try
 		{
 			ushort port = (ushort)((IPEndPoint)server.TcpListener.LocalEndpoint).Port;
@@ -49,6 +49,7 @@ public class Socks5Test
 		};
 		SimpleSocks5Server server = new(serverEndpoint, userPass);
 		server.StartAsync().Forget();
+
 		try
 		{
 			ushort port = (ushort)((IPEndPoint)server.TcpListener.LocalEndpoint).Port;

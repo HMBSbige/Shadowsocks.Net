@@ -1,4 +1,3 @@
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Pipelines.Extensions;
 using System.Buffers;
 using System.Security.Cryptography;
@@ -10,6 +9,7 @@ public class ReadOnlySequenceStreamTest
 {
 	private static readonly ReadOnlySequence<byte> SingleSegmentSequence;
 	private static readonly ReadOnlySequence<byte> MultiSegmentSequence;
+
 	private static Stream EmptyStream => ReadOnlySequence<byte>.Empty.AsStream();
 
 	static ReadOnlySequenceStreamTest()
@@ -181,6 +181,7 @@ public class ReadOnlySequenceStreamTest
 			Assert.AreEqual(i, stream.Position);
 			Assert.AreEqual(GetByte(i), stream.ReadByte());
 		}
+
 		Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => stream.Seek(-1, SeekOrigin.Begin));
 
 		for (int n = 0; n < stream.Length; ++n)
@@ -191,6 +192,7 @@ public class ReadOnlySequenceStreamTest
 				Assert.AreEqual(n + i, stream.Seek(i, SeekOrigin.Current));
 				Assert.AreEqual(GetByte(n + i), stream.ReadByte());
 			}
+
 			for (int i = 0; i < n; ++i)
 			{
 				stream.Position = n;
@@ -198,6 +200,7 @@ public class ReadOnlySequenceStreamTest
 				Assert.AreEqual(GetByte(n - i), stream.ReadByte());
 			}
 		}
+
 		stream.Position = MultiSegmentSequence.Length;
 		Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => stream.Seek(1, SeekOrigin.Current));
 		stream.Position = 0;
@@ -208,15 +211,18 @@ public class ReadOnlySequenceStreamTest
 			Assert.AreEqual(MultiSegmentSequence.Length - i, stream.Seek(-i, SeekOrigin.End));
 			Assert.AreEqual(GetByte(MultiSegmentSequence.Length - i), stream.ReadByte());
 		}
+
 		Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => stream.Seek(1, SeekOrigin.End));
 
 		int GetByte(long position)
 		{
 			SequenceReader<byte> reader = new(MultiSegmentSequence.Slice(position));
+
 			if (reader.TryRead(out byte b))
 			{
 				return b;
 			}
+
 			return -1;
 		}
 	}

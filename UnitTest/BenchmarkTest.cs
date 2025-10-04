@@ -1,6 +1,5 @@
 using Benchmark;
 using BenchmarkDotNet.Running;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace UnitTest;
 

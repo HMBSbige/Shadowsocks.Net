@@ -1,5 +1,4 @@
 using HttpProxy;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.VisualStudio.Threading;
 using Socks5.Models;
 using Socks5.Servers;
@@ -24,6 +23,7 @@ public class HttpTest
 		};
 		SimpleSocks5Server server = new(serverEndpoint, userPass);
 		server.StartAsync().Forget();
+
 		try
 		{
 			ushort port = (ushort)((IPEndPoint)server.TcpListener.LocalEndpoint).Port;
@@ -35,6 +35,7 @@ public class HttpTest
 			};
 			HttpSocks5Service httpServer = new(serverEndpoint, new HttpToSocks5(), socks5CreateOption);
 			httpServer.StartAsync().Forget();
+
 			try
 			{
 				IPAddress httpAddress = ((IPEndPoint)httpServer.TcpListener.LocalEndpoint).Address;

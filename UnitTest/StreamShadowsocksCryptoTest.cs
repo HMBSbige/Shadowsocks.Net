@@ -1,5 +1,4 @@
 using CryptoBase.DataFormatExtensions;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Shadowsocks.Crypto;
 using Shadowsocks.Crypto.Stream;
 using System.Buffers;
@@ -93,8 +92,7 @@ public class StreamShadowsocksCryptoTest
 	[DataRow(@"sm4-cfb")]
 	public void WrongMethod(string method)
 	{
-		Assert.ThrowsExactly<ArgumentException>(
-			() =>
+		Assert.ThrowsExactly<ArgumentException>(() =>
 			{
 				using IShadowsocksCrypto crypto = ShadowsocksCrypto.Create(method, string.Empty);
 			}
@@ -104,8 +102,7 @@ public class StreamShadowsocksCryptoTest
 	[TestMethod]
 	public void SetIv()
 	{
-		Assert.ThrowsExactly<ArgumentException>(
-			() =>
+		Assert.ThrowsExactly<ArgumentException>(() =>
 			{
 				using ChaCha20IETFShadowsocksCrypto crypto = new(Password);
 				Span<byte> iv = new byte[crypto.IvLength];
