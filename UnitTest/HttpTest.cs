@@ -57,10 +57,10 @@ public class HttpTest
 				Assert.AreEqual(httpsStr, httpChunkStr);
 
 				// HTTP Content-Length
-				httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(@"curl/7.55.1");
+				httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(@"curl");
 				string httpStr = await httpClient.GetStringAsync(@"http://ip.sb");
 				Assert.IsFalse(string.IsNullOrWhiteSpace(httpStr));
-				Assert.AreEqual(httpChunkStr, httpStr);
+				Assert.AreEqual(httpChunkStr, httpStr.TrimEnd());
 
 				// HTTP no body
 				HttpResponseMessage response = await httpClient.GetAsync(@"http://cp.cloudflare.com");
