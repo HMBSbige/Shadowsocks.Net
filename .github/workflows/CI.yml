@@ -13,13 +13,10 @@ jobs:
     name: Check format
     runs-on: ubuntu-latest
     steps:
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 6.0.x
-
-      - name: Checkout code
-        uses: actions/checkout@v5
+          dotnet-version: 9.0.x
 
       - name: Run dotnet format check
         run: dotnet format -v diag --verify-no-changes
@@ -32,13 +29,10 @@ jobs:
         os: [ubuntu-latest, windows-latest]
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 6.0.x
+          dotnet-version: 9.0.x
 
       - name: Test
         shell: pwsh
@@ -61,23 +55,20 @@ jobs:
           ]
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 6.0.x
+          dotnet-version: 9.0.x
 
       - name: Build
-        shell: pwsh
-        run: dotnet build -c Release ${{ matrix.ProjectName }}\${{ matrix.ProjectName }}.csproj
+        working-directory: src/${{ matrix.PackageName }}
+        run: dotnet pack
 
       - name: Push nuget packages
-        shell: pwsh
+        working-directory: src/${{ matrix.PackageName }}/bin/Release
         run: |
-          dotnet nuget push ${{ matrix.ProjectName }}\bin\Release\*.nupkg -s https://nuget.pkg.github.com/HMBSbige -k ${{ secrets.GITHUB_TOKEN }} --skip-duplicate
-          dotnet nuget push ${{ matrix.ProjectName }}\bin\Release\*.nupkg -s https://api.nuget.org/v3/index.json -k ${{ secrets.NuGetAPIKey }} --skip-duplicate
+          dotnet nuget push *.nupkg -s https://nuget.pkg.github.com/HMBSbige -k ${{ secrets.GITHUB_TOKEN }} --skip-duplicate
+          dotnet nuget push *.nupkg -s https://api.nuget.org/v3/index.json -k ${{ secrets.NuGetAPIKey }} --skip-duplicate
 
   release:
     name: Release

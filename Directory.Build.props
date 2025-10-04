@@ -1,11 +1,11 @@
 <Project>
   <PropertyGroup>
-    <TargetFramework>net6.0</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <Authors>HMBSbige</Authors>
-    <Copyright>Copyright © 2021-2023 HMBSbige</Copyright>
+    <Copyright>Copyright © HMBSbige</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/HMBSbige/Shadowsocks.Net</PackageProjectUrl>
     <RepositoryUrl>https://github.com/HMBSbige/Shadowsocks.Net</RepositoryUrl>

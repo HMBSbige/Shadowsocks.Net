@@ -40,24 +40,24 @@ public class ReadOnlySequenceStreamTest
 		byte[] b = new byte[16];
 
 		// ReSharper disable AccessToDisposedClosure
-		Assert.ThrowsException<NotSupportedException>(() => stream.WriteByte(b[0]));
-		Assert.ThrowsException<NotSupportedException>(() => stream.Write(b, 0, b.Length));
-		Assert.ThrowsException<NotSupportedException>(() => stream.Write(b));
+		Assert.ThrowsExactly<NotSupportedException>(() => stream.WriteByte(b[0]));
+		Assert.ThrowsExactly<NotSupportedException>(() => stream.Write(b, 0, b.Length));
+		Assert.ThrowsExactly<NotSupportedException>(() => stream.Write(b));
 		// ReSharper restore AccessToDisposedClosure
 
 		stream.Dispose();
-		Assert.ThrowsException<ObjectDisposedException>(() => stream.WriteByte(b[0]));
-		Assert.ThrowsException<ObjectDisposedException>(() => stream.Write(b, 0, b.Length));
-		Assert.ThrowsException<ObjectDisposedException>(() => stream.Write(b));
+		Assert.ThrowsExactly<ObjectDisposedException>(() => stream.WriteByte(b[0]));
+		Assert.ThrowsExactly<ObjectDisposedException>(() => stream.Write(b, 0, b.Length));
+		Assert.ThrowsExactly<ObjectDisposedException>(() => stream.Write(b));
 	}
 
 	[TestMethod]
 	public async Task EmptySequenceFlushAsync()
 	{
 		Stream stream = EmptyStream;
-		Assert.ThrowsException<NotSupportedException>(() => stream.Flush());
+		Assert.ThrowsExactly<NotSupportedException>(() => stream.Flush());
 		await stream.DisposeAsync();
-		Assert.ThrowsException<ObjectDisposedException>(() => stream.Flush());
+		Assert.ThrowsExactly<ObjectDisposedException>(() => stream.Flush());
 	}
 
 	[TestMethod]
@@ -69,7 +69,7 @@ public class ReadOnlySequenceStreamTest
 		Assert.AreEqual(0, stream.Seek(0, SeekOrigin.End));
 
 		stream.Dispose();
-		Assert.ThrowsException<ObjectDisposedException>(() => stream.Seek(0, SeekOrigin.Begin));
+		Assert.ThrowsExactly<ObjectDisposedException>(() => stream.Seek(0, SeekOrigin.Begin));
 	}
 
 	[TestMethod]
@@ -106,7 +106,7 @@ public class ReadOnlySequenceStreamTest
 		Assert.AreEqual(0, stream.Length);
 		stream.Dispose();
 		// ReSharper disable once AccessToModifiedClosure
-		Assert.ThrowsException<ObjectDisposedException>(() => stream.Length);
+		Assert.ThrowsExactly<ObjectDisposedException>(() => stream.Length);
 
 		stream = MultiSegmentSequence.AsStream();
 		Assert.AreEqual(MultiSegmentSequence.Length, stream.Length);
@@ -126,16 +126,16 @@ public class ReadOnlySequenceStreamTest
 	{
 		Stream stream = EmptyStream;
 		// ReSharper disable once AccessToDisposedClosure
-		Assert.ThrowsException<NotSupportedException>(() => stream.SetLength(0));
+		Assert.ThrowsExactly<NotSupportedException>(() => stream.SetLength(0));
 		stream.Dispose();
-		Assert.ThrowsException<ObjectDisposedException>(() => stream.SetLength(0));
+		Assert.ThrowsExactly<ObjectDisposedException>(() => stream.SetLength(0));
 	}
 
 	[TestMethod]
 	public void Position()
 	{
 		Stream stream = EmptyStream;
-		Assert.ThrowsException<ArgumentOutOfRangeException>(() => stream.Position = 1);
+		Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => stream.Position = 1);
 
 		Stream singleStream = SingleSegmentSequence.AsStream();
 		Stream multiStream = MultiSegmentSequence.AsStream();
@@ -162,12 +162,12 @@ public class ReadOnlySequenceStreamTest
 		Assert.AreEqual(-1, multiStream.ReadByte());
 
 		// ReSharper disable AccessToDisposedClosure
-		Assert.ThrowsException<ArgumentOutOfRangeException>(() => multiStream.Position = MultiSegmentSequence.Length + 1);
-		Assert.ThrowsException<ArgumentOutOfRangeException>(() => multiStream.Position = -1);
+		Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => multiStream.Position = MultiSegmentSequence.Length + 1);
+		Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => multiStream.Position = -1);
 		// ReSharper restore AccessToDisposedClosure
 
 		multiStream.Dispose();
-		Assert.ThrowsException<ObjectDisposedException>(() => multiStream.Position = 0);
+		Assert.ThrowsExactly<ObjectDisposedException>(() => multiStream.Position = 0);
 	}
 
 	[TestMethod]
@@ -181,7 +181,7 @@ public class ReadOnlySequenceStreamTest
 			Assert.AreEqual(i, stream.Position);
 			Assert.AreEqual(GetByte(i), stream.ReadByte());
 		}
-		Assert.ThrowsException<ArgumentOutOfRangeException>(() => stream.Seek(-1, SeekOrigin.Begin));
+		Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => stream.Seek(-1, SeekOrigin.Begin));
 
 		for (int n = 0; n < stream.Length; ++n)
 		{
@@ -199,16 +199,16 @@ public class ReadOnlySequenceStreamTest
 			}
 		}
 		stream.Position = MultiSegmentSequence.Length;
-		Assert.ThrowsException<ArgumentOutOfRangeException>(() => stream.Seek(1, SeekOrigin.Current));
+		Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => stream.Seek(1, SeekOrigin.Current));
 		stream.Position = 0;
-		Assert.ThrowsException<ArgumentOutOfRangeException>(() => stream.Seek(-1, SeekOrigin.Current));
+		Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => stream.Seek(-1, SeekOrigin.Current));
 
 		for (int i = 0; i < stream.Length; ++i)
 		{
 			Assert.AreEqual(MultiSegmentSequence.Length - i, stream.Seek(-i, SeekOrigin.End));
 			Assert.AreEqual(GetByte(MultiSegmentSequence.Length - i), stream.ReadByte());
 		}
-		Assert.ThrowsException<ArgumentOutOfRangeException>(() => stream.Seek(1, SeekOrigin.End));
+		Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => stream.Seek(1, SeekOrigin.End));
 
 		int GetByte(long position)
 		{

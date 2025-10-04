@@ -93,7 +93,7 @@ public class StreamShadowsocksCryptoTest
 	[DataRow(@"sm4-cfb")]
 	public void WrongMethod(string method)
 	{
-		Assert.ThrowsException<ArgumentException>(
+		Assert.ThrowsExactly<ArgumentException>(
 			() =>
 			{
 				using IShadowsocksCrypto crypto = ShadowsocksCrypto.Create(method, string.Empty);
@@ -104,7 +104,7 @@ public class StreamShadowsocksCryptoTest
 	[TestMethod]
 	public void SetIv()
 	{
-		Assert.ThrowsException<ArgumentException>(
+		Assert.ThrowsExactly<ArgumentException>(
 			() =>
 			{
 				using ChaCha20IETFShadowsocksCrypto crypto = new(Password);

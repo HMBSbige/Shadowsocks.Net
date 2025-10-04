@@ -1,0 +1,22 @@
+﻿<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+    <File Path=".gitignore" />
+    <File Path="LICENSE" />
+    <File Path="NuGet.Config" />
+    <File Path="README.md" />
+    <File Path=".github\renovate.json" />
+    <File Path=".github\workflows\CI.yml" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+  </Folder>
+  <Project Path="Benchmark\Benchmark.csproj" />
+  <Project Path="HttpProxy\HttpProxy.csproj" />
+  <Project Path="Pipelines.Extensions\Pipelines.Extensions.csproj" />
+  <Project Path="Shadowsocks.Crypto\Shadowsocks.Crypto.csproj" />
+  <Project Path="Shadowsocks.Protocol\Shadowsocks.Protocol.csproj" />
+  <Project Path="Shadowsocks.SpeedTest\Shadowsocks.SpeedTest.csproj" />
+  <Project Path="Socks5\Socks5.csproj" />
+  <Project Path="TestConsoleApp\TestConsoleApp.csproj" />
+  <Project Path="UnitTest\UnitTest.csproj" />
+</Solution>
