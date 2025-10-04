@@ -61,11 +61,11 @@ jobs:
           dotnet-version: 9.0.x
 
       - name: Build
-        working-directory: src/${{ matrix.PackageName }}
+        working-directory: src/${{ matrix.ProjectName }}
         run: dotnet pack
 
       - name: Push nuget packages
-        working-directory: src/${{ matrix.PackageName }}/bin/Release
+        working-directory: src/${{ matrix.ProjectName }}/bin/Release
         run: |
           dotnet nuget push *.nupkg -s https://nuget.pkg.github.com/HMBSbige -k ${{ secrets.GITHUB_TOKEN }} --skip-duplicate
           dotnet nuget push *.nupkg -s https://api.nuget.org/v3/index.json -k ${{ secrets.NuGetAPIKey }} --skip-duplicate
