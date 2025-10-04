@@ -3,7 +3,7 @@
   <PropertyGroup>
     <NoWarn>CS1591</NoWarn>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <IsPackable>true</IsPackable>
     <PackageTags>shadowsocks</PackageTags>
     <Description>A shadowsocks crypto library for .NET</Description>
   </PropertyGroup>

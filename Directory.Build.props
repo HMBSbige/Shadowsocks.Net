@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <Authors>HMBSbige</Authors>
+    <IsPackable>false</IsPackable>
     <Copyright>Copyright © HMBSbige</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/HMBSbige/Shadowsocks.Net</PackageProjectUrl>
