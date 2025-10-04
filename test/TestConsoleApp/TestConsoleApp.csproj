@@ -14,7 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Shadowsocks.Protocol\Shadowsocks.Protocol.csproj" />
+    <ProjectReference Include="..\..\src\Shadowsocks.Protocol\Shadowsocks.Protocol.csproj" />
   </ItemGroup>
 
 </Project>

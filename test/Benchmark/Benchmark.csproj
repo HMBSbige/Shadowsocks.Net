@@ -5,7 +5,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Pipelines.Extensions\Pipelines.Extensions.csproj" />
+    <ProjectReference Include="..\..\src\Pipelines.Extensions\Pipelines.Extensions.csproj" />
   </ItemGroup>
 
 </Project>

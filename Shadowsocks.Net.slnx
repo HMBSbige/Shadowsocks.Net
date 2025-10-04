@@ -10,13 +10,17 @@
     <File Path="Directory.Build.props" />
     <File Path="Directory.Packages.props" />
   </Folder>
-  <Project Path="Benchmark\Benchmark.csproj" />
-  <Project Path="HttpProxy\HttpProxy.csproj" />
-  <Project Path="Pipelines.Extensions\Pipelines.Extensions.csproj" />
-  <Project Path="Shadowsocks.Crypto\Shadowsocks.Crypto.csproj" />
-  <Project Path="Shadowsocks.Protocol\Shadowsocks.Protocol.csproj" />
-  <Project Path="Shadowsocks.SpeedTest\Shadowsocks.SpeedTest.csproj" />
-  <Project Path="Socks5\Socks5.csproj" />
-  <Project Path="TestConsoleApp\TestConsoleApp.csproj" />
-  <Project Path="UnitTest\UnitTest.csproj" />
+  <Folder Name="/src/">
+    <Project Path="src\HttpProxy\HttpProxy.csproj" />
+    <Project Path="src\Pipelines.Extensions\Pipelines.Extensions.csproj" />
+    <Project Path="src\Shadowsocks.Crypto\Shadowsocks.Crypto.csproj" />
+    <Project Path="src\Shadowsocks.Protocol\Shadowsocks.Protocol.csproj" />
+    <Project Path="src\Socks5\Socks5.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test\Benchmark\Benchmark.csproj" />
+    <Project Path="test\Shadowsocks.SpeedTest\Shadowsocks.SpeedTest.csproj" />
+    <Project Path="test\TestConsoleApp\TestConsoleApp.csproj" />
+    <Project Path="test\UnitTest\UnitTest.csproj" />
+  </Folder>
 </Solution>
