@@ -60,7 +60,7 @@ public class HttpTest
 				httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(@"curl");
 				string httpStr = await httpClient.GetStringAsync(@"http://ip.sb");
 				Assert.IsFalse(string.IsNullOrWhiteSpace(httpStr));
-				Assert.AreEqual(httpChunkStr, httpStr.TrimEnd());
+				Assert.AreEqual(httpChunkStr, httpStr);
 
 				// HTTP no body
 				HttpResponseMessage response = await httpClient.GetAsync(@"http://cp.cloudflare.com");
