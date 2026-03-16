@@ -3,82 +3,36 @@ on:
   push:
     branches:
       - master
-    tags:
-      - "*"
+      - renovate/**
   pull_request:
-  workflow_dispatch:
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+  DOTNET_NOLOGO: 1
+  DOTNET_GENERATE_ASPNET_CERTIFICATE: false
+  NET_VERSION: 10.0.x
 
 jobs:
-  check_format:
-    name: Check format
+  dotnet-format:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 9.0.x
+          dotnet-version: ${{ env.NET_VERSION }}
+      - run: dotnet format -v diag --verify-no-changes
 
-      - name: Run dotnet format check
-        run: dotnet format -v diag --verify-no-changes
-
-  test:
-    name: Test
+  dotnet-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
     runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 9.0.x
-
-      - name: Test
-        shell: pwsh
-        run: dotnet test -c Release --filter ClassName!~Benchmark
-
-  build:
-    name: Build
-    needs: [test, check_format]
-    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        ProjectName:
-          [
-            HttpProxy,
-            Pipelines.Extensions,
-            Shadowsocks.Crypto,
-            Shadowsocks.Protocol,
-            Socks5,
-          ]
-
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: 9.0.x
-
-      - name: Build
-        working-directory: src/${{ matrix.ProjectName }}
-        run: dotnet pack
-
-      - name: Push nuget packages
-        working-directory: src/${{ matrix.ProjectName }}/bin/Release
-        run: |
-          dotnet nuget push *.nupkg -s https://nuget.pkg.github.com/HMBSbige -k ${{ secrets.GITHUB_TOKEN }} --skip-duplicate
-          dotnet nuget push *.nupkg -s https://api.nuget.org/v3/index.json -k ${{ secrets.NuGetAPIKey }} --skip-duplicate
-
-  release:
-    name: Release
-    needs: build
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Create Release
-        uses: ncipollo/release-action@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          draft: false
-          prerelease: false
+          dotnet-version: ${{ env.NET_VERSION }}
+      - run: dotnet test -c Release --filter ClassName!~Benchmark
