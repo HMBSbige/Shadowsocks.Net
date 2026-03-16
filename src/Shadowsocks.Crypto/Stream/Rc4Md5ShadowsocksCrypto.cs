@@ -27,7 +27,7 @@ public class Rc4Md5ShadowsocksCrypto : StreamShadowsocksCrypto
 			iv.CopyTo(temp[KeyLength..]);
 			temp.ToMd5(realKey);
 
-			return StreamCryptoCreate.Rc4(realKey);
+			return new RC4Crypto(realKey);
 		}
 		finally
 		{

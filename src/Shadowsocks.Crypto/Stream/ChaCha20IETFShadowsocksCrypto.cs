@@ -15,6 +15,6 @@ public class ChaCha20IETFShadowsocksCrypto : StreamShadowsocksCrypto
 
 	protected override IStreamCrypto CreateCrypto(bool isEncrypt, ReadOnlySpan<byte> key, ReadOnlySpan<byte> iv)
 	{
-		return StreamCryptoCreate.ChaCha20(key, iv);
+		return new ChaCha20Crypto(key, iv);
 	}
 }

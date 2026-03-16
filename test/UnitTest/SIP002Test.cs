@@ -52,6 +52,7 @@ public class SIP002Test
 		};
 		Assert.AreEqual(uri, serverInfo.ToSip002UriSchemeString());
 		Assert.IsTrue(ShadowsocksServerInfo.TryParse(uri, out ShadowsocksServerInfo? newInfo));
+		Assert.IsNotNull(newInfo);
 		newInfo.Id = serverInfo.Id;
 		Assert.AreEqual(serverInfo, newInfo);
 	}

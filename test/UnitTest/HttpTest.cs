@@ -5,7 +5,6 @@ using Socks5.Servers;
 using Socks5.Utils;
 using System.Buffers;
 using System.Net;
-using System.Text;
 
 namespace UnitTest;
 
@@ -52,15 +51,13 @@ public class HttpTest
 				Assert.IsFalse(string.IsNullOrWhiteSpace(httpsStr));
 
 				// HTTP chunk
-				string httpChunkStr = await httpClient.GetStringAsync(@"http://api.ip.sb/ip");
-				Assert.IsFalse(string.IsNullOrWhiteSpace(httpChunkStr));
-				Assert.AreEqual(httpsStr, httpChunkStr);
+				byte[] httpChunkBytes = await httpClient.GetByteArrayAsync(@"http://httpbin.org/stream-bytes/1024");
+				Assert.AreEqual(1024, httpChunkBytes.Length);
 
 				// HTTP Content-Length
 				httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(@"curl");
 				string httpStr = await httpClient.GetStringAsync(@"http://ip.sb");
 				Assert.IsFalse(string.IsNullOrWhiteSpace(httpStr));
-				Assert.AreEqual(httpChunkStr, httpStr);
 
 				// HTTP no body
 				HttpResponseMessage response = await httpClient.GetAsync(@"http://cp.cloudflare.com");
@@ -90,31 +87,31 @@ public class HttpTest
 	public void IsHttpHeaderTest()
 	{
 		ReadOnlySequence<byte> sequence0 = TestUtils.GetMultiSegmentSequence(
-			Encoding.ASCII.GetBytes("GET / HTTP/1.1"),
-			Encoding.ASCII.GetBytes("\r\nHost: ip.sb\r\n"),
-			Encoding.ASCII.GetBytes("User-Agent: curl/7.55.1\r\n"),
-			Encoding.ASCII.GetBytes("\r\n")
+			"GET / HTTP/1.1"u8.ToArray(),
+			"\r\nHost: ip.sb\r\n"u8.ToArray(),
+			"User-Agent: curl/7.55.1\r\n"u8.ToArray(),
+			"\r\n"u8.ToArray()
 		);
 		Assert.IsTrue(HttpUtils.IsHttpHeader(sequence0));
 
 		ReadOnlySequence<byte> sequence1 = TestUtils.GetMultiSegmentSequence(
-			Encoding.ASCII.GetBytes("GET / HTTP/1.1"),
-			Encoding.ASCII.GetBytes("\r\nHost: ip.sb\r\n"),
-			Encoding.ASCII.GetBytes("User-Agent: curl/7.55.1\r\n")
+			"GET / HTTP/1.1"u8.ToArray(),
+			"\r\nHost: ip.sb\r\n"u8.ToArray(),
+			"User-Agent: curl/7.55.1\r\n"u8.ToArray()
 		);
 		Assert.IsFalse(HttpUtils.IsHttpHeader(sequence1));
 
 		ReadOnlySequence<byte> sequence2 = TestUtils.GetMultiSegmentSequence(
-			Encoding.ASCII.GetBytes("\r\n"),
-			Encoding.ASCII.GetBytes("\r\n")
+			"\r\n"u8.ToArray(),
+			"\r\n"u8.ToArray()
 		);
 		Assert.IsFalse(HttpUtils.IsHttpHeader(sequence2));
 
 		ReadOnlySequence<byte> sequence3 = TestUtils.GetMultiSegmentSequence(
-			Encoding.ASCII.GetBytes("GET HTTP/1.1"),
-			Encoding.ASCII.GetBytes("\r\nHost: ip.sb\r\n"),
-			Encoding.ASCII.GetBytes("User-Agent: curl/7.55.1\r\n"),
-			Encoding.ASCII.GetBytes("\r\n")
+			"GET HTTP/1.1"u8.ToArray(),
+			"\r\nHost: ip.sb\r\n"u8.ToArray(),
+			"User-Agent: curl/7.55.1\r\n"u8.ToArray(),
+			"\r\n"u8.ToArray()
 		);
 		Assert.IsFalse(HttpUtils.IsHttpHeader(sequence3));
 	}

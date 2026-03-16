@@ -26,6 +26,6 @@ public class Rc4ShadowsocksCrypto : StreamShadowsocksCrypto
 
 	protected override IStreamCrypto CreateCrypto(bool isEncrypt, ReadOnlySpan<byte> key, ReadOnlySpan<byte> iv)
 	{
-		return StreamCryptoCreate.Rc4(key);
+		return new RC4Crypto(key);
 	}
 }

@@ -15,6 +15,6 @@ public class XSalsa20ShadowsocksCrypto : StreamShadowsocksCrypto
 
 	protected override IStreamCrypto CreateCrypto(bool isEncrypt, ReadOnlySpan<byte> key, ReadOnlySpan<byte> iv)
 	{
-		return StreamCryptoCreate.XSalsa20(key, iv);
+		return new XSalsa20Crypto(key, iv);
 	}
 }

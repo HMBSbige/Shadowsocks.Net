@@ -1,4 +1,3 @@
-using CryptoBase.DataFormatExtensions;
 using Shadowsocks.Crypto;
 using Shadowsocks.Crypto.Stream;
 using System.Buffers;
@@ -24,7 +23,7 @@ public class StreamShadowsocksCryptoTest
 	{
 		Span<byte> buffer = new byte[8192];
 		RandomNumberGenerator.Fill(buffer);
-		string originHex = buffer.ToHex();
+		string originHex = Convert.ToHexStringLower(buffer);
 
 		using StreamShadowsocksCrypto crypto = (StreamShadowsocksCrypto)ShadowsocksCrypto.Create(method, password);
 		int length = crypto.IvLength + buffer.Length;
@@ -44,14 +43,14 @@ public class StreamShadowsocksCryptoTest
 		Assert.AreEqual(0, sequence.Length);
 		Assert.AreEqual(buffer.Length, decLength);
 
-		Assert.AreEqual(originHex, buffer.ToHex());
+		Assert.AreEqual(originHex, Convert.ToHexStringLower(buffer));
 	}
 
 	private static void IsSymmetricalUdp(string method, string password)
 	{
 		Span<byte> buffer = new byte[8192];
 		RandomNumberGenerator.Fill(buffer);
-		string originHex = buffer.ToHex();
+		string originHex = Convert.ToHexStringLower(buffer);
 
 		using StreamShadowsocksCrypto crypto = (StreamShadowsocksCrypto)ShadowsocksCrypto.Create(method, password);
 		int length = crypto.IvLength + buffer.Length;
@@ -65,13 +64,13 @@ public class StreamShadowsocksCryptoTest
 		outLength = crypto.DecryptUDP(encBuffer, buffer);
 		Assert.AreEqual(buffer.Length, outLength);
 
-		Assert.AreEqual(originHex, buffer.ToHex());
+		Assert.AreEqual(originHex, Convert.ToHexStringLower(buffer));
 	}
 
 	private static void TestDecrypt(StreamShadowsocksCrypto crypto, string str, string encHex)
 	{
 		Span<byte> origin = Encoding.UTF8.GetBytes(str);
-		ReadOnlySequence<byte> enc = new(encHex.FromHex());
+		ReadOnlySequence<byte> enc = new(Convert.FromHexString(encHex));
 
 		Span<byte> buffer = new byte[origin.Length];
 

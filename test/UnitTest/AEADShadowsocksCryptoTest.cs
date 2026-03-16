@@ -1,4 +1,3 @@
-using CryptoBase.DataFormatExtensions;
 using Shadowsocks.Crypto;
 using Shadowsocks.Crypto.AEAD;
 using System.Buffers;
@@ -26,7 +25,7 @@ public class AEADShadowsocksCryptoTest
 	private static void TestTcpDecrypt(string method, string password, string str, string encHex)
 	{
 		Span<byte> origin = Encoding.UTF8.GetBytes(str);
-		byte[] encBuffer = encHex.FromHex();
+		byte[] encBuffer = Convert.FromHexString(encHex);
 
 		Span<byte> buffer = new byte[encBuffer.Length];
 
@@ -54,7 +53,7 @@ public class AEADShadowsocksCryptoTest
 	{
 		Span<byte> buffer = new byte[size];
 		RandomNumberGenerator.Fill(buffer);
-		string originHex = buffer.ToHex();
+		string originHex = Convert.ToHexStringLower(buffer);
 
 		Span<byte> output = new byte[AEADShadowsocksCrypto.GetBufferSize(size)];
 
@@ -75,14 +74,14 @@ public class AEADShadowsocksCryptoTest
 		Assert.AreEqual(0, encBuffer.Length);
 		Assert.AreEqual(buffer.Length, o1);
 
-		Assert.AreEqual(originHex, buffer.ToHex());
+		Assert.AreEqual(originHex, Convert.ToHexStringLower(buffer));
 	}
 
 	private static void IsSymmetricalUdp(string method, string password, int size)
 	{
 		Span<byte> buffer = new byte[size];
 		RandomNumberGenerator.Fill(buffer);
-		string originHex = buffer.ToHex();
+		string originHex = Convert.ToHexStringLower(buffer);
 
 		Span<byte> output = new byte[AEADShadowsocksCrypto.GetBufferSize(size)];
 
@@ -97,7 +96,7 @@ public class AEADShadowsocksCryptoTest
 		int o1 = decryptor.DecryptUDP(encBuffer, buffer);
 		Assert.AreEqual(buffer.Length, o1);
 
-		Assert.AreEqual(originHex, buffer.ToHex());
+		Assert.AreEqual(originHex, Convert.ToHexStringLower(buffer));
 	}
 
 	private static void TestException(string method, string password)
@@ -134,8 +133,7 @@ public class AEADShadowsocksCryptoTest
 		// Received wrong payload length
 		Assert.ThrowsExactly<InvalidDataException>(() =>
 			{
-				byte[] dataBuffer = @"9fe197e9b49097273bd814f2955f2056527fcedc730b1c28b37f37520900ad518fb91bd61e4b8226cdb5a69109c713e2c37db1ffb980b09aafc3a56857df3eec3cb3b10edd9aa8e257851cff2250d4cbc952cf9c5103e8311c4e9b18fa68e0734716294747c1abcc906be8a0ce33d41438795cd682cdf7b4e1949b398656543ca03ed7af3cfbcb6700646c241baa3bb39a3f175f5d127d27649876cb055d8b271f48a5abeead43ad5f9d9ac2d47b12997fa8d45f4c370dd49b683c772b30ed092f6326980c5c"
-					.FromHex();
+				byte[] dataBuffer = Convert.FromHexString(@"9fe197e9b49097273bd814f2955f2056527fcedc730b1c28b37f37520900ad518fb91bd61e4b8226cdb5a69109c713e2c37db1ffb980b09aafc3a56857df3eec3cb3b10edd9aa8e257851cff2250d4cbc952cf9c5103e8311c4e9b18fa68e0734716294747c1abcc906be8a0ce33d41438795cd682cdf7b4e1949b398656543ca03ed7af3cfbcb6700646c241baa3bb39a3f175f5d127d27649876cb055d8b271f48a5abeead43ad5f9d9ac2d47b12997fa8d45f4c370dd49b683c772b30ed092f6326980c5c");
 				Span<byte> buffer = new byte[AEADShadowsocksCrypto.GetBufferSize(dataBuffer.Length)];
 				using Aes128GcmShadowsocksCrypto crypto = new(Password);
 				Assert.AreEqual(16, crypto.KeyLength);

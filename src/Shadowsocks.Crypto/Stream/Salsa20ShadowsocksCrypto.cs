@@ -15,6 +15,6 @@ public class Salsa20ShadowsocksCrypto : StreamShadowsocksCrypto
 
 	protected override IStreamCrypto CreateCrypto(bool isEncrypt, ReadOnlySpan<byte> key, ReadOnlySpan<byte> iv)
 	{
-		return StreamCryptoCreate.Salsa20(key, iv);
+		return new Salsa20Crypto(key, iv);
 	}
 }

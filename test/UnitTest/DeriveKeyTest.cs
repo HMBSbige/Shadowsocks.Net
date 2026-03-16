@@ -1,4 +1,3 @@
-using CryptoBase.DataFormatExtensions;
 using Shadowsocks.Crypto;
 
 namespace UnitTest;
@@ -16,7 +15,7 @@ public class DeriveKeyTest
 			Span<byte> key = new byte[i];
 			key.SsDeriveKey(password);
 
-			Assert.AreEqual(keyHexStr[..(i << 1)], key.ToHex());
+			Assert.AreEqual(keyHexStr[..(i << 1)], Convert.ToHexStringLower(key));
 		}
 	}
 }
