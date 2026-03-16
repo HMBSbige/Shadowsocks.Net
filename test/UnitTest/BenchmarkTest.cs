@@ -5,6 +5,7 @@ namespace UnitTest;
 
 public class BenchmarkTest
 {
+	[Explicit]
 	[Test]
 	public void PipelinesBenchmark()
 	{

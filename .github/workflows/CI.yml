@@ -35,4 +35,4 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: ${{ env.NET_VERSION }}
-      - run: dotnet test -c Release --filter ClassName!~Benchmark
+      - run: dotnet test -c Release

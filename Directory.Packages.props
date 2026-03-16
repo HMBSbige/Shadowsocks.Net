@@ -8,7 +8,7 @@
     <PackageVersion Include="Microsoft.Extensions.Caching.Abstractions" Version="10.0.5" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.5" />
     <PackageVersion Include="MinVer" Version="7.0.0" />
-    <PackageVersion Include="TUnit" Version="1.19.22" />
+    <PackageVersion Include="TUnit" Version="1.19.57" />
     <PackageVersion Include="WindowsJobAPI" Version="6.1.0" />
   </ItemGroup>
 </Project>
