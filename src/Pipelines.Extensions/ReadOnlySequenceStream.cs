@@ -43,6 +43,21 @@ internal class ReadOnlySequenceStream : Stream
 		_position = readOnlySequence.Start;
 	}
 
+	public override int ReadByte()
+	{
+		ObjectDisposedException.ThrowIf(IsDisposed, this);
+
+		SequenceReader<byte> reader = new(_readOnlySequence.Slice(_position));
+
+		if (!reader.TryRead(out byte result))
+		{
+			return -1;
+		}
+
+		_position = _readOnlySequence.GetPosition(1, _position);
+		return result;
+	}
+
 	public override int Read(Span<byte> buffer)
 	{
 		ObjectDisposedException.ThrowIf(IsDisposed, this);
@@ -90,6 +105,22 @@ internal class ReadOnlySequenceStream : Stream
 		return Position;
 	}
 
+	public override Task CopyToAsync(Stream destination, int bufferSize, CancellationToken cancellationToken)
+	{
+		ObjectDisposedException.ThrowIf(IsDisposed, this);
+		return CopyToAsyncCore(destination, cancellationToken);
+	}
+
+	private async Task CopyToAsyncCore(Stream destination, CancellationToken cancellationToken)
+	{
+		foreach (ReadOnlyMemory<byte> segment in _readOnlySequence.Slice(_position))
+		{
+			await destination.WriteAsync(segment, cancellationToken);
+		}
+
+		_position = _readOnlySequence.End;
+	}
+
 	public override void SetLength(long value)
 	{
 		ThrowNotSupported();
@@ -102,12 +133,19 @@ internal class ReadOnlySequenceStream : Stream
 
 	public override void Flush()
 	{
-		ThrowNotSupported();
+		ObjectDisposedException.ThrowIf(IsDisposed, this);
+	}
+
+	public override Task FlushAsync(CancellationToken cancellationToken)
+	{
+		ObjectDisposedException.ThrowIf(IsDisposed, this);
+		return Task.CompletedTask;
 	}
 
 	#region Dispose
 
 	public bool IsDisposed { get; private set; }
+
 	protected override void Dispose(bool disposing)
 	{
 		if (IsDisposed)
