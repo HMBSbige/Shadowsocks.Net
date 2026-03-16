@@ -144,9 +144,9 @@ public static class PipelinesExtensions
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public void Write(string str)
+		public void Write(string str, Encoding? encoding = null)
 		{
-			Encoding encoding = Encoding.UTF8;
+			encoding ??= Encoding.UTF8;
 
 			Span<byte> span = writer.GetSpan(encoding.GetMaxByteCount(str.Length));
 			int length = encoding.GetBytes(str, span);
@@ -154,20 +154,20 @@ public static class PipelinesExtensions
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public async ValueTask<FlushResult> WriteAsync(string str, CancellationToken token = default)
+		public async ValueTask<FlushResult> WriteAsync(string str, CancellationToken cancellationToken = default)
 		{
 			writer.Write(str);
-			return await writer.FlushAsync(token);
+			return await writer.FlushAsync(cancellationToken);
 		}
 
-		public async ValueTask<FlushResult> WriteAsync(ReadOnlySequence<byte> sequence, CancellationToken token = default)
+		public async ValueTask<FlushResult> WriteAsync(ReadOnlySequence<byte> sequence, CancellationToken cancellationToken = default)
 		{
 			FlushResult flushResult = default;
 
 			foreach (ReadOnlyMemory<byte> memory in sequence)
 			{
 				writer.Write(memory.Span);
-				flushResult = await writer.FlushAndCheckIsCanceledAsync(token);
+				flushResult = await writer.FlushAndCheckIsCanceledAsync(cancellationToken);
 
 				if (flushResult.IsCompleted)
 				{
@@ -223,12 +223,12 @@ public static class PipelinesExtensions
 		{
 			if (!stream.CanRead)
 			{
-				throw new ArgumentException(@"Stream is not readable.", nameof(stream));
+				throw new InvalidOperationException(@"Stream is not readable.");
 			}
 
 			if (!stream.CanWrite)
 			{
-				throw new ArgumentException(@"Stream is not writable.", nameof(stream));
+				throw new InvalidOperationException(@"Stream is not writable.");
 			}
 
 			PipeReader reader = PipeReader.Create(stream, readerOptions);
@@ -288,25 +288,26 @@ public static class PipelinesExtensions
 	extension(WebSocket webSocket)
 	{
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public PipeReader AsPipeReader(StreamPipeReaderOptions? options = null)
+		public PipeReader AsPipeReader(WebSocketMessageType messageType = WebSocketMessageType.Binary, StreamPipeReaderOptions? options = null)
 		{
-			WebSocketStream stream = WebSocketStream.Create(webSocket, WebSocketMessageType.Binary);
+			WebSocketStream stream = WebSocketStream.Create(webSocket, messageType);
 			return PipeReader.Create(stream, options);
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public PipeWriter AsPipeWriter(StreamPipeWriterOptions? options = null)
+		public PipeWriter AsPipeWriter(WebSocketMessageType messageType = WebSocketMessageType.Binary, StreamPipeWriterOptions? options = null)
 		{
-			WebSocketStream stream = WebSocketStream.Create(webSocket, WebSocketMessageType.Binary);
+			WebSocketStream stream = WebSocketStream.Create(webSocket, messageType);
 			return PipeWriter.Create(stream, options);
 		}
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public IDuplexPipe AsDuplexPipe(
+			WebSocketMessageType messageType = WebSocketMessageType.Binary,
 			StreamPipeReaderOptions? readerOptions = null,
 			StreamPipeWriterOptions? writerOptions = null)
 		{
-			WebSocketStream stream = WebSocketStream.Create(webSocket, WebSocketMessageType.Binary);
+			WebSocketStream stream = WebSocketStream.Create(webSocket, messageType);
 			return stream.AsDuplexPipe(readerOptions, writerOptions);
 		}
 	}
@@ -314,10 +315,10 @@ public static class PipelinesExtensions
 	extension(IDuplexPipe pipe)
 	{
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public async ValueTask LinkToAsync(IDuplexPipe pipe2, CancellationToken token = default)
+		public async ValueTask LinkToAsync(IDuplexPipe pipe2, CancellationToken cancellationToken = default)
 		{
-			Task a = pipe.Input.CopyToAsync(pipe2.Output, token);
-			Task b = pipe2.Input.CopyToAsync(pipe.Output, token);
+			Task a = pipe.Input.CopyToAsync(pipe2.Output, cancellationToken);
+			Task b = pipe2.Input.CopyToAsync(pipe.Output, cancellationToken);
 
 			await Task.WhenAll(a, b);
 		}

@@ -5,6 +5,7 @@ namespace Pipelines.Extensions;
 public class DefaultDuplexPipe : IDuplexPipe
 {
 	public PipeReader Input { get; }
+
 	public PipeWriter Output { get; }
 
 	public DefaultDuplexPipe(PipeReader reader, PipeWriter writer)

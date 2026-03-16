@@ -283,6 +283,7 @@ public class ReadOnlySequenceStreamTest
 		}
 
 		await Assert.That(() => stream.Seek(1, SeekOrigin.End)).ThrowsExactly<ArgumentOutOfRangeException>();
+		return;
 
 		int GetByte(long position)
 		{

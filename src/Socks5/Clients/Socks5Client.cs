@@ -306,6 +306,8 @@ public sealed class Socks5Client : IDisposable
 			throw new Socks5ProtocolErrorException(@"Auth failed!", Socks5Reply.ConnectionNotAllowed);
 		}
 
+		return;
+
 		int PackUsernamePassword(Span<byte> span)
 		{
 			return Pack.UsernamePasswordAuth(credential, span);

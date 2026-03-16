@@ -8,20 +8,11 @@ using System.IO.Pipelines;
 
 namespace Socks5.Servers;
 
-public sealed class Socks5ServerConnection
+public sealed class Socks5ServerConnection(IDuplexPipe pipe, UsernamePassword? credential = null)
 {
-	private readonly IDuplexPipe _pipe;
-	private readonly UsernamePassword? _credential;
-
 	public ServerBound Target;
 
 	public Command Command { get; private set; }
-
-	public Socks5ServerConnection(IDuplexPipe pipe, UsernamePassword? credential = null)
-	{
-		_pipe = pipe;
-		_credential = credential;
-	}
 
 	public static bool IsClientHeader(ReadOnlySequence<byte> buffer)
 	{
@@ -59,7 +50,7 @@ public sealed class Socks5ServerConnection
 	{
 		HashSet<Method> methods = new();
 
-		await _pipe.Input.ReadAsync(TryReadClientHandshake, token);
+		await pipe.Input.ReadAsync(TryReadClientHandshake, token);
 
 		if (methods.Count <= 0)
 		{
@@ -68,7 +59,7 @@ public sealed class Socks5ServerConnection
 
 		// Select method
 		Method method = Method.NoAcceptable;
-		if (_credential is not null && !string.IsNullOrEmpty(_credential.UserName))
+		if (credential is not null && !string.IsNullOrEmpty(credential.UserName))
 		{
 			method = Method.UsernamePassword;
 		}
@@ -78,7 +69,7 @@ public sealed class Socks5ServerConnection
 		}
 
 		// Send method to client
-		await _pipe.Output.WriteAsync(2, PackMethod, token);
+		await pipe.Output.WriteAsync(2, PackMethod, token);
 
 		if (method is Method.UsernamePassword && !await UsernamePasswordAuthAsync(token))
 		{
@@ -89,6 +80,8 @@ public sealed class Socks5ServerConnection
 		{
 			await ReadTargetAsync(token);
 		}
+
+		return;
 
 		ParseResult TryReadClientHandshake(ref ReadOnlySequence<byte> buffer)
 		{
@@ -104,11 +97,11 @@ public sealed class Socks5ServerConnection
 	private async ValueTask<bool> UsernamePasswordAuthAsync(CancellationToken token = default)
 	{
 		UsernamePassword? clientCredential = null;
-		await _pipe.Input.ReadAsync(TryReadClientAuth, token);
+		await pipe.Input.ReadAsync(TryReadClientAuth, token);
 
-		bool isAuth = clientCredential == _credential;
+		bool isAuth = clientCredential == credential;
 
-		await _pipe.Output.WriteAsync(2, PackReply, token);
+		await pipe.Output.WriteAsync(2, PackReply, token);
 
 		return isAuth;
 
@@ -125,7 +118,8 @@ public sealed class Socks5ServerConnection
 
 	private async ValueTask ReadTargetAsync(CancellationToken token = default)
 	{
-		await _pipe.Input.ReadAsync(TryReadCommand, token);
+		await pipe.Input.ReadAsync(TryReadCommand, token);
+		return;
 
 		ParseResult TryReadCommand(ref ReadOnlySequence<byte> buffer)
 		{
@@ -190,7 +184,8 @@ public sealed class Socks5ServerConnection
 
 	public async ValueTask SendReplyAsync(Socks5Reply reply, ServerBound bound, CancellationToken token = default)
 	{
-		await _pipe.Output.WriteAsync(Constants.MaxCommandLength, PackCommand, token);
+		await pipe.Output.WriteAsync(Constants.MaxCommandLength, PackCommand, token);
+		return;
 
 		int PackCommand(Span<byte> span)
 		{

@@ -11,9 +11,9 @@ namespace Socks5.Servers;
 /// <summary>
 /// A simple SOCKS5 server for test use only
 /// </summary>
-public class SimpleSocks5Server
+public class SimpleSocks5Server(IPEndPoint bindEndPoint, UsernamePassword? credential = null)
 {
-	public TcpListener TcpListener { get; }
+	public TcpListener TcpListener { get; } = new(bindEndPoint);
 
 	public ServerBound ReplyTcpBound { get; set; } = new()
 	{
@@ -23,16 +23,7 @@ public class SimpleSocks5Server
 		Port = IPEndPoint.MinPort,
 	};
 
-	private readonly UsernamePassword? _credential;
-	private readonly CancellationTokenSource _cts;
-
-	public SimpleSocks5Server(IPEndPoint bindEndPoint, UsernamePassword? credential = null)
-	{
-		_credential = credential;
-		TcpListener = new TcpListener(bindEndPoint);
-
-		_cts = new CancellationTokenSource();
-	}
+	private readonly CancellationTokenSource _cts = new();
 
 	public async ValueTask StartAsync()
 	{
@@ -57,7 +48,7 @@ public class SimpleSocks5Server
 		try
 		{
 			IDuplexPipe pipe = socket.AsDuplexPipe();
-			Socks5ServerConnection service = new(pipe, _credential);
+			Socks5ServerConnection service = new(pipe, credential);
 			await service.AcceptClientAsync(token);
 
 			switch (service.Command)

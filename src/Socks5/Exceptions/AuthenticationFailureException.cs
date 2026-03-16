@@ -1,11 +1,6 @@
 namespace Socks5.Exceptions;
 
-public class AuthenticationFailureException : Exception
+public class AuthenticationFailureException(string message, byte statusCode) : Exception(message)
 {
-	public byte StatusCode { get; }
-
-	public AuthenticationFailureException(string message, byte statusCode) : base(message)
-	{
-		StatusCode = statusCode;
-	}
+	public byte StatusCode { get; } = statusCode;
 }

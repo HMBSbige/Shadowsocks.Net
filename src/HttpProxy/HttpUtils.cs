@@ -7,9 +7,9 @@ namespace HttpProxy;
 
 public static class HttpUtils
 {
-	public static ReadOnlySpan<byte> HttpHeaderEnd => new[] { (byte)'\r', (byte)'\n', (byte)'\r', (byte)'\n' };
-	public static ReadOnlySpan<byte> HttpNewLineSpan => new[] { (byte)'\r', (byte)'\n' };
-	private static readonly char[] NewLines = { '\r', '\n' };
+	public static ReadOnlySpan<byte> HttpHeaderEnd => "\r\n\r\n"u8;
+	public static ReadOnlySpan<byte> HttpNewLineSpan => "\r\n"u8;
+	private static readonly char[] NewLines = ['\r', '\n'];
 	public const string HttpNewLine = "\r\n";
 
 	// https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers

@@ -76,6 +76,8 @@ public class HttpSocks5Service
 			socket.FullClose();
 		}
 
+		return;
+
 		static bool IsSocks5Header(ReadOnlySequence<byte> buffer)
 		{
 			SequenceReader<byte> reader = new(buffer);

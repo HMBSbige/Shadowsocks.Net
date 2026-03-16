@@ -14,14 +14,9 @@ using static HttpProxy.HttpUtils;
 
 namespace HttpProxy;
 
-public class HttpToSocks5
+public class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 {
-	private readonly ILogger<HttpToSocks5> _logger;
-
-	public HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
-	{
-		_logger = logger ?? NullLogger<HttpToSocks5>.Instance;
-	}
+	private readonly ILogger<HttpToSocks5> _logger = logger ?? NullLogger<HttpToSocks5>.Instance;
 
 	public async ValueTask ForwardToSocks5Async(IDuplexPipe incomingPipe, Socks5CreateOption socks5CreateOption, CancellationToken cancellationToken = default)
 	{
@@ -397,6 +392,8 @@ public class HttpToSocks5
 				reader.AdvanceTo(buffer.Start, buffer.End);
 			}
 		}
+
+		return;
 
 		static long GetChunkLength(ReadOnlySequence<byte> sequence)
 		{

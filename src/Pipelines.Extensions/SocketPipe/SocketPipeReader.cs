@@ -9,7 +9,9 @@ internal sealed class SocketPipeReader : PipeReader
 
 	private readonly SocketPipeReaderOptions _options;
 	private readonly Pipe _pipe;
+
 	private PipeWriter Writer => _pipe.Writer;
+
 	private PipeReader Reader => _pipe.Reader;
 
 	private readonly CancellationTokenSource _cancellationTokenSource;
@@ -17,6 +19,7 @@ internal sealed class SocketPipeReader : PipeReader
 	public SocketPipeReader(Socket socket, SocketPipeReaderOptions options)
 	{
 		ArgumentNullException.ThrowIfNull(socket);
+
 		if (!socket.Connected)
 		{
 			throw new ArgumentException(@"Socket must be connected.", nameof(socket));
@@ -29,45 +32,40 @@ internal sealed class SocketPipeReader : PipeReader
 		_pipe = new Pipe(options.PipeOptions);
 		_cancellationTokenSource = new CancellationTokenSource();
 
-		_ = WrapWriterAsync(_cancellationTokenSource.Token);
+		_ = Task.Run(() => FillPipeAsync(_cancellationTokenSource.Token));
 	}
 
-	private Task WrapWriterAsync(CancellationToken cancellationToken)
+	private async Task FillPipeAsync(CancellationToken cancellationToken)
 	{
-		return Task.Run(
-			async () =>
+		try
+		{
+			while (true)
 			{
-				try
+				Memory<byte> memory = Writer.GetMemory(_options.SizeHint);
+
+				int readLength = await InternalSocket.ReceiveAsync(memory, _options.SocketFlags, cancellationToken);
+
+				if (readLength is 0)
 				{
-					while (true)
-					{
-						Memory<byte> memory = Writer.GetMemory(_options.SizeHint);
-
-						int readLength = await InternalSocket.ReceiveAsync(memory, _options.SocketFlags, cancellationToken);
-
-						if (readLength is 0)
-						{
-							break;
-						}
-
-						Writer.Advance(readLength);
-
-						FlushResult flushResult = await Writer.FlushAsync(cancellationToken);
-						if (flushResult.IsCompleted)
-						{
-							break;
-						}
-					}
-
-					await Writer.CompleteAsync();
+					break;
 				}
-				catch (Exception ex)
+
+				Writer.Advance(readLength);
+
+				FlushResult flushResult = await Writer.FlushAsync(cancellationToken);
+
+				if (flushResult.IsCompleted)
 				{
-					await Writer.CompleteAsync(ex);
+					break;
 				}
-			},
-			cancellationToken
-		);
+			}
+
+			await Writer.CompleteAsync();
+		}
+		catch (Exception ex)
+		{
+			await Writer.CompleteAsync(ex);
+		}
 	}
 
 	public override void AdvanceTo(SequencePosition consumed)
@@ -94,8 +92,11 @@ internal sealed class SocketPipeReader : PipeReader
 		}
 		finally
 		{
+			_cancellationTokenSource.Dispose();
 			CloseSocketIfNeeded();
 		}
+
+		return;
 
 		void CloseSocketIfNeeded()
 		{

@@ -1,35 +1,23 @@
-using System.IO.Pipelines;
 using System.Net.Sockets;
 
 namespace Pipelines.Extensions.SocketPipe;
 
-public class SocketPipeWriterOptions
+public class SocketPipeWriterOptions(
+	SocketFlags socketFlags = SocketFlags.None,
+	bool shutDownSend = true,
+	bool leaveOpen = true)
 {
-	public PipeOptions PipeOptions { get; }
-
-	public SocketFlags SocketFlags { get; }
+	public SocketFlags SocketFlags { get; } = socketFlags;
 
 	/// <summary>
 	/// Default: <see langword="true" />
 	/// </summary>
-	public bool ShutDownSend { get; }
+	public bool ShutDownSend { get; } = shutDownSend;
 
 	/// <summary>
 	/// Default: <see langword="true" />
 	/// </summary>
-	public bool LeaveOpen { get; }
+	public bool LeaveOpen { get; } = leaveOpen;
 
 	internal static readonly SocketPipeWriterOptions Default = new();
-
-	public SocketPipeWriterOptions(
-		PipeOptions? pipeOptions = null,
-		SocketFlags socketFlags = SocketFlags.None,
-		bool shutDownSend = true,
-		bool leaveOpen = true)
-	{
-		PipeOptions = pipeOptions ?? PipeOptions.Default;
-		SocketFlags = socketFlags;
-		ShutDownSend = shutDownSend;
-		LeaveOpen = leaveOpen;
-	}
 }

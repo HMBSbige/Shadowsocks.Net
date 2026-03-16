@@ -2,12 +2,7 @@ using Socks5.Enums;
 
 namespace Socks5.Exceptions;
 
-public class Socks5ProtocolErrorException : Exception
+public class Socks5ProtocolErrorException(string message, Socks5Reply socks5Reply) : Exception(message)
 {
-	public Socks5Reply Socks5Reply { get; }
-
-	public Socks5ProtocolErrorException(string message, Socks5Reply socks5Reply) : base(message)
-	{
-		Socks5Reply = socks5Reply;
-	}
+	public Socks5Reply Socks5Reply { get; } = socks5Reply;
 }

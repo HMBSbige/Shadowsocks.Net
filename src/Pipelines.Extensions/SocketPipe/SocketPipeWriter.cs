@@ -1,5 +1,4 @@
 using System.Buffers;
-using System.Diagnostics;
 using System.IO.Pipelines;
 using System.Net.Sockets;
 
@@ -10,13 +9,20 @@ internal sealed class SocketPipeWriter : PipeWriter
 	public Socket InternalSocket { get; }
 
 	private readonly SocketPipeWriterOptions _options;
-	private readonly Pipe _pipe;
-	private PipeWriter Writer => _pipe.Writer;
-	private PipeReader Reader => _pipe.Reader;
+	private readonly ArrayBufferWriter<byte> _buffer = new();
+	private int _bytesSent;
+	private volatile bool _canceled;
+	private bool _completed;
+	private CancellationTokenSource _flushCts = new();
+
+	public override bool CanGetUnflushedBytes => true;
+
+	public override long UnflushedBytes => _buffer.WrittenCount - _bytesSent;
 
 	public SocketPipeWriter(Socket socket, SocketPipeWriterOptions options)
 	{
 		ArgumentNullException.ThrowIfNull(socket);
+
 		if (!socket.Connected)
 		{
 			throw new ArgumentException(@"Socket must be connected.", nameof(socket));
@@ -26,39 +32,53 @@ internal sealed class SocketPipeWriter : PipeWriter
 
 		InternalSocket = socket;
 		_options = options;
-		_pipe = new Pipe(options.PipeOptions);
 	}
 
 	public override void Advance(int bytes)
 	{
-		Writer.Advance(bytes);
+		ThrowIfCompleted();
+		_buffer.Advance(bytes);
 	}
 
 	public override Memory<byte> GetMemory(int sizeHint = 0)
 	{
-		return Writer.GetMemory(sizeHint);
+		ThrowIfCompleted();
+		return _buffer.GetMemory(sizeHint);
 	}
 
 	public override Span<byte> GetSpan(int sizeHint = 0)
 	{
-		return Writer.GetSpan(sizeHint);
+		ThrowIfCompleted();
+		return _buffer.GetSpan(sizeHint);
 	}
 
 	public override void CancelPendingFlush()
 	{
-		Writer.CancelPendingFlush();
+		if (_completed)
+		{
+			return;
+		}
+
+		_canceled = true;
+		_flushCts.Cancel();
 	}
 
 	public override void Complete(Exception? exception = null)
 	{
+		_completed = true;
+
 		try
 		{
-			Writer.Complete(exception);
+			_flushCts.Dispose();
+			_buffer.ResetWrittenCount();
+			_bytesSent = 0;
 		}
 		finally
 		{
 			CloseSocketIfNeeded();
 		}
+
+		return;
 
 		void CloseSocketIfNeeded()
 		{
@@ -79,39 +99,67 @@ internal sealed class SocketPipeWriter : PipeWriter
 		}
 	}
 
-	public override async ValueTask<FlushResult> FlushAsync(CancellationToken cancellationToken = default)
+	private void ThrowIfCompleted()
 	{
-		if (Writer.UnflushedBytes <= 0)
+		if (_completed)
 		{
-			return await Writer.FlushAsync(cancellationToken);
+			throw new InvalidOperationException("Writing is not allowed after writer was completed.");
+		}
+	}
+
+	public override ValueTask<FlushResult> FlushAsync(CancellationToken cancellationToken = default)
+	{
+		ThrowIfCompleted();
+
+		if (cancellationToken.IsCancellationRequested)
+		{
+			return new ValueTask<FlushResult>(Task.FromCanceled<FlushResult>(cancellationToken));
 		}
 
-		ValueTask<FlushResult> flushTask = Writer.FlushAsync(cancellationToken);
+		if (_canceled)
+		{
+			_canceled = false;
+			return new ValueTask<FlushResult>(new FlushResult(true, _completed));
+		}
+
+		if (_buffer.WrittenCount <= _bytesSent)
+		{
+			return new ValueTask<FlushResult>(new FlushResult(false, _completed));
+		}
+
+		return SendAsync(cancellationToken);
+	}
+
+	private async ValueTask<FlushResult> SendAsync(CancellationToken cancellationToken)
+	{
+		if (!_flushCts.TryReset())
+		{
+			_flushCts.Dispose();
+			_flushCts = new CancellationTokenSource();
+		}
+
+		using CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _flushCts.Token);
 
 		try
 		{
-			ReadResult result = await Reader.ReadAsync(cancellationToken);
-			ReadOnlySequence<byte> buffer = result.Buffer;
+			ReadOnlyMemory<byte> remaining = _buffer.WrittenMemory.Slice(_bytesSent);
 
-			foreach (ReadOnlyMemory<byte> memory in buffer)
+			while (remaining.Length > 0)
 			{
-				int length = await InternalSocket.SendAsync(memory, _options.SocketFlags, cancellationToken);
-				Debug.Assert(length == memory.Length);
+				int sent = await InternalSocket.SendAsync(remaining, _options.SocketFlags, linkedCts.Token);
+				_bytesSent += sent;
+				remaining = remaining.Slice(sent);
 			}
 
-			Reader.AdvanceTo(buffer.End);
-
-			if (result.IsCompleted)
-			{
-				await Reader.CompleteAsync();
-			}
+			_buffer.ResetWrittenCount();
+			_bytesSent = 0;
 		}
-		catch (Exception ex)
+		catch (OperationCanceledException) when (_canceled && !cancellationToken.IsCancellationRequested)
 		{
-			await Reader.CompleteAsync(ex);
-			throw;
+			_canceled = false;
+			return new FlushResult(true, _completed);
 		}
 
-		return await flushTask;
+		return new FlushResult(false, _completed);
 	}
 }
