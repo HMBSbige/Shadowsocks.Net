@@ -3,10 +3,9 @@ using BenchmarkDotNet.Running;
 
 namespace UnitTest;
 
-[TestClass]
 public class BenchmarkTest
 {
-	[TestMethod]
+	[Test]
 	public void PipelinesBenchmark()
 	{
 		BenchmarkRunner.Run<PipelinesBenchmark>();

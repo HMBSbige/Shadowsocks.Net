@@ -5,10 +5,9 @@ using System.Net;
 
 namespace UnitTest;
 
-[TestClass]
 public class Socks5Test
 {
-	[TestMethod]
+	[Test]
 	public async Task ConnectTestAsync()
 	{
 		IPEndPoint serverEndpoint = new(IPAddress.Loopback, 0);
@@ -29,7 +28,7 @@ public class Socks5Test
 				Port = port,
 				UsernamePassword = userPass
 			};
-			Assert.IsTrue(await Socks5TestUtils.Socks5ConnectAsync(option));
+			await Assert.That(await Socks5TestUtils.Socks5ConnectAsync(option)).IsTrue();
 		}
 		finally
 		{
@@ -37,7 +36,7 @@ public class Socks5Test
 		}
 	}
 
-	[TestMethod]
+	[Test]
 	public async Task UdpAssociateTestAsync()
 	{
 		IPEndPoint serverEndpoint = new(IPAddress.Loopback, 0);
@@ -58,7 +57,7 @@ public class Socks5Test
 				Port = port,
 				UsernamePassword = userPass
 			};
-			Assert.IsTrue(await Socks5TestUtils.Socks5UdpAssociateAsync(option));
+			await Assert.That(await Socks5TestUtils.Socks5UdpAssociateAsync(option)).IsTrue();
 		}
 		finally
 		{

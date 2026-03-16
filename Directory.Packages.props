@@ -4,14 +4,11 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
-    <PackageVersion Include="coverlet.collector" Version="8.0.0" />
     <PackageVersion Include="CryptoBase" Version="3.1.2" />
     <PackageVersion Include="Microsoft.Extensions.Caching.Abstractions" Version="10.0.5" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.5" />
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
     <PackageVersion Include="MinVer" Version="7.0.0" />
-    <PackageVersion Include="MSTest.TestAdapter" Version="4.1.0" />
-    <PackageVersion Include="MSTest.TestFramework" Version="4.1.0" />
+    <PackageVersion Include="TUnit" Version="1.19.22" />
     <PackageVersion Include="WindowsJobAPI" Version="6.1.0" />
   </ItemGroup>
 </Project>

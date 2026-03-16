@@ -7,10 +7,9 @@ using System.Net;
 
 namespace UnitTest;
 
-[TestClass]
 public class HttpTest
 {
-	[TestMethod]
+	[Test]
 	public async Task TestAsync()
 	{
 		IPEndPoint serverEndpoint = new(IPAddress.Loopback, 0);
@@ -47,20 +46,20 @@ public class HttpTest
 
 				// CONNECT
 				string httpsStr = await httpClient.GetStringAsync(@"https://api.ip.sb/ip");
-				Assert.IsFalse(string.IsNullOrWhiteSpace(httpsStr));
+				await Assert.That(string.IsNullOrWhiteSpace(httpsStr)).IsFalse();
 
 				// HTTP chunk
 				byte[] httpChunkBytes = await httpClient.GetByteArrayAsync(@"http://httpbin.org/stream-bytes/1024");
-				Assert.AreEqual(1024, httpChunkBytes.Length);
+				await Assert.That(httpChunkBytes.Length).IsEqualTo(1024);
 
 				// HTTP Content-Length
 				httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(@"curl");
 				string httpStr = await httpClient.GetStringAsync(@"http://ip.sb");
-				Assert.IsFalse(string.IsNullOrWhiteSpace(httpStr));
+				await Assert.That(string.IsNullOrWhiteSpace(httpStr)).IsFalse();
 
 				// HTTP no body
 				HttpResponseMessage response = await httpClient.GetAsync(@"http://cp.cloudflare.com");
-				Assert.AreEqual(HttpStatusCode.NoContent, response.StatusCode);
+				await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
 
 				// Forward to SOCKS5
 				socks5CreateOption = new Socks5CreateOption
@@ -69,7 +68,7 @@ public class HttpTest
 					Port = httpPort,
 					UsernamePassword = userPass
 				};
-				Assert.IsTrue(await Socks5TestUtils.Socks5ConnectAsync(socks5CreateOption));
+				await Assert.That(await Socks5TestUtils.Socks5ConnectAsync(socks5CreateOption)).IsTrue();
 			}
 			finally
 			{
@@ -82,8 +81,8 @@ public class HttpTest
 		}
 	}
 
-	[TestMethod]
-	public void IsHttpHeaderTest()
+	[Test]
+	public async Task IsHttpHeaderTest()
 	{
 		ReadOnlySequence<byte> sequence0 = TestUtils.GetMultiSegmentSequence(
 			"GET / HTTP/1.1"u8.ToArray(),
@@ -91,20 +90,20 @@ public class HttpTest
 			"User-Agent: curl/7.55.1\r\n"u8.ToArray(),
 			"\r\n"u8.ToArray()
 		);
-		Assert.IsTrue(HttpUtils.IsHttpHeader(sequence0));
+		await Assert.That(HttpUtils.IsHttpHeader(sequence0)).IsTrue();
 
 		ReadOnlySequence<byte> sequence1 = TestUtils.GetMultiSegmentSequence(
 			"GET / HTTP/1.1"u8.ToArray(),
 			"\r\nHost: ip.sb\r\n"u8.ToArray(),
 			"User-Agent: curl/7.55.1\r\n"u8.ToArray()
 		);
-		Assert.IsFalse(HttpUtils.IsHttpHeader(sequence1));
+		await Assert.That(HttpUtils.IsHttpHeader(sequence1)).IsFalse();
 
 		ReadOnlySequence<byte> sequence2 = TestUtils.GetMultiSegmentSequence(
 			"\r\n"u8.ToArray(),
 			"\r\n"u8.ToArray()
 		);
-		Assert.IsFalse(HttpUtils.IsHttpHeader(sequence2));
+		await Assert.That(HttpUtils.IsHttpHeader(sequence2)).IsFalse();
 
 		ReadOnlySequence<byte> sequence3 = TestUtils.GetMultiSegmentSequence(
 			"GET HTTP/1.1"u8.ToArray(),
@@ -112,6 +111,6 @@ public class HttpTest
 			"User-Agent: curl/7.55.1\r\n"u8.ToArray(),
 			"\r\n"u8.ToArray()
 		);
-		Assert.IsFalse(HttpUtils.IsHttpHeader(sequence3));
+		await Assert.That(HttpUtils.IsHttpHeader(sequence3)).IsFalse();
 	}
 }

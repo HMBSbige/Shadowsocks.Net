@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Diagnostics;
 
 namespace UnitTest;
 
@@ -26,7 +27,7 @@ internal static class TestUtils
 		last = last.Append(source[length..]);
 
 		ReadOnlySequence<byte> sequence = new(first, 0, last, last.Memory.Length);
-		Assert.AreEqual(source.Length, sequence.Length);
+		Debug.Assert(source.Length == sequence.Length, $"Expected {source.Length} but got {sequence.Length}");
 
 		return sequence;
 	}
@@ -45,7 +46,7 @@ internal static class TestUtils
 		ReadOnlySequence<byte> sequence = new(first, 0, last, last.Memory.Length);
 
 		long length = memories.Sum(x => (long)x.Length);
-		Assert.AreEqual(length, sequence.Length);
+		Debug.Assert(length == sequence.Length, $"Expected {length} but got {sequence.Length}");
 
 		return sequence;
 	}

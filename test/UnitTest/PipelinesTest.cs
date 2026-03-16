@@ -6,10 +6,9 @@ using System.Security.Cryptography;
 
 namespace UnitTest;
 
-[TestClass]
 public class PipelinesTest
 {
-	[TestMethod]
+	[Test]
 	public async Task SocketPipeWriterDoubleFlushTestAsync()
 	{
 		const long length = 1024 * 1024;
