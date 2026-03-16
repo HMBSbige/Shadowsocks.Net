@@ -1,5 +1,5 @@
-using Microsoft;
 using System.Buffers;
+using System.Diagnostics;
 using System.IO.Pipelines;
 using System.Net.Sockets;
 
@@ -16,9 +16,13 @@ internal sealed class SocketPipeWriter : PipeWriter
 
 	public SocketPipeWriter(Socket socket, SocketPipeWriterOptions options)
 	{
-		Requires.NotNull(socket, nameof(socket));
-		Requires.Argument(socket.Connected, nameof(socket), @"Socket must be connected.");
-		Requires.NotNull(options, nameof(options));
+		ArgumentNullException.ThrowIfNull(socket);
+		if (!socket.Connected)
+		{
+			throw new ArgumentException(@"Socket must be connected.", nameof(socket));
+		}
+
+		ArgumentNullException.ThrowIfNull(options);
 
 		InternalSocket = socket;
 		_options = options;
@@ -92,7 +96,7 @@ internal sealed class SocketPipeWriter : PipeWriter
 			foreach (ReadOnlyMemory<byte> memory in buffer)
 			{
 				int length = await InternalSocket.SendAsync(memory, _options.SocketFlags, cancellationToken);
-				Report.IfNot(length == memory.Length);
+				Debug.Assert(length == memory.Length);
 			}
 
 			Reader.AdvanceTo(buffer.End);

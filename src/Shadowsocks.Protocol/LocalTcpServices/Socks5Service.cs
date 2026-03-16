@@ -1,4 +1,3 @@
-using Microsoft;
 using Microsoft.Extensions.Logging;
 using Pipelines.Extensions;
 using Shadowsocks.Protocol.ServersControllers;
@@ -7,6 +6,7 @@ using Socks5.Enums;
 using Socks5.Models;
 using Socks5.Servers;
 using System.Buffers;
+using System.Diagnostics;
 using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
@@ -35,8 +35,15 @@ public class Socks5Service : ILocalTcpService
 
 	public async ValueTask HandleAsync(IDuplexPipe pipe, CancellationToken token = default)
 	{
-		Verify.Operation(Socks5CreateOption is not null, @"You must set {0}", nameof(Socks5CreateOption));
-		Verify.Operation(Socks5CreateOption.Address is not null, @"You must set socks5 address");
+		if (Socks5CreateOption is null)
+		{
+			throw new InvalidOperationException(string.Format(@"You must set {0}", nameof(Socks5CreateOption)));
+		}
+
+		if (Socks5CreateOption.Address is null)
+		{
+			throw new InvalidOperationException(@"You must set socks5 address");
+		}
 
 		Socks5ServerConnection socks5 = new(pipe, Socks5CreateOption.UsernamePassword);
 
@@ -119,7 +126,7 @@ public class Socks5Service : ILocalTcpService
 
 				// wait remote close
 				ReadResult result = await pipe.Input.ReadAsync(token);
-				Report.IfNot(result.IsCompleted);
+				Debug.Assert(result.IsCompleted);
 				break;
 			}
 			default:

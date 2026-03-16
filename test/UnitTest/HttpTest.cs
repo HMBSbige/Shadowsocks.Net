@@ -1,5 +1,4 @@
 using HttpProxy;
-using Microsoft.VisualStudio.Threading;
 using Socks5.Models;
 using Socks5.Servers;
 using Socks5.Utils;
@@ -21,7 +20,7 @@ public class HttpTest
 			Password = @"1919810￥"
 		};
 		SimpleSocks5Server server = new(serverEndpoint, userPass);
-		server.StartAsync().Forget();
+		_ = server.StartAsync();
 
 		try
 		{
@@ -33,7 +32,7 @@ public class HttpTest
 				UsernamePassword = userPass
 			};
 			HttpSocks5Service httpServer = new(serverEndpoint, new HttpToSocks5(), socks5CreateOption);
-			httpServer.StartAsync().Forget();
+			_ = httpServer.StartAsync();
 
 			try
 			{

@@ -1,10 +1,10 @@
-using Microsoft;
 using Pipelines.Extensions;
 using Socks5.Enums;
 using Socks5.Exceptions;
 using Socks5.Models;
 using Socks5.Utils;
 using System.Buffers;
+using System.Diagnostics;
 using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
@@ -33,8 +33,8 @@ public sealed class Socks5Client : IDisposable
 
 	public Socks5Client(Socks5CreateOption option)
 	{
-		Requires.NotNull(option, nameof(option));
-		Requires.NotNullAllowStructs(option.Address, nameof(option.Address));
+		ArgumentNullException.ThrowIfNull(option);
+		ArgumentNullException.ThrowIfNull(option.Address);
 
 		_option = option;
 		TcpClient = new TcpClient(option.Address.AddressFamily);
@@ -46,7 +46,10 @@ public sealed class Socks5Client : IDisposable
 
 	public IDuplexPipe GetPipe()
 	{
-		Verify.Operation(Status is Status.Established && _pipe is not null, @"Socks5 is not established.");
+		if (Status is not Status.Established || _pipe is null)
+		{
+			throw new InvalidOperationException(@"Socks5 is not established.");
+		}
 
 		return _pipe;
 	}
@@ -129,7 +132,7 @@ public sealed class Socks5Client : IDisposable
 			}
 			default:
 			{
-				throw Assumes.NotReachable();
+				throw new UnreachableException();
 			}
 		}
 
@@ -140,7 +143,10 @@ public sealed class Socks5Client : IDisposable
 
 	public async Task<Socks5UdpReceivePacket> ReceiveAsync(CancellationToken token = default)
 	{
-		Verify.Operation(Status is Status.Established && UdpClient is not null, @"Socks5 is not established.");
+		if (Status is not Status.Established || UdpClient is null)
+		{
+			throw new InvalidOperationException(@"Socks5 is not established.");
+		}
 
 		byte[] buffer = ArrayPool<byte>.Shared.Rent(0x10000);
 		try
@@ -182,7 +188,10 @@ public sealed class Socks5Client : IDisposable
 		string? dst, IPAddress? dstAddress, ushort dstPort,
 		CancellationToken token = default)
 	{
-		Verify.Operation(Status is Status.Established && UdpClient is not null, @"Socks5 is not established.");
+		if (Status is not Status.Established || UdpClient is null)
+		{
+			throw new InvalidOperationException(@"Socks5 is not established.");
+		}
 
 		byte[] buffer = ArrayPool<byte>.Shared.Rent(Constants.MaxUdpHandshakeHeaderLength + data.Length);
 		try
@@ -209,7 +218,10 @@ public sealed class Socks5Client : IDisposable
 
 	private async ValueTask<IDuplexPipe> HandshakeAsync(CancellationToken token)
 	{
-		Verify.Operation(Status is Status.Initial, @"Socks5 already connected.");
+		if (Status is not Status.Initial)
+		{
+			throw new InvalidOperationException(@"Socks5 already connected.");
+		}
 
 		await TcpClient.ConnectAsync(_option.Address!, _option.Port, token);
 
@@ -222,7 +234,10 @@ public sealed class Socks5Client : IDisposable
 
 	private async ValueTask HandshakeWithAuthAsync(IDuplexPipe pipe, CancellationToken token)
 	{
-		Verify.Operation(Status is Status.Initial, @"Socks5 has been initialized.");
+		if (Status is not Status.Initial)
+		{
+			throw new InvalidOperationException(@"Socks5 has been initialized.");
+		}
 
 		List<Method> clientMethods = new(2)
 		{

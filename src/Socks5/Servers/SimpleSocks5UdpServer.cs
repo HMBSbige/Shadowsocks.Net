@@ -1,8 +1,8 @@
-using Microsoft;
 using Socks5.Enums;
 using Socks5.Models;
 using Socks5.Utils;
 using System.Buffers;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 
@@ -23,8 +23,8 @@ public class SimpleSocks5UdpServer : IDisposable
 	public SimpleSocks5UdpServer(IPEndPoint bindEndPoint, IPEndPoint remoteEndpoint)
 	{
 		_remoteEndpoint = remoteEndpoint;
-		Requires.NotNull(bindEndPoint, nameof(bindEndPoint));
-		Requires.NotNull(remoteEndpoint, nameof(remoteEndpoint));
+		ArgumentNullException.ThrowIfNull(bindEndPoint);
+		ArgumentNullException.ThrowIfNull(remoteEndpoint);
 
 		UdpListener = new UdpClient(bindEndPoint);
 
@@ -66,12 +66,12 @@ public class SimpleSocks5UdpServer : IDisposable
 		UdpClient client;
 		if (socks5UdpPacket.Type is AddressType.Domain)
 		{
-			Assumes.NotNull(socks5UdpPacket.Domain);
+			Debug.Assert(socks5UdpPacket.Domain is not null);
 			client = new UdpClient(socks5UdpPacket.Domain, socks5UdpPacket.Port);
 		}
 		else
 		{
-			Assumes.NotNull(socks5UdpPacket.Address);
+			Debug.Assert(socks5UdpPacket.Address is not null);
 			client = new UdpClient(socks5UdpPacket.Address.AddressFamily);
 			client.Connect(socks5UdpPacket.Address, socks5UdpPacket.Port);
 		}

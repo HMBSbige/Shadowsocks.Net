@@ -1,4 +1,3 @@
-using Microsoft;
 using System.Buffers;
 using System.IO.Pipelines;
 using System.Net.WebSockets;
@@ -15,8 +14,8 @@ internal sealed class WebSocketPipeWriter : PipeWriter
 
 	public WebSocketPipeWriter(WebSocket webSocket, WebSocketPipeWriterOptions options)
 	{
-		Requires.NotNull(webSocket, nameof(webSocket));
-		Requires.NotNull(options, nameof(options));
+		ArgumentNullException.ThrowIfNull(webSocket);
+		ArgumentNullException.ThrowIfNull(options);
 
 		InternalWebSocket = webSocket;
 		_pipe = new Pipe(options.PipeOptions);

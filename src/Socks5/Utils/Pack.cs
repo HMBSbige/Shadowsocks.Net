@@ -1,4 +1,3 @@
-using Microsoft;
 using Socks5.Enums;
 using Socks5.Models;
 using System.Buffers.Binary;
@@ -22,13 +21,20 @@ public static class Pack
 		{
 			destination[0] = Convert.ToByte(AddressType.Domain);
 			int length = Encoding.UTF8.GetBytes(hostName, destination[2..]);
-			Requires.Argument(length <= byte.MaxValue, nameof(hostName), @"Domain Length > {0}", byte.MaxValue);
+			if (length > byte.MaxValue)
+			{
+				throw new ArgumentException(string.Format(@"Domain Length > {0}", byte.MaxValue), nameof(hostName));
+			}
+
 			destination[1] = (byte)length;
 			outLength = 1 + 1 + length;
 		}
 		else
 		{
-			Requires.Argument(ip.TryWriteBytes(destination[1..], out int length), nameof(destination), @"buffer is too small");
+			if (!ip.TryWriteBytes(destination[1..], out int length))
+			{
+				throw new ArgumentException(@"buffer is too small", nameof(destination));
+			}
 
 			AddressType type = length == 4 ? AddressType.IPv4 : AddressType.IPv6;
 			destination[0] = Convert.ToByte(type);
@@ -63,13 +69,10 @@ public static class Pack
 		// | 1  |    1     | 1 to 255 |
 		// +----+----------+----------+
 
-		Requires.Argument(
-			clientMethods.Count <= byte.MaxValue,
-			nameof(clientMethods),
-			@"{0}.Count > {1}",
-			nameof(clientMethods),
-			byte.MaxValue
-		);
+		if (clientMethods.Count > byte.MaxValue)
+		{
+			throw new ArgumentException(string.Format(@"{0}.Count > {1}", nameof(clientMethods), byte.MaxValue), nameof(clientMethods));
+		}
 
 		buffer[0] = Constants.ProtocolVersion;
 		buffer[1] = (byte)clientMethods.Count;
@@ -95,12 +98,20 @@ public static class Pack
 		int offset = 1;
 
 		int usernameLength = Encoding.UTF8.GetBytes(credential.UserName, buffer[(offset + 1)..]);
-		Requires.Argument(usernameLength <= byte.MaxValue, nameof(credential), @"{0} too long.", nameof(credential.UserName));
+		if (usernameLength > byte.MaxValue)
+		{
+			throw new ArgumentException(string.Format(@"{0} too long.", nameof(credential.UserName)), nameof(credential));
+		}
+
 		buffer[offset++] = (byte)usernameLength;
 		offset += usernameLength;
 
 		int passwordLength = Encoding.UTF8.GetBytes(credential.Password, buffer[(offset + 1)..]);
-		Requires.Argument(passwordLength <= byte.MaxValue, nameof(credential), @"{0} too long.", nameof(credential.Password));
+		if (passwordLength > byte.MaxValue)
+		{
+			throw new ArgumentException(string.Format(@"{0} too long.", nameof(credential.Password)), nameof(credential));
+		}
+
 		buffer[offset++] = (byte)passwordLength;
 		offset += passwordLength;
 

@@ -1,4 +1,3 @@
-using Microsoft;
 using Pipelines.Extensions.SocketPipe;
 using Pipelines.Extensions.WebSocketPipe;
 using System.IO.Pipelines;
@@ -25,8 +24,15 @@ public static partial class PipelinesExtensions
 		StreamPipeReaderOptions? readerOptions = null,
 		StreamPipeWriterOptions? writerOptions = null)
 	{
-		Requires.Argument(stream.CanRead, nameof(stream), @"Stream is not readable.");
-		Requires.Argument(stream.CanWrite, nameof(stream), @"Stream is not writable.");
+		if (!stream.CanRead)
+		{
+			throw new ArgumentException(@"Stream is not readable.", nameof(stream));
+		}
+
+		if (!stream.CanWrite)
+		{
+			throw new ArgumentException(@"Stream is not writable.", nameof(stream));
+		}
 
 		PipeReader reader = PipeReader.Create(stream, readerOptions);
 		PipeWriter writer = PipeWriter.Create(stream, writerOptions);

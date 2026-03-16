@@ -1,4 +1,3 @@
-using Microsoft.VisualStudio.Threading;
 using Socks5.Models;
 using Socks5.Servers;
 using Socks5.Utils;
@@ -19,7 +18,7 @@ public class Socks5Test
 			Password = @"1919810￥"
 		};
 		SimpleSocks5Server server = new(serverEndpoint, userPass);
-		server.StartAsync().Forget();
+		_ = server.StartAsync();
 
 		try
 		{
@@ -48,7 +47,7 @@ public class Socks5Test
 			Password = @"1919810￥"
 		};
 		SimpleSocks5Server server = new(serverEndpoint, userPass);
-		server.StartAsync().Forget();
+		_ = server.StartAsync();
 
 		try
 		{

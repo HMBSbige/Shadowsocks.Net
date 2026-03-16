@@ -1,10 +1,9 @@
-using Microsoft;
 using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
 
 namespace Pipelines.Extensions;
 
-internal class ReadOnlySequenceStream : Stream, IDisposableObservable
+internal class ReadOnlySequenceStream : Stream
 {
 	public override bool CanRead => !IsDisposed;
 
@@ -16,7 +15,7 @@ internal class ReadOnlySequenceStream : Stream, IDisposableObservable
 	{
 		get
 		{
-			Verify.NotDisposed(this);
+			ObjectDisposedException.ThrowIf(IsDisposed, this);
 			return _readOnlySequence.Length;
 		}
 	}
@@ -25,12 +24,12 @@ internal class ReadOnlySequenceStream : Stream, IDisposableObservable
 	{
 		get
 		{
-			Verify.NotDisposed(this);
+			ObjectDisposedException.ThrowIf(IsDisposed, this);
 			return _readOnlySequence.Slice(0, _position).Length;
 		}
 		set
 		{
-			Verify.NotDisposed(this);
+			ObjectDisposedException.ThrowIf(IsDisposed, this);
 			_position = _readOnlySequence.GetPosition(value);
 		}
 	}
@@ -46,7 +45,7 @@ internal class ReadOnlySequenceStream : Stream, IDisposableObservable
 
 	public override int Read(Span<byte> buffer)
 	{
-		Verify.NotDisposed(this);
+		ObjectDisposedException.ThrowIf(IsDisposed, this);
 
 		ReadOnlySequence<byte> remaining = _readOnlySequence.Slice(_position);
 		ReadOnlySequence<byte> sequence = remaining.Slice(0, Math.Min(buffer.Length, remaining.Length));
@@ -76,14 +75,14 @@ internal class ReadOnlySequenceStream : Stream, IDisposableObservable
 
 	public override long Seek(long offset, SeekOrigin origin)
 	{
-		Verify.NotDisposed(this);
+		ObjectDisposedException.ThrowIf(IsDisposed, this);
 
 		long pos = origin switch
 		{
 			SeekOrigin.Begin => default,
 			SeekOrigin.Current => Position,
 			SeekOrigin.End => _readOnlySequence.Length,
-			_ => throw Requires.FailRange(nameof(origin))
+			_ => throw new ArgumentOutOfRangeException(nameof(origin))
 		};
 
 		_position = _readOnlySequence.GetPosition(offset + pos);
@@ -123,7 +122,7 @@ internal class ReadOnlySequenceStream : Stream, IDisposableObservable
 	[DoesNotReturn]
 	private void ThrowNotSupported()
 	{
-		Verify.NotDisposed(this);
+		ObjectDisposedException.ThrowIf(IsDisposed, this);
 		throw new NotSupportedException();
 	}
 

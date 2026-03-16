@@ -1,8 +1,8 @@
-using Microsoft;
 using Pipelines.Extensions;
 using Shadowsocks.Crypto;
 using Shadowsocks.Protocol.Models;
 using System.Buffers;
+using System.Diagnostics;
 using System.Net.Sockets;
 
 namespace Shadowsocks.Protocol.UdpClients;
@@ -17,10 +17,10 @@ public class ShadowsocksUdpClient : IUdpClient
 
 	public ShadowsocksUdpClient(ShadowsocksServerInfo serverInfo)
 	{
-		Requires.NotNull(serverInfo, nameof(serverInfo));
-		Requires.NotNullAllowStructs(serverInfo.Method, nameof(serverInfo));
-		Requires.NotNullAllowStructs(serverInfo.Password, nameof(serverInfo));
-		Requires.NotNullAllowStructs(serverInfo.Address, nameof(serverInfo));
+		ArgumentNullException.ThrowIfNull(serverInfo);
+		ArgumentNullException.ThrowIfNull(serverInfo.Method);
+		ArgumentNullException.ThrowIfNull(serverInfo.Password);
+		ArgumentNullException.ThrowIfNull(serverInfo.Address);
 
 		_serverInfo = serverInfo;
 
@@ -54,7 +54,7 @@ public class ShadowsocksUdpClient : IUdpClient
 			int length = encryptor.EncryptUDP(buffer.Span, encBuffer);
 
 			int sendLength = await _client.SendAsync(encBuffer.AsMemory(0, length), SocketFlags.None, cancellationToken);
-			Report.IfNot(sendLength == length, @"Send Udp {0}/{1}", sendLength, length);
+			Debug.Assert(sendLength == length, string.Format(@"Send Udp {0}/{1}", sendLength, length));
 			return sendLength == length ? buffer.Length : default;
 		}
 		finally

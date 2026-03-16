@@ -1,4 +1,3 @@
-using Microsoft;
 using System.Buffers;
 
 namespace UnitTest;
@@ -7,7 +6,11 @@ internal static class TestUtils
 {
 	public static ReadOnlySequence<byte> GetMultiSegmentSequence(Memory<byte> source, params int[] index)
 	{
-		Requires.Argument(index.LongLength > 1, nameof(index), @"index length must >1");
+		if (index.LongLength <= 1)
+		{
+			throw new ArgumentException(@"index length must >1", nameof(index));
+		}
+
 		IOrderedEnumerable<int> orderedIndex = index.OrderBy(x => x);
 
 		BufferSegment first = BufferSegment.Empty;
@@ -30,7 +33,11 @@ internal static class TestUtils
 
 	public static ReadOnlySequence<byte> GetMultiSegmentSequence(params Memory<byte>[] memories)
 	{
-		Requires.Argument(memories.LongLength > 1, nameof(memories), @"index length must >1");
+		if (memories.LongLength <= 1)
+		{
+			throw new ArgumentException(@"index length must >1", nameof(memories));
+		}
+
 		BufferSegment first = BufferSegment.Empty;
 
 		BufferSegment last = memories.Aggregate(first, (current, memory) => current.Append(memory));

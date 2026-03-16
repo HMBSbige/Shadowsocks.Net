@@ -1,4 +1,4 @@
-using Microsoft;
+using System.Diagnostics;
 
 namespace Shadowsocks.Protocol.UdpClients;
 
@@ -8,12 +8,12 @@ public class ConnectionRefusedUdpClient : IUdpClient
 
 	public ValueTask<int> ReceiveAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
 	{
-		throw Assumes.NotReachable();
+		throw new UnreachableException();
 	}
 
 	public ValueTask<int> SendAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
 	{
-		throw Assumes.NotReachable();
+		throw new UnreachableException();
 	}
 
 	public void Dispose()

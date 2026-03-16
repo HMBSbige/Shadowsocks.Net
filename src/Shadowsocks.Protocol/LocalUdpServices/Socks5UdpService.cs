@@ -1,4 +1,3 @@
-using Microsoft;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Shadowsocks.Protocol.ServersControllers;
@@ -7,6 +6,7 @@ using Socks5.Enums;
 using Socks5.Models;
 using Socks5.Utils;
 using System.Buffers;
+using System.Diagnostics;
 using System.Net.Sockets;
 
 namespace Shadowsocks.Protocol.LocalUdpServices;
@@ -85,7 +85,7 @@ public class Socks5UdpService : ILocalUdpService
 			_logger.LogInformation(@"Udp Send to {Target} via {Client}", target, client);
 			Memory<byte> sendBuffer = receiveResult.Buffer.AsMemory(3); //TODO Only support ss now
 
-			Assumes.NotNull(client);
+			Debug.Assert(client is not null);
 			await client.SendAsync(sendBuffer, cancellationToken);
 
 			byte[] receiveBuffer = ArrayPool<byte>.Shared.Rent(0x10000);

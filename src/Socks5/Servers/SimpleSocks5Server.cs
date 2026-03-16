@@ -1,8 +1,7 @@
-using Microsoft;
-using Microsoft.VisualStudio.Threading;
 using Pipelines.Extensions;
 using Socks5.Enums;
 using Socks5.Models;
+using System.Diagnostics;
 using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
@@ -44,7 +43,7 @@ public class SimpleSocks5Server
 			{
 				Socket socket = await TcpListener.AcceptSocketAsync();
 				socket.NoDelay = true;
-				HandleAsync(socket, _cts.Token).Forget();
+				_ = HandleAsync(socket, _cts.Token);
 			}
 		}
 		catch (Exception)
@@ -68,12 +67,12 @@ public class SimpleSocks5Server
 					using TcpClient tcp = new();
 					if (service.Target.Type is AddressType.Domain)
 					{
-						Assumes.NotNull(service.Target.Domain);
+						Debug.Assert(service.Target.Domain is not null);
 						await tcp.ConnectAsync(service.Target.Domain, service.Target.Port, token);
 					}
 					else
 					{
-						Assumes.NotNull(service.Target.Address);
+						Debug.Assert(service.Target.Address is not null);
 						await tcp.ConnectAsync(service.Target.Address, service.Target.Port, token);
 					}
 
@@ -95,7 +94,7 @@ public class SimpleSocks5Server
 					IPEndPoint remote = (IPEndPoint)socket.RemoteEndPoint!;
 					IPEndPoint local = new(((IPEndPoint)TcpListener.LocalEndpoint).Address, IPEndPoint.MinPort);
 					using SimpleSocks5UdpServer udpServer = new(local, remote);
-					udpServer.StartAsync().Forget();
+					_ = udpServer.StartAsync();
 
 					ServerBound replyUdpBound = new()
 					{
@@ -109,7 +108,7 @@ public class SimpleSocks5Server
 
 					// wait remote close
 					ReadResult result = await pipe.Input.ReadAsync(token);
-					Report.IfNot(result.IsCompleted);
+					Debug.Assert(result.IsCompleted);
 
 					break;
 				}

@@ -1,5 +1,3 @@
-using Microsoft;
-using Microsoft.VisualStudio.Threading;
 using Pipelines.Extensions;
 using Socks5.Models;
 using System.Buffers;
@@ -19,7 +17,7 @@ public class HttpSocks5Service
 
 	public HttpSocks5Service(IPEndPoint bindEndPoint, HttpToSocks5 httpToSocks5, Socks5CreateOption socks5CreateOption)
 	{
-		Requires.NotNullAllowStructs(socks5CreateOption.Address, nameof(socks5CreateOption.Address));
+		ArgumentNullException.ThrowIfNull(socks5CreateOption.Address);
 
 		TcpListener = new TcpListener(bindEndPoint);
 		_httpToSocks5 = httpToSocks5;
@@ -37,7 +35,7 @@ public class HttpSocks5Service
 			{
 				Socket socket = await TcpListener.AcceptSocketAsync();
 				socket.NoDelay = true;
-				HandleAsync(socket, _cts.Token).Forget();
+				_ = HandleAsync(socket, _cts.Token);
 			}
 		}
 		catch (Exception)

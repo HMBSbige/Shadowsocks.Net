@@ -1,5 +1,3 @@
-using Microsoft;
-using Microsoft.VisualStudio.Threading;
 using Shadowsocks.Crypto;
 using Shadowsocks.Protocol.Models;
 using System.Buffers;
@@ -24,10 +22,10 @@ internal class ShadowsocksPipeWriter : PipeWriter
 		ShadowsocksServerInfo serverInfo,
 		PipeOptions? pipeOptions = null)
 	{
-		Requires.NotNull(writer, nameof(writer));
-		Requires.NotNull(serverInfo, nameof(serverInfo));
-		Requires.NotNullAllowStructs(serverInfo.Method, nameof(serverInfo));
-		Requires.NotNullAllowStructs(serverInfo.Password, nameof(serverInfo));
+		ArgumentNullException.ThrowIfNull(writer);
+		ArgumentNullException.ThrowIfNull(serverInfo);
+		ArgumentNullException.ThrowIfNull(serverInfo.Method);
+		ArgumentNullException.ThrowIfNull(serverInfo.Password);
 
 		IShadowsocksCrypto encryptor = ShadowsocksCrypto.Create(serverInfo.Method, serverInfo.Password);
 
@@ -35,7 +33,7 @@ internal class ShadowsocksPipeWriter : PipeWriter
 		_pipe = new Pipe(pipeOptions ?? PipeOptions.Default);
 		_cancellationTokenSource = new CancellationTokenSource();
 
-		WrapAsync(encryptor, _cancellationTokenSource.Token).Forget();
+		_ = WrapAsync(encryptor, _cancellationTokenSource.Token);
 	}
 
 	private Task WrapAsync(IShadowsocksCrypto encryptor, CancellationToken cancellationToken)

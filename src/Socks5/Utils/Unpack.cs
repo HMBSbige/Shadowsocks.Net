@@ -1,4 +1,3 @@
-using Microsoft;
 using Socks5.Enums;
 using Socks5.Exceptions;
 using Socks5.Models;
@@ -126,7 +125,7 @@ public static class Unpack
 		// +----+------+------+----------+----------+----------+
 
 		ReadOnlySpan<byte> span = buffer.Span;
-		Requires.Range(buffer.Length >= 7, nameof(buffer));
+		ArgumentOutOfRangeException.ThrowIfLessThan(buffer.Length, 7, nameof(buffer));
 
 		Socks5UdpReceivePacket res = new();
 
@@ -138,7 +137,10 @@ public static class Unpack
 		res.Fragment = span[2];
 
 		res.Type = (AddressType)span[3];
-		Requires.Defined(res.Type, nameof(res.Type));
+		if (!Enum.IsDefined(res.Type))
+		{
+			throw new ArgumentOutOfRangeException(nameof(res.Type));
+		}
 
 		int offset = 4;
 		offset += DestinationAddress(res.Type, span[offset..], out res.Address, out res.Domain);

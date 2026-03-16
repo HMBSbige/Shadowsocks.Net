@@ -1,4 +1,3 @@
-using Microsoft;
 using Shadowsocks.Protocol.Models;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
@@ -22,9 +21,13 @@ public class Sip003Plugin : ISip003Plugin
 	[MemberNotNull(nameof(Process))]
 	public virtual void Start(ShadowsocksServerInfo info)
 	{
-		Verify.NotDisposed(this);
-		Verify.Operation(Process is null || Process.HasExited, @"Process has started!");
-		Requires.NotNullAllowStructs(info.Plugin, nameof(info.Plugin));
+		ObjectDisposedException.ThrowIf(IsDisposed, this);
+		if (!(Process is null || Process.HasExited))
+		{
+			throw new InvalidOperationException(@"Process has started!");
+		}
+
+		ArgumentNullException.ThrowIfNull(info.Plugin);
 
 		LocalEndPoint = GetFreeLocalEndpoint();
 

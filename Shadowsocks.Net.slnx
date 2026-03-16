@@ -20,8 +20,6 @@
   </Folder>
   <Folder Name="/test/">
     <Project Path="test\Benchmark\Benchmark.csproj" />
-    <Project Path="test\Shadowsocks.SpeedTest\Shadowsocks.SpeedTest.csproj" />
-    <Project Path="test\TestConsoleApp\TestConsoleApp.csproj" />
     <Project Path="test\UnitTest\UnitTest.csproj" />
   </Folder>
 </Solution>

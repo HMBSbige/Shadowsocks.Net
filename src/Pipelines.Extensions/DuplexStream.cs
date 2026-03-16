@@ -1,17 +1,16 @@
-using Microsoft;
 using System.Diagnostics.CodeAnalysis;
 using System.IO.Pipelines;
 
 namespace Pipelines.Extensions;
 
-internal class DuplexPipeStream : Stream, IDisposableObservable
+internal class DuplexPipeStream : Stream
 {
 	private readonly Stream _readStream;
 	private readonly Stream _writeStream;
 
 	public DuplexPipeStream(IDuplexPipe pipe, bool leaveOpen)
 	{
-		Requires.NotNull(pipe, nameof(pipe));
+		ArgumentNullException.ThrowIfNull(pipe);
 
 		_readStream = pipe.Input.AsStream(leaveOpen);
 		_writeStream = pipe.Output.AsStream(leaveOpen);
@@ -120,7 +119,7 @@ internal class DuplexPipeStream : Stream, IDisposableObservable
 	[DoesNotReturn]
 	private Exception ThrowNotSupported()
 	{
-		Verify.NotDisposed(this);
+		ObjectDisposedException.ThrowIf(IsDisposed, this);
 		throw new NotSupportedException();
 	}
 }

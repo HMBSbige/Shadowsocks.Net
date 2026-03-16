@@ -1,4 +1,3 @@
-using Microsoft;
 using Pipelines.Extensions;
 using System.IO.Pipelines;
 using System.Net.Sockets;
@@ -23,7 +22,10 @@ public class DirectConnectTcpClient : IPipeClient
 
 	public async ValueTask ConnectAsync(CancellationToken cancellationToken = default)
 	{
-		Verify.Operation(_client is null || !_client.Connected, @"Client has already connected!");
+		if (_client is not null && _client.Connected)
+		{
+			throw new InvalidOperationException(@"Client has already connected!");
+		}
 
 		_client = new TcpClient { NoDelay = true };
 		await _client.ConnectAsync(_targetAddress, _targetPort, cancellationToken);
@@ -31,7 +33,10 @@ public class DirectConnectTcpClient : IPipeClient
 
 	public IDuplexPipe GetPipe()
 	{
-		Verify.Operation(_client is not null && _client.Connected, @"You must connect to the server first!");
+		if (_client is null || !_client.Connected)
+		{
+			throw new InvalidOperationException(@"You must connect to the server first!");
+		}
 
 		return _pipe ??= _client.Client
 			.AsDuplexPipe(DefaultSocketPipeReaderOptions, DefaultSocketPipeWriterOptions);

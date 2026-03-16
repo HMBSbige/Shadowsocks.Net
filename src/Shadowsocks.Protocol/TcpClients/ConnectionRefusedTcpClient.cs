@@ -1,4 +1,4 @@
-using Microsoft;
+using System.Diagnostics;
 using System.IO.Pipelines;
 
 namespace Shadowsocks.Protocol.TcpClients;
@@ -9,12 +9,12 @@ public class ConnectionRefusedTcpClient : IPipeClient
 
 	public ValueTask ConnectAsync(CancellationToken cancellationToken = default)
 	{
-		throw Assumes.NotReachable();
+		throw new UnreachableException();
 	}
 
 	public IDuplexPipe GetPipe()
 	{
-		throw Assumes.NotReachable();
+		throw new UnreachableException();
 	}
 
 	public void Dispose()

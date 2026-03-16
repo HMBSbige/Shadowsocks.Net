@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging;
-using Microsoft.VisualStudio.Threading;
 using Shadowsocks.Protocol.LocalUdpServices;
 using System.Net;
 using System.Net.Sockets;
@@ -44,7 +43,7 @@ public class UdpListenService : IListenService
 					UdpListener.Client.LocalEndPoint
 				);
 #endif
-				HandleAsync(message, _cts.Token).Forget();
+				_ = HandleAsync(message, _cts.Token);
 			}
 		}
 		catch (Exception ex)

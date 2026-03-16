@@ -1,5 +1,3 @@
-using Microsoft;
-using Microsoft.VisualStudio.Threading;
 using System.IO.Pipelines;
 using System.Net.Sockets;
 
@@ -18,16 +16,20 @@ internal sealed class SocketPipeReader : PipeReader
 
 	public SocketPipeReader(Socket socket, SocketPipeReaderOptions options)
 	{
-		Requires.NotNull(socket, nameof(socket));
-		Requires.Argument(socket.Connected, nameof(socket), @"Socket must be connected.");
-		Requires.NotNull(options, nameof(options));
+		ArgumentNullException.ThrowIfNull(socket);
+		if (!socket.Connected)
+		{
+			throw new ArgumentException(@"Socket must be connected.", nameof(socket));
+		}
+
+		ArgumentNullException.ThrowIfNull(options);
 
 		InternalSocket = socket;
 		_options = options;
 		_pipe = new Pipe(options.PipeOptions);
 		_cancellationTokenSource = new CancellationTokenSource();
 
-		WrapWriterAsync(_cancellationTokenSource.Token).Forget();
+		_ = WrapWriterAsync(_cancellationTokenSource.Token);
 	}
 
 	private Task WrapWriterAsync(CancellationToken cancellationToken)

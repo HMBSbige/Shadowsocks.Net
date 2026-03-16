@@ -1,4 +1,3 @@
-using Microsoft;
 using Pipelines.Extensions;
 using Shadowsocks.Protocol.Models;
 using System.IO.Pipelines;
@@ -26,9 +25,13 @@ public class ShadowsocksTcpClient : IPipeClient
 
 	public async ValueTask ConnectAsync(CancellationToken cancellationToken = default)
 	{
-		Verify.Operation(_client is null || !_client.Connected, @"Client has already connected!");
-		Requires.NotNullAllowStructs(_serverInfo.Address, nameof(_serverInfo.Address));
-		Requires.NotDefault(_serverInfo.Port, nameof(_serverInfo.Port));
+		if (_client is not null && _client.Connected)
+		{
+			throw new InvalidOperationException(@"Client has already connected!");
+		}
+
+		ArgumentNullException.ThrowIfNull(_serverInfo.Address);
+		ArgumentOutOfRangeException.ThrowIfZero(_serverInfo.Port);
 
 		_client = new TcpClient { NoDelay = true };
 		await _client.ConnectAsync(_serverInfo.Address, _serverInfo.Port, cancellationToken);
@@ -36,7 +39,10 @@ public class ShadowsocksTcpClient : IPipeClient
 
 	public IDuplexPipe GetPipe()
 	{
-		Verify.Operation(_client is not null && _client.Connected, @"You must connect to the server first!");
+		if (_client is null || !_client.Connected)
+		{
+			throw new InvalidOperationException(@"You must connect to the server first!");
+		}
 
 		return _pipe ??= _client.Client
 			.AsDuplexPipe(DefaultSocketPipeReaderOptions, DefaultSocketPipeWriterOptions)

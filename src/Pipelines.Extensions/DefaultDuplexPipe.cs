@@ -1,4 +1,3 @@
-using Microsoft;
 using System.IO.Pipelines;
 
 namespace Pipelines.Extensions;
@@ -10,8 +9,8 @@ public class DefaultDuplexPipe : IDuplexPipe
 
 	public DefaultDuplexPipe(PipeReader reader, PipeWriter writer)
 	{
-		Requires.NotNull(reader, nameof(reader));
-		Requires.NotNull(writer, nameof(writer));
+		ArgumentNullException.ThrowIfNull(reader);
+		ArgumentNullException.ThrowIfNull(writer);
 
 		Input = reader;
 		Output = writer;

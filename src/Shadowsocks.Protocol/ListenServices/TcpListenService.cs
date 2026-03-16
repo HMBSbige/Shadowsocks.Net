@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging;
-using Microsoft.VisualStudio.Threading;
 using Pipelines.Extensions;
 using Shadowsocks.Protocol.LocalTcpServices;
 using System.Buffers;
@@ -41,7 +40,7 @@ public class TcpListenService : IListenService
 				socket.NoDelay = true;
 
 				_logger.LogInformation(@"{Remote} => {Local}", socket.RemoteEndPoint, socket.LocalEndPoint);
-				HandleAsync(socket, _cts.Token).Forget();
+				_ = HandleAsync(socket, _cts.Token);
 			}
 		}
 		catch (Exception ex)

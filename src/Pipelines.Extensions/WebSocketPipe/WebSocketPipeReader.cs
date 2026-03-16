@@ -1,5 +1,3 @@
-using Microsoft;
-using Microsoft.VisualStudio.Threading;
 using System.IO.Pipelines;
 using System.Net.WebSockets;
 
@@ -18,15 +16,15 @@ internal sealed class WebSocketPipeReader : PipeReader
 
 	public WebSocketPipeReader(WebSocket webSocket, WebSocketPipeReaderOptions options)
 	{
-		Requires.NotNull(webSocket, nameof(webSocket));
-		Requires.NotNull(options, nameof(options));
+		ArgumentNullException.ThrowIfNull(webSocket);
+		ArgumentNullException.ThrowIfNull(options);
 
 		InternalWebSocket = webSocket;
 		_options = options;
 		_pipe = new Pipe(options.PipeOptions);
 		_cancellationTokenSource = new CancellationTokenSource();
 
-		WrapWriterAsync(_cancellationTokenSource.Token).Forget();
+		_ = WrapWriterAsync(_cancellationTokenSource.Token);
 	}
 
 	private Task WrapWriterAsync(CancellationToken cancellationToken)

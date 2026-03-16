@@ -8,8 +8,4 @@
     <Description>Pipelines extensions</Description>
   </PropertyGroup>
 
-  <ItemGroup>
-    <PackageReference Include="Microsoft.VisualStudio.Threading.Only" />
-  </ItemGroup>
-
 </Project>

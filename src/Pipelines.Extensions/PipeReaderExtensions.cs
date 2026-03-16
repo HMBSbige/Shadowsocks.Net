@@ -1,4 +1,3 @@
-using Microsoft;
 using Pipelines.Extensions.SocketPipe;
 using Pipelines.Extensions.WebSocketPipe;
 using System.Buffers;
@@ -47,7 +46,8 @@ public static partial class PipelinesExtensions
 		long size,
 		CancellationToken cancellationToken = default)
 	{
-		Requires.Range(size >= 0, nameof(size), @"size must >=0.");
+		ArgumentOutOfRangeException.ThrowIfNegative(size);
+
 		long readSize = 0L;
 
 		while (true)
