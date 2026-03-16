@@ -1,72 +1,331 @@
 using Pipelines.Extensions.SocketPipe;
-using Pipelines.Extensions.WebSocketPipe;
+using System.Buffers;
 using System.IO.Pipelines;
 using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Runtime.CompilerServices;
+using System.Text;
 
 namespace Pipelines.Extensions;
 
-public static partial class PipelinesExtensions
+public static class PipelinesExtensions
 {
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public static async ValueTask LinkToAsync(this IDuplexPipe pipe1, IDuplexPipe pipe2, CancellationToken token = default)
+	extension(PipeReader reader)
 	{
-		Task a = pipe1.Input.CopyToAsync(pipe2.Output, token);
-		Task b = pipe2.Input.CopyToAsync(pipe1.Output, token);
-
-		await Task.WhenAll(a, b);
-	}
-
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public static IDuplexPipe AsDuplexPipe(
-		this Stream stream,
-		StreamPipeReaderOptions? readerOptions = null,
-		StreamPipeWriterOptions? writerOptions = null)
-	{
-		if (!stream.CanRead)
+		public async ValueTask<bool> ReadAsync(
+			HandleReadOnlySequence func,
+			CancellationToken token = default)
 		{
-			throw new ArgumentException(@"Stream is not readable.", nameof(stream));
+			while (true)
+			{
+				ReadResult result = await reader.ReadAsync(token);
+				ReadOnlySequence<byte> buffer = result.Buffer;
+
+				try
+				{
+					ParseResult readResult = func(ref buffer);
+
+					if (readResult is ParseResult.Success)
+					{
+						return true;
+					}
+
+					if (readResult is not ParseResult.NeedsMoreData || result.IsCompleted)
+					{
+						return false;
+					}
+				}
+				finally
+				{
+					reader.AdvanceTo(buffer.Start, buffer.End);
+				}
+			}
 		}
 
-		if (!stream.CanWrite)
+		public async ValueTask<long> CopyToAsync(
+			PipeWriter target,
+			long size,
+			CancellationToken cancellationToken = default)
 		{
-			throw new ArgumentException(@"Stream is not writable.", nameof(stream));
+			ArgumentOutOfRangeException.ThrowIfNegative(size);
+
+			long readSize = 0L;
+
+			while (true)
+			{
+				ReadResult result = await reader.ReadAsync(cancellationToken);
+				ReadOnlySequence<byte> buffer = result.Buffer;
+
+				if (buffer.Length > size)
+				{
+					buffer = buffer.Slice(0, size);
+				}
+
+				SequencePosition position = buffer.Start;
+				SequencePosition consumed = position;
+
+				try
+				{
+					while (buffer.TryGet(ref position, out ReadOnlyMemory<byte> memory))
+					{
+						FlushResult flushResult = await target.WriteAsync(memory, cancellationToken);
+						flushResult.ThrowIfCanceled(cancellationToken);
+
+						readSize += memory.Length;
+						consumed = position;
+
+						if (flushResult.IsCompleted)
+						{
+							return readSize;
+						}
+					}
+
+					consumed = buffer.End;
+					size -= buffer.Length;
+
+					if (size <= 0 || result.IsCompleted)
+					{
+						break;
+					}
+				}
+				finally
+				{
+					reader.AdvanceTo(consumed);
+				}
+			}
+
+			return readSize;
 		}
 
-		PipeReader reader = PipeReader.Create(stream, readerOptions);
-		PipeWriter writer = PipeWriter.Create(stream, writerOptions);
-
-		return DefaultDuplexPipe.Create(reader, writer);
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public async ValueTask<ReadResult> ReadAndCheckIsCanceledAsync(CancellationToken cancellationToken = default)
+		{
+			ReadResult result = await reader.ReadAsync(cancellationToken);
+			result.ThrowIfCanceled(cancellationToken);
+			return result;
+		}
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public static IDuplexPipe AsDuplexPipe(
-		this Socket socket,
-		SocketPipeReaderOptions? readerOptions = null,
-		SocketPipeWriterOptions? writerOptions = null)
+	extension(ReadResult result)
 	{
-		PipeReader reader = socket.AsPipeReader(readerOptions);
-		PipeWriter writer = socket.AsPipeWriter(writerOptions);
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public void ThrowIfCanceled(CancellationToken cancellationToken = default)
+		{
+			if (!result.IsCanceled)
+			{
+				return;
+			}
 
-		return DefaultDuplexPipe.Create(reader, writer);
+			cancellationToken.ThrowIfCancellationRequested();
+			throw new OperationCanceledException(@"The PipeReader was canceled.");
+		}
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public static IDuplexPipe AsDuplexPipe(
-		this WebSocket webSocket,
-		WebSocketPipeReaderOptions? readerOptions = null,
-		WebSocketPipeWriterOptions? writerOptions = null)
+	extension(PipeWriter writer)
 	{
-		PipeReader reader = webSocket.AsPipeReader(readerOptions);
-		PipeWriter writer = webSocket.AsPipeWriter(writerOptions);
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public void Write(int maxBufferSize, CopyToSpan copyTo)
+		{
+			Span<byte> memory = writer.GetSpan(maxBufferSize);
 
-		return DefaultDuplexPipe.Create(reader, writer);
+			int length = copyTo(memory);
+
+			writer.Advance(length);
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public async ValueTask<FlushResult> WriteAsync(
+			int maxBufferSize,
+			CopyToSpan copyTo,
+			CancellationToken token = default)
+		{
+			writer.Write(maxBufferSize, copyTo);
+			return await writer.FlushAsync(token);
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public void Write(string str)
+		{
+			Encoding encoding = Encoding.UTF8;
+
+			Span<byte> span = writer.GetSpan(encoding.GetMaxByteCount(str.Length));
+			int length = encoding.GetBytes(str, span);
+			writer.Advance(length);
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public async ValueTask<FlushResult> WriteAsync(string str, CancellationToken token = default)
+		{
+			writer.Write(str);
+			return await writer.FlushAsync(token);
+		}
+
+		public async ValueTask<FlushResult> WriteAsync(ReadOnlySequence<byte> sequence, CancellationToken token = default)
+		{
+			FlushResult flushResult = default;
+
+			foreach (ReadOnlyMemory<byte> memory in sequence)
+			{
+				writer.Write(memory.Span);
+				flushResult = await writer.FlushAndCheckIsCanceledAsync(token);
+
+				if (flushResult.IsCompleted)
+				{
+					break;
+				}
+			}
+
+			return flushResult;
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public async ValueTask<FlushResult> FlushAndCheckIsCanceledAsync(CancellationToken cancellationToken = default)
+		{
+			FlushResult flushResult = await writer.FlushAsync(cancellationToken);
+			flushResult.ThrowIfCanceled(cancellationToken);
+			return flushResult;
+		}
 	}
 
-	[MethodImpl(MethodImplOptions.AggressiveInlining)]
-	public static Stream AsStream(this IDuplexPipe pipe, bool leaveOpen = false)
+	extension(FlushResult flushResult)
 	{
-		return new DuplexPipeStream(pipe, leaveOpen);
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public void ThrowIfCanceled(CancellationToken cancellationToken = default)
+		{
+			if (!flushResult.IsCanceled)
+			{
+				return;
+			}
+
+			cancellationToken.ThrowIfCancellationRequested();
+			throw new OperationCanceledException(@"The PipeWriter flush was canceled.");
+		}
+	}
+
+	extension(Stream stream)
+	{
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public PipeReader AsPipeReader(StreamPipeReaderOptions? options = null)
+		{
+			return PipeReader.Create(stream, options);
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public PipeWriter AsPipeWriter(StreamPipeWriterOptions? options = null)
+		{
+			return PipeWriter.Create(stream, options);
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public IDuplexPipe AsDuplexPipe(
+			StreamPipeReaderOptions? readerOptions = null,
+			StreamPipeWriterOptions? writerOptions = null)
+		{
+			if (!stream.CanRead)
+			{
+				throw new ArgumentException(@"Stream is not readable.", nameof(stream));
+			}
+
+			if (!stream.CanWrite)
+			{
+				throw new ArgumentException(@"Stream is not writable.", nameof(stream));
+			}
+
+			PipeReader reader = PipeReader.Create(stream, readerOptions);
+			PipeWriter writer = PipeWriter.Create(stream, writerOptions);
+
+			return DefaultDuplexPipe.Create(reader, writer);
+		}
+	}
+
+	extension(ReadOnlySequence<byte> sequence)
+	{
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public Stream AsStream()
+		{
+			return new ReadOnlySequenceStream(sequence);
+		}
+	}
+
+	extension(Socket socket)
+	{
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public PipeReader AsPipeReader(SocketPipeReaderOptions? options = null)
+		{
+			return new SocketPipeReader(socket, options ?? SocketPipeReaderOptions.Default);
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public PipeWriter AsPipeWriter(SocketPipeWriterOptions? options = null)
+		{
+			return new SocketPipeWriter(socket, options ?? SocketPipeWriterOptions.Default);
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public IDuplexPipe AsDuplexPipe(
+			SocketPipeReaderOptions? readerOptions = null,
+			SocketPipeWriterOptions? writerOptions = null)
+		{
+			PipeReader reader = socket.AsPipeReader(readerOptions);
+			PipeWriter writer = socket.AsPipeWriter(writerOptions);
+
+			return DefaultDuplexPipe.Create(reader, writer);
+		}
+
+		public void FullClose()
+		{
+			try
+			{
+				socket.Shutdown(SocketShutdown.Both);
+			}
+			finally
+			{
+				socket.Dispose();
+			}
+		}
+	}
+
+	extension(WebSocket webSocket)
+	{
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public PipeReader AsPipeReader(StreamPipeReaderOptions? options = null)
+		{
+			WebSocketStream stream = WebSocketStream.Create(webSocket, WebSocketMessageType.Binary);
+			return PipeReader.Create(stream, options);
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public PipeWriter AsPipeWriter(StreamPipeWriterOptions? options = null)
+		{
+			WebSocketStream stream = WebSocketStream.Create(webSocket, WebSocketMessageType.Binary);
+			return PipeWriter.Create(stream, options);
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public IDuplexPipe AsDuplexPipe(
+			StreamPipeReaderOptions? readerOptions = null,
+			StreamPipeWriterOptions? writerOptions = null)
+		{
+			WebSocketStream stream = WebSocketStream.Create(webSocket, WebSocketMessageType.Binary);
+			return stream.AsDuplexPipe(readerOptions, writerOptions);
+		}
+	}
+
+	extension(IDuplexPipe pipe)
+	{
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public async ValueTask LinkToAsync(IDuplexPipe pipe2, CancellationToken token = default)
+		{
+			Task a = pipe.Input.CopyToAsync(pipe2.Output, token);
+			Task b = pipe2.Input.CopyToAsync(pipe.Output, token);
+
+			await Task.WhenAll(a, b);
+		}
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		public Stream AsStream(bool leaveOpen = false)
+		{
+			return new DuplexPipeStream(pipe, leaveOpen);
+		}
 	}
 }

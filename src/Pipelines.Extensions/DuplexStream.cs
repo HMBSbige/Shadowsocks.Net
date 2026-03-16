@@ -100,6 +100,11 @@ internal class DuplexPipeStream : Stream
 		return _writeStream.FlushAsync(cancellationToken);
 	}
 
+	public override Task CopyToAsync(Stream destination, int bufferSize, CancellationToken cancellationToken)
+	{
+		return _readStream.CopyToAsync(destination, bufferSize, cancellationToken);
+	}
+
 	public bool IsDisposed { get; private set; }
 	protected override void Dispose(bool disposing)
 	{
