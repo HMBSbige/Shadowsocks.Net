@@ -1,4 +1,3 @@
-using Pipelines.Extensions.SocketPipe;
 using System.Buffers;
 using System.IO.Pipelines;
 using System.Net.Sockets;
@@ -8,10 +7,20 @@ using System.Text;
 
 namespace Pipelines.Extensions;
 
+/// <summary>
+/// Extension methods for <see cref="System.IO.Pipelines"/> and related types.
+/// </summary>
 public static class PipelinesExtensions
 {
 	extension(PipeReader reader)
 	{
+		/// <summary>
+		/// Reads from the <see cref="PipeReader"/> in a loop, invoking <paramref name="func"/> on each read
+		/// until parsing succeeds, fails, or the pipe completes.
+		/// </summary>
+		/// <param name="func">The delegate that parses the buffer.</param>
+		/// <param name="token">The cancellation token.</param>
+		/// <returns><see langword="true"/> if parsing succeeded; otherwise <see langword="false"/>.</returns>
 		public async ValueTask<bool> ReadAsync(
 			HandleReadOnlySequence func,
 			CancellationToken token = default)
@@ -42,6 +51,13 @@ public static class PipelinesExtensions
 			}
 		}
 
+		/// <summary>
+		/// Copies exactly <paramref name="size"/> bytes from the <see cref="PipeReader"/> to the <paramref name="target"/>.
+		/// </summary>
+		/// <param name="target">The destination pipe writer.</param>
+		/// <param name="size">The number of bytes to copy.</param>
+		/// <param name="cancellationToken">The cancellation token.</param>
+		/// <returns>The total number of bytes actually copied.</returns>
 		public async ValueTask<long> CopyToAsync(
 			PipeWriter target,
 			long size,
@@ -97,6 +113,11 @@ public static class PipelinesExtensions
 			return readSize;
 		}
 
+		/// <summary>
+		/// Reads from the <see cref="PipeReader"/> and throws if the result is canceled.
+		/// </summary>
+		/// <param name="cancellationToken">The cancellation token.</param>
+		/// <returns>The read result.</returns>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public async ValueTask<ReadResult> ReadAndCheckIsCanceledAsync(CancellationToken cancellationToken = default)
 		{
@@ -108,6 +129,10 @@ public static class PipelinesExtensions
 
 	extension(ReadResult result)
 	{
+		/// <summary>
+		/// Throws <see cref="OperationCanceledException"/> if the <see cref="ReadResult"/> is canceled.
+		/// </summary>
+		/// <param name="cancellationToken">The cancellation token to check.</param>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public void ThrowIfCanceled(CancellationToken cancellationToken = default)
 		{
@@ -123,6 +148,11 @@ public static class PipelinesExtensions
 
 	extension(PipeWriter writer)
 	{
+		/// <summary>
+		/// Writes data to the <see cref="PipeWriter"/> using a <see cref="CopyToSpan"/> delegate.
+		/// </summary>
+		/// <param name="maxBufferSize">The minimum buffer size to request.</param>
+		/// <param name="copyTo">The delegate that writes data into the buffer span.</param>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public void Write(int maxBufferSize, CopyToSpan copyTo)
 		{
@@ -133,6 +163,13 @@ public static class PipelinesExtensions
 			writer.Advance(length);
 		}
 
+		/// <summary>
+		/// Writes data to the <see cref="PipeWriter"/> using a <see cref="CopyToSpan"/> delegate and flushes.
+		/// </summary>
+		/// <param name="maxBufferSize">The minimum buffer size to request.</param>
+		/// <param name="copyTo">The delegate that writes data into the buffer span.</param>
+		/// <param name="token">The cancellation token.</param>
+		/// <returns>The flush result.</returns>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public async ValueTask<FlushResult> WriteAsync(
 			int maxBufferSize,
@@ -143,6 +180,11 @@ public static class PipelinesExtensions
 			return await writer.FlushAsync(token);
 		}
 
+		/// <summary>
+		/// Writes a string to the <see cref="PipeWriter"/> using the specified encoding.
+		/// </summary>
+		/// <param name="str">The string to write.</param>
+		/// <param name="encoding">The encoding to use. Defaults to <see cref="Encoding.UTF8"/>.</param>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public void Write(string str, Encoding? encoding = null)
 		{
@@ -153,6 +195,12 @@ public static class PipelinesExtensions
 			writer.Advance(length);
 		}
 
+		/// <summary>
+		/// Writes a UTF-8 string to the <see cref="PipeWriter"/> and flushes.
+		/// </summary>
+		/// <param name="str">The string to write.</param>
+		/// <param name="cancellationToken">The cancellation token.</param>
+		/// <returns>The flush result.</returns>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public async ValueTask<FlushResult> WriteAsync(string str, CancellationToken cancellationToken = default)
 		{
@@ -160,6 +208,12 @@ public static class PipelinesExtensions
 			return await writer.FlushAsync(cancellationToken);
 		}
 
+		/// <summary>
+		/// Writes a <see cref="ReadOnlySequence{T}"/> to the <see cref="PipeWriter"/>, flushing after each segment.
+		/// </summary>
+		/// <param name="sequence">The byte sequence to write.</param>
+		/// <param name="cancellationToken">The cancellation token.</param>
+		/// <returns>The flush result from the last segment.</returns>
 		public async ValueTask<FlushResult> WriteAsync(ReadOnlySequence<byte> sequence, CancellationToken cancellationToken = default)
 		{
 			FlushResult flushResult = default;
@@ -178,6 +232,11 @@ public static class PipelinesExtensions
 			return flushResult;
 		}
 
+		/// <summary>
+		/// Flushes the <see cref="PipeWriter"/> and throws if the result is canceled.
+		/// </summary>
+		/// <param name="cancellationToken">The cancellation token.</param>
+		/// <returns>The flush result.</returns>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public async ValueTask<FlushResult> FlushAndCheckIsCanceledAsync(CancellationToken cancellationToken = default)
 		{
@@ -189,6 +248,10 @@ public static class PipelinesExtensions
 
 	extension(FlushResult flushResult)
 	{
+		/// <summary>
+		/// Throws <see cref="OperationCanceledException"/> if the <see cref="FlushResult"/> is canceled.
+		/// </summary>
+		/// <param name="cancellationToken">The cancellation token to check.</param>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public void ThrowIfCanceled(CancellationToken cancellationToken = default)
 		{
@@ -204,18 +267,34 @@ public static class PipelinesExtensions
 
 	extension(Stream stream)
 	{
+		/// <summary>
+		/// Creates a <see cref="PipeReader"/> that wraps the <see cref="Stream"/>.
+		/// </summary>
+		/// <param name="options">Options for the stream pipe reader.</param>
+		/// <returns>A <see cref="PipeReader"/> reading from the stream.</returns>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public PipeReader AsPipeReader(StreamPipeReaderOptions? options = null)
 		{
 			return PipeReader.Create(stream, options);
 		}
 
+		/// <summary>
+		/// Creates a <see cref="PipeWriter"/> that wraps the <see cref="Stream"/>.
+		/// </summary>
+		/// <param name="options">Options for the stream pipe writer.</param>
+		/// <returns>A <see cref="PipeWriter"/> writing to the stream.</returns>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public PipeWriter AsPipeWriter(StreamPipeWriterOptions? options = null)
 		{
 			return PipeWriter.Create(stream, options);
 		}
 
+		/// <summary>
+		/// Creates an <see cref="IDuplexPipe"/> that wraps the <see cref="Stream"/> for both reading and writing.
+		/// </summary>
+		/// <param name="readerOptions">Options for the reader side.</param>
+		/// <param name="writerOptions">Options for the writer side.</param>
+		/// <returns>A duplex pipe backed by the stream.</returns>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public IDuplexPipe AsDuplexPipe(
 			StreamPipeReaderOptions? readerOptions = null,
@@ -240,6 +319,10 @@ public static class PipelinesExtensions
 
 	extension(ReadOnlySequence<byte> sequence)
 	{
+		/// <summary>
+		/// Wraps the <see cref="ReadOnlySequence{T}"/> as a readable <see cref="Stream"/>.
+		/// </summary>
+		/// <returns>A read-only stream over the sequence.</returns>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public Stream AsStream()
 		{
@@ -249,34 +332,57 @@ public static class PipelinesExtensions
 
 	extension(Socket socket)
 	{
+		/// <summary>
+		/// Creates a <see cref="PipeReader"/> backed by the <see cref="Socket"/>.
+		/// </summary>
+		/// <param name="options">Options for the stream pipe reader.</param>
+		/// <returns>A <see cref="PipeReader"/> reading from the socket.</returns>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public PipeReader AsPipeReader(SocketPipeReaderOptions? options = null)
+		public PipeReader AsPipeReader(StreamPipeReaderOptions? options = null)
 		{
-			return new SocketPipeReader(socket, options ?? SocketPipeReaderOptions.Default);
+			SocketStream stream = new(socket);
+			return PipeReader.Create(stream, options);
 		}
 
+		/// <summary>
+		/// Creates a <see cref="PipeWriter"/> backed by the <see cref="Socket"/>.
+		/// </summary>
+		/// <param name="options">Options for the stream pipe writer.</param>
+		/// <returns>A <see cref="PipeWriter"/> writing to the socket.</returns>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public PipeWriter AsPipeWriter(SocketPipeWriterOptions? options = null)
+		public PipeWriter AsPipeWriter(StreamPipeWriterOptions? options = null)
 		{
-			return new SocketPipeWriter(socket, options ?? SocketPipeWriterOptions.Default);
+			SocketStream stream = new(socket);
+			return PipeWriter.Create(stream, options);
 		}
 
+		/// <summary>
+		/// Creates an <see cref="IDuplexPipe"/> backed by the <see cref="Socket"/>.
+		/// </summary>
+		/// <param name="readerOptions">Options for the reader side.</param>
+		/// <param name="writerOptions">Options for the writer side.</param>
+		/// <returns>A duplex pipe backed by the socket.</returns>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public IDuplexPipe AsDuplexPipe(
-			SocketPipeReaderOptions? readerOptions = null,
-			SocketPipeWriterOptions? writerOptions = null)
+			StreamPipeReaderOptions? readerOptions = null,
+			StreamPipeWriterOptions? writerOptions = null)
 		{
-			PipeReader reader = socket.AsPipeReader(readerOptions);
-			PipeWriter writer = socket.AsPipeWriter(writerOptions);
-
-			return DefaultDuplexPipe.Create(reader, writer);
+			SocketStream stream = new(socket);
+			return stream.AsDuplexPipe(readerOptions, writerOptions);
 		}
 
+		/// <summary>
+		/// Shuts down and disposes the <see cref="Socket"/>, ignoring errors if already disconnected.
+		/// </summary>
 		public void FullClose()
 		{
 			try
 			{
 				socket.Shutdown(SocketShutdown.Both);
+			}
+			catch (SocketException)
+			{
+				// already disconnected
 			}
 			finally
 			{
@@ -287,6 +393,12 @@ public static class PipelinesExtensions
 
 	extension(WebSocket webSocket)
 	{
+		/// <summary>
+		/// Creates a <see cref="PipeReader"/> backed by the <see cref="WebSocket"/>.
+		/// </summary>
+		/// <param name="messageType">The WebSocket message type.</param>
+		/// <param name="options">Options for the stream pipe reader.</param>
+		/// <returns>A <see cref="PipeReader"/> reading from the WebSocket.</returns>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public PipeReader AsPipeReader(WebSocketMessageType messageType = WebSocketMessageType.Binary, StreamPipeReaderOptions? options = null)
 		{
@@ -294,6 +406,12 @@ public static class PipelinesExtensions
 			return PipeReader.Create(stream, options);
 		}
 
+		/// <summary>
+		/// Creates a <see cref="PipeWriter"/> backed by the <see cref="WebSocket"/>.
+		/// </summary>
+		/// <param name="messageType">The WebSocket message type.</param>
+		/// <param name="options">Options for the stream pipe writer.</param>
+		/// <returns>A <see cref="PipeWriter"/> writing to the WebSocket.</returns>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public PipeWriter AsPipeWriter(WebSocketMessageType messageType = WebSocketMessageType.Binary, StreamPipeWriterOptions? options = null)
 		{
@@ -301,6 +419,13 @@ public static class PipelinesExtensions
 			return PipeWriter.Create(stream, options);
 		}
 
+		/// <summary>
+		/// Creates an <see cref="IDuplexPipe"/> backed by the <see cref="WebSocket"/>.
+		/// </summary>
+		/// <param name="messageType">The WebSocket message type.</param>
+		/// <param name="readerOptions">Options for the reader side.</param>
+		/// <param name="writerOptions">Options for the writer side.</param>
+		/// <returns>A duplex pipe backed by the WebSocket.</returns>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public IDuplexPipe AsDuplexPipe(
 			WebSocketMessageType messageType = WebSocketMessageType.Binary,
@@ -314,6 +439,11 @@ public static class PipelinesExtensions
 
 	extension(IDuplexPipe pipe)
 	{
+		/// <summary>
+		/// Links two <see cref="IDuplexPipe"/> instances by copying data bidirectionally until both complete.
+		/// </summary>
+		/// <param name="pipe2">The other duplex pipe to link to.</param>
+		/// <param name="cancellationToken">The cancellation token.</param>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public async ValueTask LinkToAsync(IDuplexPipe pipe2, CancellationToken cancellationToken = default)
 		{
@@ -323,6 +453,11 @@ public static class PipelinesExtensions
 			await Task.WhenAll(a, b);
 		}
 
+		/// <summary>
+		/// Wraps the <see cref="IDuplexPipe"/> as a readable and writable <see cref="Stream"/>.
+		/// </summary>
+		/// <param name="leaveOpen">If <see langword="true"/>, the pipe is not completed when the stream is disposed.</param>
+		/// <returns>A stream backed by the duplex pipe.</returns>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public Stream AsStream(bool leaveOpen = false)
 		{
