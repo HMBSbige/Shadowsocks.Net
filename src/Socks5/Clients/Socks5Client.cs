@@ -54,19 +54,19 @@ public sealed class Socks5Client : IDisposable
 		return _pipe;
 	}
 
-	public ValueTask<ServerBound> ConnectAsync(string dst, ushort dstPort, CancellationToken token = default)
+	public ValueTask<ServerBound> ConnectAsync(string dst, ushort dstPort, CancellationToken cancellationToken = default)
 	{
-		return ConnectAsync(dst, null, dstPort, token);
+		return ConnectAsync(dst, null, dstPort, cancellationToken);
 	}
 
-	public ValueTask<ServerBound> ConnectAsync(IPAddress dstAddress, ushort dstPort, CancellationToken token = default)
+	public ValueTask<ServerBound> ConnectAsync(IPAddress dstAddress, ushort dstPort, CancellationToken cancellationToken = default)
 	{
-		return ConnectAsync(null, dstAddress, dstPort, token);
+		return ConnectAsync(null, dstAddress, dstPort, cancellationToken);
 	}
 
-	private async ValueTask<ServerBound> ConnectAsync(string? dst, IPAddress? dstAddress, ushort dstPort, CancellationToken token = default)
+	private async ValueTask<ServerBound> ConnectAsync(string? dst, IPAddress? dstAddress, ushort dstPort, CancellationToken cancellationToken = default)
 	{
-		IDuplexPipe pipe = await HandshakeAsync(token);
+		IDuplexPipe pipe = await HandshakeAsync(cancellationToken);
 
 		ServerBound bound = await SendCommandAsync(
 			pipe,
@@ -74,7 +74,7 @@ public sealed class Socks5Client : IDisposable
 			dst,
 			dstAddress,
 			dstPort,
-			token
+			cancellationToken
 		);
 
 		_pipe = pipe;
@@ -87,9 +87,9 @@ public sealed class Socks5Client : IDisposable
 
 	#region Udp
 
-	public async ValueTask<ServerBound> UdpAssociateAsync(IPAddress address, ushort port = 0, CancellationToken token = default)
+	public async ValueTask<ServerBound> UdpAssociateAsync(IPAddress address, ushort port = 0, CancellationToken cancellationToken = default)
 	{
-		IDuplexPipe pipe = await HandshakeAsync(token);
+		IDuplexPipe pipe = await HandshakeAsync(cancellationToken);
 
 		UdpClient = new Socket(_option.Address!.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
 		UdpClient.Bind(new IPEndPoint(address, port));
@@ -101,7 +101,7 @@ public sealed class Socks5Client : IDisposable
 			default,
 			local.Address,
 			(ushort)local.Port,
-			token
+			cancellationToken
 		);
 
 		switch (bound.Type)
@@ -113,7 +113,7 @@ public sealed class Socks5Client : IDisposable
 					bound.Address = _option.Address;
 				}
 
-				await UdpClient.ConnectAsync(bound.Address!, bound.Port, token);
+				await UdpClient.ConnectAsync(bound.Address!, bound.Port, cancellationToken);
 				break;
 			}
 			case AddressType.IPv6:
@@ -122,12 +122,12 @@ public sealed class Socks5Client : IDisposable
 				{
 					bound.Address = _option.Address;
 				}
-				await UdpClient.ConnectAsync(bound.Address!, bound.Port, token);
+				await UdpClient.ConnectAsync(bound.Address!, bound.Port, cancellationToken);
 				break;
 			}
 			case AddressType.Domain:
 			{
-				await UdpClient.ConnectAsync(bound.Domain!, bound.Port, token);
+				await UdpClient.ConnectAsync(bound.Domain!, bound.Port, cancellationToken);
 				break;
 			}
 			default:
@@ -141,7 +141,7 @@ public sealed class Socks5Client : IDisposable
 		return bound;
 	}
 
-	public async Task<Socks5UdpReceivePacket> ReceiveAsync(CancellationToken token = default)
+	public async Task<Socks5UdpReceivePacket> ReceiveAsync(CancellationToken cancellationToken = default)
 	{
 		if (Status is not Status.Established || UdpClient is null)
 		{
@@ -151,7 +151,7 @@ public sealed class Socks5Client : IDisposable
 		byte[] buffer = ArrayPool<byte>.Shared.Rent(0x10000);
 		try
 		{
-			int length = await UdpClient.ReceiveAsync(buffer, SocketFlags.None, token);
+			int length = await UdpClient.ReceiveAsync(buffer, SocketFlags.None, cancellationToken);
 
 			return Unpack.Udp(buffer.AsMemory(0, length));
 		}
@@ -161,32 +161,32 @@ public sealed class Socks5Client : IDisposable
 		}
 	}
 
-	public Task<int> SendUdpAsync(ReadOnlyMemory<byte> data, string dst, ushort dstPort, CancellationToken token = default)
+	public Task<int> SendUdpAsync(ReadOnlyMemory<byte> data, string dst, ushort dstPort, CancellationToken cancellationToken = default)
 	{
 		return SendUdpAsync(
 			data,
 			dst,
 			default,
 			dstPort,
-			token
+			cancellationToken
 		);
 	}
 
-	public Task<int> SendUdpAsync(ReadOnlyMemory<byte> data, IPAddress dstAddress, ushort dstPort, CancellationToken token = default)
+	public Task<int> SendUdpAsync(ReadOnlyMemory<byte> data, IPAddress dstAddress, ushort dstPort, CancellationToken cancellationToken = default)
 	{
 		return SendUdpAsync(
 			data,
 			default,
 			dstAddress,
 			dstPort,
-			token
+			cancellationToken
 		);
 	}
 
 	private async Task<int> SendUdpAsync(
 		ReadOnlyMemory<byte> data,
 		string? dst, IPAddress? dstAddress, ushort dstPort,
-		CancellationToken token = default)
+		CancellationToken cancellationToken = default)
 	{
 		if (Status is not Status.Established || UdpClient is null)
 		{
@@ -204,7 +204,7 @@ public sealed class Socks5Client : IDisposable
 				data.Span
 			);
 
-			return await UdpClient.SendAsync(buffer.AsMemory(0, length), SocketFlags.None, token);
+			return await UdpClient.SendAsync(buffer.AsMemory(0, length), SocketFlags.None, cancellationToken);
 		}
 		finally
 		{
@@ -216,23 +216,23 @@ public sealed class Socks5Client : IDisposable
 
 	#region Private Methods
 
-	private async ValueTask<IDuplexPipe> HandshakeAsync(CancellationToken token)
+	private async ValueTask<IDuplexPipe> HandshakeAsync(CancellationToken cancellationToken)
 	{
 		if (Status is not Status.Initial)
 		{
 			throw new InvalidOperationException(@"Socks5 already connected.");
 		}
 
-		await TcpClient.ConnectAsync(_option.Address!, _option.Port, token);
+		await TcpClient.ConnectAsync(_option.Address!, _option.Port, cancellationToken);
 
 		IDuplexPipe pipe = TcpClient.Client.AsDuplexPipe();
 
-		await HandshakeWithAuthAsync(pipe, token);
+		await HandshakeWithAuthAsync(pipe, cancellationToken);
 
 		return pipe;
 	}
 
-	private async ValueTask HandshakeWithAuthAsync(IDuplexPipe pipe, CancellationToken token)
+	private async ValueTask HandshakeWithAuthAsync(IDuplexPipe pipe, CancellationToken cancellationToken)
 	{
 		if (Status is not Status.Initial)
 		{
@@ -248,7 +248,7 @@ public sealed class Socks5Client : IDisposable
 			clientMethods.Add(Method.UsernamePassword);
 		}
 
-		Method replyMethod = await HandshakeMethodAsync(pipe, clientMethods, token);
+		Method replyMethod = await HandshakeMethodAsync(pipe, clientMethods, cancellationToken);
 		switch (replyMethod)
 		{
 			case Method.NoAuthentication:
@@ -257,7 +257,7 @@ public sealed class Socks5Client : IDisposable
 			}
 			case Method.UsernamePassword when _option.UsernamePassword is not null:
 			{
-				await AuthAsync(pipe, _option.UsernamePassword, token);
+				await AuthAsync(pipe, _option.UsernamePassword, cancellationToken);
 				break;
 			}
 			default:
@@ -267,15 +267,15 @@ public sealed class Socks5Client : IDisposable
 		}
 	}
 
-	private static async ValueTask<Method> HandshakeMethodAsync(IDuplexPipe pipe, IReadOnlyList<Method> clientMethods, CancellationToken token)
+	private static async ValueTask<Method> HandshakeMethodAsync(IDuplexPipe pipe, IReadOnlyList<Method> clientMethods, CancellationToken cancellationToken)
 	{
-		await pipe.Output.WriteAsync(Constants.MaxHandshakeClientMethodLength, PackHandshake, token);
+		await pipe.Output.WriteAsync(Constants.MaxHandshakeClientMethodLength, PackHandshake, cancellationToken);
 
 		// Receive
 
 		Method method = Method.NoAuthentication;
 
-		await pipe.Input.ReadAsync(HandleResponse, token);
+		await pipe.Input.ReadAsync(HandleResponse, cancellationToken);
 
 		if (!clientMethods.Contains(method))
 		{
@@ -295,13 +295,13 @@ public sealed class Socks5Client : IDisposable
 		}
 	}
 
-	private static async ValueTask AuthAsync(IDuplexPipe pipe, UsernamePassword credential, CancellationToken token)
+	private static async ValueTask AuthAsync(IDuplexPipe pipe, UsernamePassword credential, CancellationToken cancellationToken)
 	{
-		await pipe.Output.WriteAsync(Constants.MaxUsernamePasswordAuthLength, PackUsernamePassword, token);
+		await pipe.Output.WriteAsync(Constants.MaxUsernamePasswordAuthLength, PackUsernamePassword, cancellationToken);
 
 		// Receive
 
-		if (!await pipe.Input.ReadAsync(HandleResponse, token))
+		if (!await pipe.Input.ReadAsync(HandleResponse, cancellationToken))
 		{
 			throw new Socks5ProtocolErrorException(@"Auth failed!", Socks5Reply.ConnectionNotAllowed);
 		}
@@ -323,15 +323,15 @@ public sealed class Socks5Client : IDisposable
 		IDuplexPipe pipe,
 		Command command,
 		string? dst, IPAddress? dstAddress, ushort dstPort,
-		CancellationToken token)
+		CancellationToken cancellationToken)
 	{
-		await pipe.Output.WriteAsync(Constants.MaxCommandLength, PackClientCommand, token);
+		await pipe.Output.WriteAsync(Constants.MaxCommandLength, PackClientCommand, cancellationToken);
 
 		// Receive
 
 		ServerBound bound = new();
 
-		if (!await pipe.Input.ReadAsync(HandleResponse, token))
+		if (!await pipe.Input.ReadAsync(HandleResponse, cancellationToken))
 		{
 			throw new Socks5ProtocolErrorException(@"Send command failed!", Socks5Reply.CommandNotSupported);
 		}

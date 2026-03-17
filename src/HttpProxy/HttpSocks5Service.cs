@@ -45,31 +45,31 @@ public class HttpSocks5Service(IPEndPoint bindEndPoint, HttpToSocks5 httpToSocks
 		}
 	}
 
-	private async Task HandleAsync(Socket socket, CancellationToken token)
+	private async Task HandleAsync(Socket socket, CancellationToken cancellationToken)
 	{
 		try
 		{
 			IDuplexPipe pipe = socket.AsDuplexPipe();
-			ReadResult result = await pipe.Input.ReadAsync(token);
+			ReadResult result = await pipe.Input.ReadAsync(cancellationToken);
 			ReadOnlySequence<byte> buffer = result.Buffer;
 
 			if (IsSocks5Header(buffer))
 			{
 				using TcpClient socks5 = new();
-				await socks5.ConnectAsync(_socks5Address, socks5CreateOption.Port, token);
+				await socks5.ConnectAsync(_socks5Address, socks5CreateOption.Port, cancellationToken);
 				IDuplexPipe socks5Pipe = socks5.Client.AsDuplexPipe();
 
-				await socks5Pipe.Output.WriteAsync(buffer, token);
+				await socks5Pipe.Output.WriteAsync(buffer, cancellationToken);
 				pipe.Input.AdvanceTo(buffer.End);
 
-				await socks5Pipe.LinkToAsync(pipe, token);
+				await socks5Pipe.LinkToAsync(pipe, cancellationToken);
 			}
 			else
 			{
 				pipe.Input.AdvanceTo(buffer.Start, buffer.End);
 				pipe.Input.CancelPendingRead();
 
-				await httpToSocks5.ForwardToSocks5Async(pipe, socks5CreateOption, token);
+				await httpToSocks5.ForwardToSocks5Async(pipe, socks5CreateOption, cancellationToken);
 			}
 		}
 		finally

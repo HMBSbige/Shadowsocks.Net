@@ -46,11 +46,11 @@ public sealed class Socks5ServerConnection(IDuplexPipe pipe, UsernamePassword? c
 		return true;
 	}
 
-	public async ValueTask AcceptClientAsync(CancellationToken token = default)
+	public async ValueTask AcceptClientAsync(CancellationToken cancellationToken = default)
 	{
 		HashSet<Method> methods = new();
 
-		await pipe.Input.ReadAsync(TryReadClientHandshake, token);
+		await pipe.Input.ReadAsync(TryReadClientHandshake, cancellationToken);
 
 		if (methods.Count <= 0)
 		{
@@ -69,16 +69,16 @@ public sealed class Socks5ServerConnection(IDuplexPipe pipe, UsernamePassword? c
 		}
 
 		// Send method to client
-		await pipe.Output.WriteAsync(2, PackMethod, token);
+		await pipe.Output.WriteAsync(2, PackMethod, cancellationToken);
 
-		if (method is Method.UsernamePassword && !await UsernamePasswordAuthAsync(token))
+		if (method is Method.UsernamePassword && !await UsernamePasswordAuthAsync(cancellationToken))
 		{
 			throw new Socks5ProtocolErrorException(@"SOCKS5 auth username password error.", Socks5Reply.ConnectionNotAllowed);
 		}
 
 		if (method is not Method.NoAcceptable)
 		{
-			await ReadTargetAsync(token);
+			await ReadTargetAsync(cancellationToken);
 		}
 
 		return;
@@ -94,14 +94,14 @@ public sealed class Socks5ServerConnection(IDuplexPipe pipe, UsernamePassword? c
 		}
 	}
 
-	private async ValueTask<bool> UsernamePasswordAuthAsync(CancellationToken token = default)
+	private async ValueTask<bool> UsernamePasswordAuthAsync(CancellationToken cancellationToken = default)
 	{
 		UsernamePassword? clientCredential = null;
-		await pipe.Input.ReadAsync(TryReadClientAuth, token);
+		await pipe.Input.ReadAsync(TryReadClientAuth, cancellationToken);
 
 		bool isAuth = clientCredential == credential;
 
-		await pipe.Output.WriteAsync(2, PackReply, token);
+		await pipe.Output.WriteAsync(2, PackReply, cancellationToken);
 
 		return isAuth;
 
@@ -116,9 +116,9 @@ public sealed class Socks5ServerConnection(IDuplexPipe pipe, UsernamePassword? c
 		}
 	}
 
-	private async ValueTask ReadTargetAsync(CancellationToken token = default)
+	private async ValueTask ReadTargetAsync(CancellationToken cancellationToken = default)
 	{
-		await pipe.Input.ReadAsync(TryReadCommand, token);
+		await pipe.Input.ReadAsync(TryReadCommand, cancellationToken);
 		return;
 
 		ParseResult TryReadCommand(ref ReadOnlySequence<byte> buffer)
@@ -182,9 +182,9 @@ public sealed class Socks5ServerConnection(IDuplexPipe pipe, UsernamePassword? c
 		}
 	}
 
-	public async ValueTask SendReplyAsync(Socks5Reply reply, ServerBound bound, CancellationToken token = default)
+	public async ValueTask SendReplyAsync(Socks5Reply reply, ServerBound bound, CancellationToken cancellationToken = default)
 	{
-		await pipe.Output.WriteAsync(Constants.MaxCommandLength, PackCommand, token);
+		await pipe.Output.WriteAsync(Constants.MaxCommandLength, PackCommand, cancellationToken);
 		return;
 
 		int PackCommand(Span<byte> span)

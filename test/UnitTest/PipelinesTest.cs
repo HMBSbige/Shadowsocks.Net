@@ -9,7 +9,7 @@ namespace UnitTest;
 public class PipelinesTest
 {
 	[Test]
-	public async Task SocketDoubleFlushTestAsync()
+	public async Task SocketDoubleFlushTestAsync(CancellationToken cancellationToken)
 	{
 		const long length = 1024 * 1024;
 		const long bufferSize = 4096;
@@ -60,7 +60,7 @@ public class PipelinesTest
 	}
 
 	[Test]
-	public async Task SocketStreamDisposeWithOwnsSocketClosesSocketAsync()
+	public async Task SocketStreamDisposeWithOwnsSocketClosesSocketAsync(CancellationToken cancellationToken)
 	{
 		(TcpListener listener, TcpClient client, Socket serverSocket) = await CreateConnectedSocketPairAsync();
 
@@ -80,7 +80,7 @@ public class PipelinesTest
 	}
 
 	[Test]
-	public async Task SocketStreamDisposeWithoutOwnsSocketLeavesSocketOpenAsync()
+	public async Task SocketStreamDisposeWithoutOwnsSocketLeavesSocketOpenAsync(CancellationToken cancellationToken)
 	{
 		(TcpListener listener, TcpClient client, Socket serverSocket) = await CreateConnectedSocketPairAsync();
 

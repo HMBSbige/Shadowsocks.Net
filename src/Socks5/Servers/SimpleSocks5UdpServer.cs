@@ -50,9 +50,9 @@ public class SimpleSocks5UdpServer : IDisposable
 		}
 	}
 
-	private async ValueTask HandleAsync(UdpReceiveResult result, CancellationToken token)
+	private async ValueTask HandleAsync(UdpReceiveResult result, CancellationToken cancellationToken)
 	{
-		if (token.IsCancellationRequested)
+		if (cancellationToken.IsCancellationRequested)
 		{
 			return;
 		}
@@ -76,20 +76,20 @@ public class SimpleSocks5UdpServer : IDisposable
 			client.Connect(socks5UdpPacket.Address, socks5UdpPacket.Port);
 		}
 
-		await client.Client.SendAsync(socks5UdpPacket.Data, SocketFlags.None, token);
+		await client.Client.SendAsync(socks5UdpPacket.Data, SocketFlags.None, cancellationToken);
 
 		int headerLength = result.Buffer.Length - socks5UdpPacket.Data.Length;
 		byte[] receiveBuffer = ArrayPool<byte>.Shared.Rent(MaxUdpSize);
 		try
 		{
-			int receiveLength = await client.Client.ReceiveAsync(receiveBuffer.AsMemory(headerLength), SocketFlags.None, token);
+			int receiveLength = await client.Client.ReceiveAsync(receiveBuffer.AsMemory(headerLength), SocketFlags.None, cancellationToken);
 			result.Buffer.AsSpan(0, headerLength).CopyTo(receiveBuffer);
 
 			await UdpListener.Client.SendToAsync(
 				receiveBuffer.AsMemory(0, headerLength + receiveLength),
 				SocketFlags.None,
 				result.RemoteEndPoint,
-				token
+				cancellationToken
 			);
 		}
 		finally

@@ -19,15 +19,15 @@ public static class PipelinesExtensions
 		/// until parsing succeeds, fails, or the pipe completes.
 		/// </summary>
 		/// <param name="func">The delegate that parses the buffer.</param>
-		/// <param name="token">The cancellation token.</param>
+		/// <param name="cancellationToken">The cancellation token.</param>
 		/// <returns><see langword="true"/> if parsing succeeded; otherwise <see langword="false"/>.</returns>
 		public async ValueTask<bool> ReadAsync(
 			HandleReadOnlySequence func,
-			CancellationToken token = default)
+			CancellationToken cancellationToken = default)
 		{
 			while (true)
 			{
-				ReadResult result = await reader.ReadAsync(token);
+				ReadResult result = await reader.ReadAsync(cancellationToken);
 				ReadOnlySequence<byte> buffer = result.Buffer;
 
 				try
@@ -77,36 +77,23 @@ public static class PipelinesExtensions
 					buffer = buffer.Slice(0, size);
 				}
 
-				SequencePosition position = buffer.Start;
-				SequencePosition consumed = position;
-
 				try
 				{
-					while (buffer.TryGet(ref position, out ReadOnlyMemory<byte> memory))
-					{
-						FlushResult flushResult = await target.WriteAsync(memory, cancellationToken);
-						flushResult.ThrowIfCanceled(cancellationToken);
+					target.Write(buffer);
+					FlushResult flushResult = await target.FlushAsync(cancellationToken);
+					flushResult.ThrowIfCanceled(cancellationToken);
 
-						readSize += memory.Length;
-						consumed = position;
-
-						if (flushResult.IsCompleted)
-						{
-							return readSize;
-						}
-					}
-
-					consumed = buffer.End;
+					readSize += buffer.Length;
 					size -= buffer.Length;
 
-					if (size <= 0 || result.IsCompleted)
+					if (flushResult.IsCompleted || size <= 0 || result.IsCompleted)
 					{
 						break;
 					}
 				}
 				finally
 				{
-					reader.AdvanceTo(consumed);
+					reader.AdvanceTo(buffer.End);
 				}
 			}
 
@@ -168,16 +155,16 @@ public static class PipelinesExtensions
 		/// </summary>
 		/// <param name="maxBufferSize">The minimum buffer size to request.</param>
 		/// <param name="copyTo">The delegate that writes data into the buffer span.</param>
-		/// <param name="token">The cancellation token.</param>
+		/// <param name="cancellationToken">The cancellation token.</param>
 		/// <returns>The flush result.</returns>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public async ValueTask<FlushResult> WriteAsync(
 			int maxBufferSize,
 			CopyToSpan copyTo,
-			CancellationToken token = default)
+			CancellationToken cancellationToken = default)
 		{
 			writer.Write(maxBufferSize, copyTo);
-			return await writer.FlushAsync(token);
+			return await writer.FlushAsync(cancellationToken);
 		}
 
 		/// <summary>
@@ -209,6 +196,18 @@ public static class PipelinesExtensions
 		}
 
 		/// <summary>
+		/// Writes all segments of a <see cref="ReadOnlySequence{T}"/> to the <see cref="PipeWriter"/> without flushing.
+		/// </summary>
+		/// <param name="sequence">The byte sequence to write.</param>
+		public void Write(ReadOnlySequence<byte> sequence)
+		{
+			foreach (ReadOnlyMemory<byte> memory in sequence)
+			{
+				writer.Write(memory.Span);
+			}
+		}
+
+		/// <summary>
 		/// Writes a <see cref="ReadOnlySequence{T}"/> to the <see cref="PipeWriter"/> and flushes once.
 		/// </summary>
 		/// <param name="sequence">The byte sequence to write.</param>
@@ -216,11 +215,7 @@ public static class PipelinesExtensions
 		/// <returns>The flush result.</returns>
 		public async ValueTask<FlushResult> WriteAsync(ReadOnlySequence<byte> sequence, CancellationToken cancellationToken = default)
 		{
-			foreach (ReadOnlyMemory<byte> memory in sequence)
-			{
-				writer.Write(memory.Span);
-			}
-
+			writer.Write(sequence);
 			return await writer.FlushAndCheckIsCanceledAsync(cancellationToken);
 		}
 

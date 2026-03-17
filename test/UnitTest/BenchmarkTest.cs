@@ -7,7 +7,7 @@ public class BenchmarkTest
 {
 	[Explicit]
 	[Test]
-	public void PipelinesBenchmark()
+	public void PipelinesBenchmark(CancellationToken cancellationToken)
 	{
 		BenchmarkRunner.Run<PipelinesBenchmark>();
 	}

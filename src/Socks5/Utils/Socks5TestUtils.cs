@@ -14,7 +14,7 @@ namespace Socks5.Utils;
 
 public static class Socks5TestUtils
 {
-	private static ReadOnlySpan<byte> Newline => new[] { (byte)'\r', (byte)'\n' };
+	private static ReadOnlySpan<byte> Newline => "\r\n"u8;
 
 	/// <summary>
 	/// 使用 HTTP1.1 204 测试 SOCKS5 CONNECT 
@@ -29,26 +29,26 @@ public static class Socks5TestUtils
 		string target = @"http://cp.cloudflare.com",
 		string targetHost = @"cp.cloudflare.com",
 		ushort targetPort = 80,
-		CancellationToken token = default)
+		CancellationToken cancellationToken = default)
 	{
 		string sendString = $"GET {target} HTTP/1.1\r\nHost: {targetHost}\r\n\r\n";
 
 		using Socks5Client client = new(option);
 
-		ServerBound bound = await client.ConnectAsync(targetHost, targetPort, token);
+		ServerBound bound = await client.ConnectAsync(targetHost, targetPort, cancellationToken);
 
 		Debug.WriteLine($@"TCP: Supported, {bound.Type} {(bound.Type == AddressType.Domain ? bound.Domain : bound.Address)}:{bound.Port}");
 
 		IDuplexPipe pipe = client.GetPipe();
 
-		await pipe.Output.WriteAsync(sendString, token);
+		await pipe.Output.WriteAsync(sendString, cancellationToken);
 
 		// Response
 
 		string? content;
 		while (true)
 		{
-			ReadResult result = await pipe.Input.ReadAsync(token);
+			ReadResult result = await pipe.Input.ReadAsync(cancellationToken);
 			ReadOnlySequence<byte> buffer = result.Buffer;
 			try
 			{
@@ -93,11 +93,11 @@ public static class Socks5TestUtils
 		string target = @"bing.com",
 		string targetHost = @"8.8.8.8",
 		ushort targetPort = 53,
-		CancellationToken token = default)
+		CancellationToken cancellationToken = default)
 	{
 		using Socks5Client client = new(option);
 
-		ServerBound bound = await client.UdpAssociateAsync(IPAddress.Any, 0, token);
+		ServerBound bound = await client.UdpAssociateAsync(IPAddress.Any, 0, cancellationToken);
 
 		Debug.WriteLine($@"UDP: Supported, {bound.Type} {(bound.Type == AddressType.Domain ? bound.Domain : bound.Address)}:{bound.Port}");
 
@@ -122,9 +122,9 @@ public static class Socks5TestUtils
 			buffer[offset++] = 0x00;
 			buffer[offset++] = 0x01;
 
-			await client.SendUdpAsync(buffer.AsMemory(0, offset), targetHost, targetPort, token);
+			await client.SendUdpAsync(buffer.AsMemory(0, offset), targetHost, targetPort, cancellationToken);
 
-			Socks5UdpReceivePacket res = await client.ReceiveAsync(token);
+			Socks5UdpReceivePacket res = await client.ReceiveAsync(cancellationToken);
 
 			return res.Data.Span[..2].SequenceEqual(buffer.AsSpan(0, 2));
 		}

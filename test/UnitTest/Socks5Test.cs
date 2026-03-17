@@ -5,10 +5,11 @@ using System.Net;
 
 namespace UnitTest;
 
+[Timeout(5_000)]
 public class Socks5Test
 {
 	[Test]
-	public async Task ConnectTestAsync()
+	public async Task ConnectTestAsync(CancellationToken cancellationToken)
 	{
 		IPEndPoint serverEndpoint = new(IPAddress.Loopback, 0);
 		UsernamePassword userPass = new()
@@ -28,7 +29,7 @@ public class Socks5Test
 				Port = port,
 				UsernamePassword = userPass
 			};
-			await Assert.That(await Socks5TestUtils.Socks5ConnectAsync(option)).IsTrue();
+			await Assert.That(await Socks5TestUtils.Socks5ConnectAsync(option, cancellationToken: cancellationToken)).IsTrue();
 		}
 		finally
 		{
@@ -37,7 +38,7 @@ public class Socks5Test
 	}
 
 	[Test]
-	public async Task UdpAssociateTestAsync()
+	public async Task UdpAssociateTestAsync(CancellationToken cancellationToken)
 	{
 		IPEndPoint serverEndpoint = new(IPAddress.Loopback, 0);
 		UsernamePassword userPass = new()
@@ -57,7 +58,7 @@ public class Socks5Test
 				Port = port,
 				UsernamePassword = userPass
 			};
-			await Assert.That(await Socks5TestUtils.Socks5UdpAssociateAsync(option)).IsTrue();
+			await Assert.That(await Socks5TestUtils.Socks5UdpAssociateAsync(option, cancellationToken: cancellationToken)).IsTrue();
 		}
 		finally
 		{

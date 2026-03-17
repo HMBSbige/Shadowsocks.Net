@@ -23,7 +23,7 @@ public class ReadOnlySequenceStreamTest
 	}
 
 	[Test]
-	public async Task EmptySequenceReadAsync()
+	public async Task EmptySequenceReadAsync(CancellationToken cancellationToken)
 	{
 		byte[] t = new byte[16];
 		await Assert.That(EmptyStream.ReadByte()).IsEqualTo(-1);
@@ -33,7 +33,7 @@ public class ReadOnlySequenceStreamTest
 	}
 
 	[Test]
-	public async Task EmptySequenceWrite()
+	public async Task EmptySequenceWrite(CancellationToken cancellationToken)
 	{
 		Stream stream = EmptyStream;
 		byte[] b = new byte[16];
@@ -51,7 +51,7 @@ public class ReadOnlySequenceStreamTest
 	}
 
 	[Test]
-	public async Task EmptySequenceFlush()
+	public async Task EmptySequenceFlush(CancellationToken cancellationToken)
 	{
 		Stream stream = EmptyStream;
 		stream.Flush();
@@ -62,7 +62,7 @@ public class ReadOnlySequenceStreamTest
 	}
 
 	[Test]
-	public async Task EmptySequenceSeek()
+	public async Task EmptySequenceSeek(CancellationToken cancellationToken)
 	{
 		Stream stream = EmptyStream;
 		await Assert.That(stream.Seek(0, SeekOrigin.Begin)).IsEqualTo(0);
@@ -74,7 +74,7 @@ public class ReadOnlySequenceStreamTest
 	}
 
 	[Test]
-	public async Task CanRead()
+	public async Task CanRead(CancellationToken cancellationToken)
 	{
 		Stream stream = EmptyStream;
 		await Assert.That(stream.CanRead).IsTrue();
@@ -83,7 +83,7 @@ public class ReadOnlySequenceStreamTest
 	}
 
 	[Test]
-	public async Task CanSeek()
+	public async Task CanSeek(CancellationToken cancellationToken)
 	{
 		Stream stream = EmptyStream;
 		await Assert.That(stream.CanSeek).IsTrue();
@@ -92,7 +92,7 @@ public class ReadOnlySequenceStreamTest
 	}
 
 	[Test]
-	public async Task CanWrite()
+	public async Task CanWrite(CancellationToken cancellationToken)
 	{
 		Stream stream = EmptyStream;
 		await Assert.That(stream.CanWrite).IsFalse();
@@ -101,7 +101,7 @@ public class ReadOnlySequenceStreamTest
 	}
 
 	[Test]
-	public async Task Length()
+	public async Task Length(CancellationToken cancellationToken)
 	{
 		Stream stream = EmptyStream;
 		await Assert.That(stream.Length).IsEqualTo(0);
@@ -114,7 +114,7 @@ public class ReadOnlySequenceStreamTest
 	}
 
 	[Test]
-	public async Task CanTimeout()
+	public async Task CanTimeout(CancellationToken cancellationToken)
 	{
 		Stream stream = EmptyStream;
 		await Assert.That(stream.CanTimeout).IsFalse();
@@ -123,7 +123,7 @@ public class ReadOnlySequenceStreamTest
 	}
 
 	[Test]
-	public async Task SetLength()
+	public async Task SetLength(CancellationToken cancellationToken)
 	{
 		Stream stream = EmptyStream;
 		// ReSharper disable once AccessToDisposedClosure
@@ -133,7 +133,7 @@ public class ReadOnlySequenceStreamTest
 	}
 
 	[Test]
-	public async Task Position()
+	public async Task Position(CancellationToken cancellationToken)
 	{
 		Stream stream = EmptyStream;
 		await Assert.That(() => stream.Position = 1).ThrowsExactly<ArgumentOutOfRangeException>();
@@ -172,7 +172,7 @@ public class ReadOnlySequenceStreamTest
 	}
 
 	[Test]
-	public async Task ReadByte()
+	public async Task ReadByte(CancellationToken cancellationToken)
 	{
 		await using Stream stream = SingleSegmentSequence.AsStream();
 
@@ -204,7 +204,7 @@ public class ReadOnlySequenceStreamTest
 	}
 
 	[Test]
-	public async Task CopyToAsync()
+	public async Task CopyToAsync(CancellationToken cancellationToken)
 	{
 		// Single segment
 		await using MemoryStream singleDest = new();
@@ -241,7 +241,7 @@ public class ReadOnlySequenceStreamTest
 	}
 
 	[Test]
-	public async Task Seek()
+	public async Task Seek(CancellationToken cancellationToken)
 	{
 		Stream stream = MultiSegmentSequence.AsStream();
 

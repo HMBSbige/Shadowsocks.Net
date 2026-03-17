@@ -43,13 +43,13 @@ public class SimpleSocks5Server(IPEndPoint bindEndPoint, UsernamePassword? crede
 		}
 	}
 
-	private async ValueTask HandleAsync(Socket socket, CancellationToken token)
+	private async ValueTask HandleAsync(Socket socket, CancellationToken cancellationToken)
 	{
 		try
 		{
 			IDuplexPipe pipe = socket.AsDuplexPipe();
 			Socks5ServerConnection service = new(pipe, credential);
-			await service.AcceptClientAsync(token);
+			await service.AcceptClientAsync(cancellationToken);
 
 			switch (service.Command)
 			{
@@ -59,25 +59,29 @@ public class SimpleSocks5Server(IPEndPoint bindEndPoint, UsernamePassword? crede
 					if (service.Target.Type is AddressType.Domain)
 					{
 						Debug.Assert(service.Target.Domain is not null);
-						await tcp.ConnectAsync(service.Target.Domain, service.Target.Port, token);
+						await tcp.ConnectAsync(service.Target.Domain, service.Target.Port, cancellationToken);
 					}
 					else
 					{
 						Debug.Assert(service.Target.Address is not null);
-						await tcp.ConnectAsync(service.Target.Address, service.Target.Port, token);
+						await tcp.ConnectAsync(service.Target.Address, service.Target.Port, cancellationToken);
 					}
 
-					await service.SendReplyAsync(Socks5Reply.Succeeded, ReplyTcpBound, token);
+					await service.SendReplyAsync(Socks5Reply.Succeeded, ReplyTcpBound, cancellationToken);
 
 					IDuplexPipe tcpPipe = tcp.Client.AsDuplexPipe();
 
-					await tcpPipe.LinkToAsync(pipe, token);
+					// Relay with TCP half-close: when one direction ends,
+					// shutdown the other socket's Send so the peer sees EOF.
+					Task a = CopyThenShutdownAsync(tcpPipe.Input, pipe.Output, socket, cancellationToken);
+					Task b = CopyThenShutdownAsync(pipe.Input, tcpPipe.Output, tcp.Client, cancellationToken);
+					await Task.WhenAll(a, b);
 
 					break;
 				}
 				case Command.Bind:
 				{
-					await service.SendReplyAsync(Socks5Reply.CommandNotSupported, ReplyTcpBound, token);
+					await service.SendReplyAsync(Socks5Reply.CommandNotSupported, ReplyTcpBound, cancellationToken);
 					break;
 				}
 				case Command.UdpAssociate:
@@ -95,17 +99,17 @@ public class SimpleSocks5Server(IPEndPoint bindEndPoint, UsernamePassword? crede
 						Port = (ushort)((IPEndPoint)udpServer.UdpListener.Client.LocalEndPoint!).Port,
 					};
 
-					await service.SendReplyAsync(Socks5Reply.Succeeded, replyUdpBound, token);
+					await service.SendReplyAsync(Socks5Reply.Succeeded, replyUdpBound, cancellationToken);
 
 					// wait remote close
-					ReadResult result = await pipe.Input.ReadAsync(token);
+					ReadResult result = await pipe.Input.ReadAsync(cancellationToken);
 					Debug.Assert(result.IsCompleted);
 
 					break;
 				}
 				default:
 				{
-					await service.SendReplyAsync(Socks5Reply.GeneralFailure, ReplyTcpBound, token);
+					await service.SendReplyAsync(Socks5Reply.GeneralFailure, ReplyTcpBound, cancellationToken);
 					break;
 				}
 			}
@@ -113,6 +117,21 @@ public class SimpleSocks5Server(IPEndPoint bindEndPoint, UsernamePassword? crede
 		finally
 		{
 			socket.FullClose();
+		}
+	}
+
+	private static async Task CopyThenShutdownAsync(PipeReader source, PipeWriter destination, Socket socketToShutdown, CancellationToken cancellationToken)
+	{
+		try
+		{
+			await source.CopyToAsync(destination, long.MaxValue, cancellationToken);
+		}
+		catch (Exception) { /* connection reset, cancelled, etc. */ }
+		finally
+		{
+			try
+			{ socketToShutdown.Shutdown(SocketShutdown.Send); }
+			catch (SocketException) { /* already disconnected */ }
 		}
 	}
 

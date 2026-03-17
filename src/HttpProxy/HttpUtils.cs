@@ -49,6 +49,17 @@ public static class HttpUtils
 	}
 
 	/// <summary>
+	/// Returns true if the last comma-separated token in the Transfer-Encoding value is "chunked".
+	/// Per RFC 7230 §3.3.1, chunked must be the final encoding.
+	/// </summary>
+	private static bool HasChunkedEncoding(ReadOnlySpan<byte> value)
+	{
+		int lastComma = value.LastIndexOf((byte)',');
+		ReadOnlySpan<byte> lastToken = lastComma < 0 ? value : value.Slice(lastComma + 1);
+		return Ascii.EqualsIgnoreCase(lastToken.Trim((byte)' '), "chunked"u8);
+	}
+
+	/// <summary>
 	/// Returns true if <paramref name="name"/> is one of the 9 standard hop-by-hop headers.
 	/// Comparison is case-insensitive, ASCII-only.
 	/// </summary>
@@ -241,8 +252,7 @@ public static class HttpUtils
 		output.Write(" "u8);
 		output.Write(version);
 
-		ReadOnlySpan<byte> connectionValue = FindHeaderValue(headerSection, "Connection"u8);
-		WriteFilteredHeaders(headerSection, connectionValue, output, out _, out _);
+		WriteFilteredHeaders(headerSection, output);
 
 		output.Write("\r\nConnection: close"u8);
 		output.Write(HttpHeaderEnd);
@@ -253,11 +263,8 @@ public static class HttpUtils
 	/// writes status line + filtered headers directly to <paramref name="output"/>.
 	/// The sequence must NOT include the trailing \r\n\r\n.
 	/// </summary>
-	public static void WriteFilteredResponse(ReadOnlySequence<byte> headerBytes, PipeWriter output, out bool isChunked, out long contentLength)
+	public static void WriteFilteredResponse(ReadOnlySequence<byte> headerBytes, PipeWriter output)
 	{
-		isChunked = false;
-		contentLength = 0;
-
 		// Copy to contiguous buffer for simpler parsing — headers are typically small
 		int len = (int)headerBytes.Length;
 		byte[]? rented = null;
@@ -277,13 +284,7 @@ public static class HttpUtils
 
 			output.Write(statusLine);
 
-			ReadOnlySpan<byte> connectionValue = FindHeaderValue(headerSection, "Connection"u8);
-			WriteFilteredHeaders(headerSection, connectionValue, output, out isChunked, out contentLength);
-
-			if (isChunked)
-			{
-				output.Write("\r\nTransfer-Encoding: chunked"u8);
-			}
+			WriteFilteredHeaders(headerSection, output);
 
 			output.Write(HttpHeaderEnd);
 		}
@@ -297,94 +298,209 @@ public static class HttpUtils
 	}
 
 	/// <summary>
-	/// Iterates header lines, extracts Transfer-Encoding/Content-Length metadata,
-	/// filters hop-by-hop and Connection-nominated headers, and writes surviving headers to output.
+	/// Two-pass header filter. First pass accumulates all Transfer-Encoding and Connection values
+	/// (RFC 7230 §3.2.2: multiple same-name headers = comma-separated combined value).
+	/// Second pass writes surviving headers and the combined Transfer-Encoding line.
 	/// </summary>
 	private static void WriteFilteredHeaders(
 		ReadOnlySpan<byte> headerSection,
-		ReadOnlySpan<byte> connectionValue,
-		PipeWriter output,
-		out bool isChunked,
-		out long contentLength)
+		PipeWriter output)
 	{
-		isChunked = false;
-		contentLength = 0;
+		long contentLength = 0;
+		bool hasContentLength = false;
+		bool validContentLength = true;
 
-		ReadOnlySpan<byte> remaining = headerSection;
+		// First pass: accumulate all Transfer-Encoding and Connection values
+		// RFC 7230 §3.2.2: multiple same-name headers = comma-separated combined value
+		Span<byte> teBuf = stackalloc byte[256];
+		byte[]? teRented = null;
+		int teLen = 0;
+		Span<byte> connBuf = stackalloc byte[512];
+		byte[]? connRented = null;
+		int connLen = 0;
 
-		while (!remaining.IsEmpty)
+		try
 		{
-			int lineEnd = remaining.IndexOf("\r\n"u8);
-			ReadOnlySpan<byte> line = lineEnd < 0 ? remaining : remaining.Slice(0, lineEnd);
-			remaining = lineEnd < 0 ? [] : remaining.Slice(lineEnd + 2);
+			ReadOnlySpan<byte> remaining = headerSection;
 
-			if (line.IsEmpty)
+			while (!remaining.IsEmpty)
 			{
-				continue;
+				int lineEnd = remaining.IndexOf("\r\n"u8);
+				ReadOnlySpan<byte> line = lineEnd < 0 ? remaining : remaining.Slice(0, lineEnd);
+				remaining = lineEnd < 0 ? [] : remaining.Slice(lineEnd + 2);
+
+				if (line.IsEmpty)
+				{
+					continue;
+				}
+
+				int colon = line.IndexOf((byte)':');
+
+				if (colon <= 0)
+				{
+					continue;
+				}
+
+				ReadOnlySpan<byte> name = line.Slice(0, colon).TrimEnd((byte)' ');
+				ReadOnlySpan<byte> value = line.Slice(colon + 1).Trim((byte)' ');
+
+				if (Ascii.EqualsIgnoreCase(name, "Transfer-Encoding"u8))
+				{
+					AppendHeaderValue(ref teBuf, ref teRented, ref teLen, value);
+				}
+				else if (Ascii.EqualsIgnoreCase(name, "Connection"u8))
+				{
+					AppendHeaderValue(ref connBuf, ref connRented, ref connLen, value);
+				}
+				else if (Ascii.EqualsIgnoreCase(name, "Content-Length"u8))
+				{
+					if (!TryAccumulateContentLength(value, ref contentLength, ref hasContentLength))
+					{
+						validContentLength = false;
+					}
+				}
 			}
 
-			int colon = line.IndexOf((byte)':');
+			ReadOnlySpan<byte> combinedTe = teBuf.Slice(0, teLen);
+			ReadOnlySpan<byte> connectionValue = connBuf.Slice(0, connLen);
 
-			if (colon <= 0)
+			// RFC 7230 §3.3.3: If Transfer-Encoding is present, ignore Content-Length
+			if (teLen > 0 || !validContentLength)
 			{
-				continue;
+				contentLength = 0;
 			}
 
-			ReadOnlySpan<byte> name = line.Slice(0, colon).TrimEnd((byte)' ');
-			ReadOnlySpan<byte> value = line.Slice(colon + 1).Trim((byte)' ');
+			// Second pass: write headers, skipping hop-by-hop, Connection-nominated, and Content-Length
+			// Content-Length is always stripped here and written back normalized after the loop.
+			remaining = headerSection;
 
-			if (Ascii.EqualsIgnoreCase(name, "Transfer-Encoding"u8))
+			while (!remaining.IsEmpty)
 			{
-				isChunked = Ascii.EqualsIgnoreCase(value, "chunked"u8);
-			}
-			else if (Ascii.EqualsIgnoreCase(name, "Content-Length"u8))
-			{
-				Utf8Parser.TryParse(value, out contentLength, out _);
+				int lineEnd = remaining.IndexOf("\r\n"u8);
+				ReadOnlySpan<byte> line = lineEnd < 0 ? remaining : remaining.Slice(0, lineEnd);
+				remaining = lineEnd < 0 ? [] : remaining.Slice(lineEnd + 2);
+
+				if (line.IsEmpty)
+				{
+					continue;
+				}
+
+				int colon = line.IndexOf((byte)':');
+
+				if (colon <= 0)
+				{
+					continue;
+				}
+
+				ReadOnlySpan<byte> name = line.Slice(0, colon).TrimEnd((byte)' ');
+
+				if (IsHopByHopHeader(name))
+				{
+					continue;
+				}
+
+				if (!connectionValue.IsEmpty && IsConnectionNominated(connectionValue, name))
+				{
+					continue;
+				}
+
+				if (Ascii.EqualsIgnoreCase(name, "Content-Length"u8))
+				{
+					continue;
+				}
+
+				output.Write(HttpNewLineSpan);
+				output.Write(line);
 			}
 
-			if (IsHopByHopHeader(name))
+			// Write combined Transfer-Encoding header (preserve even when not chunked)
+			if (teLen > 0)
 			{
-				continue;
+				output.Write("\r\nTransfer-Encoding: "u8);
+				output.Write(combinedTe);
 			}
 
-			if (!connectionValue.IsEmpty && IsConnectionNominated(connectionValue, name))
+			// Write validated, deduplicated Content-Length (only when no TE present)
+			if (teLen == 0 && hasContentLength && validContentLength)
 			{
-				continue;
+				Span<byte> clBuf = stackalloc byte[20];
+				Utf8Formatter.TryFormat(contentLength, clBuf, out int clLen);
+				output.Write("\r\nContent-Length: "u8);
+				output.Write(clBuf.Slice(0, clLen));
+			}
+		}
+		finally
+		{
+			if (teRented is not null)
+			{
+				ArrayPool<byte>.Shared.Return(teRented);
 			}
 
-			output.Write(HttpNewLineSpan);
-			output.Write(line);
+			if (connRented is not null)
+			{
+				ArrayPool<byte>.Shared.Return(connRented);
+			}
 		}
 	}
 
 	/// <summary>
-	/// Finds the value of a header by name in the header section bytes.
-	/// Returns empty span if not found.
+	/// Accumulates a Content-Length header value, detecting invalid formats and conflicting values
+	/// per RFC 7230 §3.3.2 and §3.3.3.
 	/// </summary>
-	private static ReadOnlySpan<byte> FindHeaderValue(ReadOnlySpan<byte> headerSection, ReadOnlySpan<byte> headerName)
+	/// <returns>
+	/// <see langword="true"/> if the value is valid and consistent with previous values;
+	/// <see langword="false"/> if malformed or conflicting.
+	/// </returns>
+	private static bool TryAccumulateContentLength(
+		ReadOnlySpan<byte> value,
+		ref long contentLength,
+		ref bool hasContentLength)
 	{
-		ReadOnlySpan<byte> remaining = headerSection;
-
-		while (!remaining.IsEmpty)
+		if (!Utf8Parser.TryParse(value, out long cl, out int consumed) || consumed != value.Length)
 		{
-			int lineEnd = remaining.IndexOf("\r\n"u8);
-			ReadOnlySpan<byte> line = lineEnd < 0 ? remaining : remaining.Slice(0, lineEnd);
-			remaining = lineEnd < 0 ? [] : remaining.Slice(lineEnd + 2);
-
-			int colon = line.IndexOf((byte)':');
-
-			if (colon > 0)
-			{
-				ReadOnlySpan<byte> name = line.Slice(0, colon).TrimEnd((byte)' ');
-
-				if (Ascii.EqualsIgnoreCase(name, headerName))
-				{
-					return line.Slice(colon + 1).Trim((byte)' ');
-				}
-			}
+			return false;
 		}
 
-		return [];
+		if (hasContentLength && contentLength != cl)
+		{
+			return false;
+		}
+
+		contentLength = cl;
+		hasContentLength = true;
+		return true;
+	}
+
+	/// <summary>
+	/// Appends a header value to a growable buffer, joining with ", " for multi-line headers.
+	/// Starts with a stackalloc'd span; falls back to <see cref="ArrayPool{T}"/> on overflow.
+	/// </summary>
+	private static void AppendHeaderValue(ref Span<byte> buf, ref byte[]? rented, ref int len, ReadOnlySpan<byte> value)
+	{
+		int needed = len + (len > 0 ? 2 : 0) + value.Length;
+
+		if (needed > buf.Length)
+		{
+			byte[] grown = ArrayPool<byte>.Shared.Rent(Math.Max(needed, buf.Length * 2));
+			buf.Slice(0, len).CopyTo(grown);
+
+			if (rented is not null)
+			{
+				ArrayPool<byte>.Shared.Return(rented);
+			}
+
+			rented = grown;
+			buf = rented;
+		}
+
+		if (len > 0)
+		{
+			", "u8.CopyTo(buf.Slice(len));
+			len += 2;
+		}
+
+		value.CopyTo(buf.Slice(len));
+		len += value.Length;
 	}
 
 	/// <summary>
@@ -422,9 +538,12 @@ public static class HttpUtils
 
 		bool isConnect = Ascii.EqualsIgnoreCase(method, "CONNECT"u8);
 
-		// Single pass: extract Host and Content-Length header values
+		// Single pass: extract Host, Content-Length, and Transfer-Encoding header values
 		ReadOnlySpan<byte> hostValue = default;
 		long contentLength = 0;
+		bool hasContentLength = false;
+		bool isChunked = false;
+		bool hasTransferEncoding = false;
 		ReadOnlySpan<byte> scan = headerSection;
 
 		while (!scan.IsEmpty)
@@ -448,8 +567,29 @@ public static class HttpUtils
 			}
 			else if (!isConnect && Ascii.EqualsIgnoreCase(name, "Content-Length"u8))
 			{
-				Utf8Parser.TryParse(line.Slice(colon + 1).Trim((byte)' '), out contentLength, out _);
+				if (!TryAccumulateContentLength(line.Slice(colon + 1).Trim((byte)' '), ref contentLength, ref hasContentLength))
+				{
+					return false;
+				}
 			}
+			else if (!isConnect && Ascii.EqualsIgnoreCase(name, "Transfer-Encoding"u8))
+			{
+				hasTransferEncoding = true;
+				isChunked = HasChunkedEncoding(line.Slice(colon + 1).Trim((byte)' '));
+			}
+		}
+
+		// RFC 7230 §3.3.1: For requests, chunked must be the final transfer coding.
+		// If TE is present but chunked is not last, body length cannot be determined.
+		if (hasTransferEncoding && !isChunked)
+		{
+			return false;
+		}
+
+		// RFC 7230 §3.3.3: If Transfer-Encoding is present, ignore Content-Length
+		if (hasTransferEncoding)
+		{
+			contentLength = 0;
 		}
 
 		ReadOnlySpan<byte> authority;
@@ -491,7 +631,7 @@ public static class HttpUtils
 		}
 
 		string hostname = Encoding.Latin1.GetString(host);
-		result = new HttpHeaders(isConnect, hostname, port, contentLength);
+		result = new HttpHeaders(isConnect, hostname, port, contentLength, isChunked);
 		return true;
 	}
 

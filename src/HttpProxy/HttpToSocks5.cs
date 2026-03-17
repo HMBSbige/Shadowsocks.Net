@@ -37,9 +37,6 @@ public partial class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 	[LoggerMessage(Level = LogLevel.Trace, Message = "server headers received: \n{Headers}")]
 	private static partial void LogServerHeadersReceived(ILogger logger, string headers);
 
-	[LoggerMessage(Level = LogLevel.Debug, Message = "Waiting for up to {ContentLength} bytes from server")]
-	private static partial void LogWaitingForServerBytes(ILogger logger, long contentLength);
-
 	[LoggerMessage(Level = LogLevel.Debug, Message = "server sent {ServerSentLength} bytes to client")]
 	private static partial void LogServerSentBytes(ILogger logger, long serverSentLength);
 
@@ -123,7 +120,11 @@ public partial class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 					WriteFilteredRequest(rented.AsSpan(0, headerLen), socks5Pipe.Output);
 					await socks5Pipe.Output.FlushAsync(cancellationToken);
 
-					if (httpHeaders.ContentLength > 0)
+					if (httpHeaders.IsChunked)
+					{
+						await CopyChunkedRequestAsync(incomingPipe.Input, socks5Pipe.Output, cancellationToken);
+					}
+					else if (httpHeaders.ContentLength > 0)
 					{
 						LogWaitingForClientBytes(_logger, httpHeaders.ContentLength);
 
@@ -150,8 +151,6 @@ public partial class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 
 	private async ValueTask ReadAndWriteFilteredResponseAsync(PipeReader reader, PipeWriter output, CancellationToken cancellationToken)
 	{
-		bool isChunked = false;
-		long serverContentLength = 0;
 		bool headersDone = false;
 
 		while (!headersDone)
@@ -169,7 +168,7 @@ public partial class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 					}
 
 					// WriteFilteredResponse copies to contiguous buffer internally, safe before AdvanceTo
-					WriteFilteredResponse(responseHeaderBytes, output, out isChunked, out serverContentLength);
+					WriteFilteredResponse(responseHeaderBytes, output);
 					await output.FlushAsync(cancellationToken);
 
 					buffer = buffer.Slice(consumed);
@@ -197,18 +196,12 @@ public partial class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 			throw new InvalidDataException("Cannot read HTTP response headers.");
 		}
 
-		if (isChunked)
-		{
-			await CopyChunksAsync(reader, output, cancellationToken);
-		}
-		else if (serverContentLength > 0)
-		{
-			LogWaitingForServerBytes(_logger, serverContentLength);
-
-			long readLength = await reader.CopyToAsync(output, serverContentLength, cancellationToken);
-
-			LogServerSentBytes(_logger, readLength);
-		}
+		// Copy remaining body to client until server closes the connection.
+		// Since we force Connection: close in the outgoing request, the server
+		// closes the connection after the full response regardless of framing
+		// (Content-Length, chunked, or close-delimited).
+		long readLength = await reader.CopyToAsync(output, long.MaxValue, cancellationToken);
+		LogServerSentBytes(_logger, readLength);
 	}
 
 	private static bool TryFindHeaderEnd(ReadOnlySequence<byte> buffer, out ReadOnlySequence<byte> headerBytes, out long consumed)
@@ -317,7 +310,7 @@ public partial class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 		await writer.FlushAsync(cancellationToken);
 	}
 
-	private static async ValueTask CopyChunksAsync(PipeReader reader, PipeWriter target, CancellationToken cancellationToken = default)
+	private static async ValueTask CopyChunkedRequestAsync(PipeReader reader, PipeWriter target, CancellationToken cancellationToken)
 	{
 		while (true)
 		{
@@ -326,32 +319,16 @@ public partial class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 
 			try
 			{
-				while (true)
+				while (TryForwardChunk(ref buffer, target, out bool isLast))
 				{
-					long lengthOfChunkLength = ReadLine(buffer, out ReadOnlySequence<byte> chunkLengthBuffer);
-
-					if (lengthOfChunkLength <= 0)
+					if (isLast)
 					{
-						break;
-					}
-
-					long chunkLength = GetChunkLength(chunkLengthBuffer);
-
-					long length = lengthOfChunkLength + chunkLength + 2;
-
-					if (buffer.Length < length)
-					{
-						break;
-					}
-
-					FlushResult flushResult = await target.WriteAsync(buffer.Slice(0, length), cancellationToken);
-					buffer = buffer.Slice(length);
-
-					if (flushResult.IsCompleted || chunkLength is 0L)
-					{
+						await target.FlushAsync(cancellationToken);
 						return;
 					}
 				}
+
+				await target.FlushAsync(cancellationToken);
 
 				if (result.IsCompleted)
 				{
@@ -363,37 +340,97 @@ public partial class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 				reader.AdvanceTo(buffer.Start, buffer.End);
 			}
 		}
-
-		return;
-
-		static long GetChunkLength(ReadOnlySequence<byte> sequence)
-		{
-			SequenceReader<byte> reader = new(sequence);
-			long length = 0L;
-
-			while (reader.TryRead(out byte c))
-			{
-				length <<= 4;
-				length += c > '9'
-					? c > 'Z'
-						? c - 'a' + 10
-						: c - 'A' + 10
-					: c - '0';
-			}
-
-			return length;
-		}
-
-		static long ReadLine(ReadOnlySequence<byte> sequence, out ReadOnlySequence<byte> value)
-		{
-			SequenceReader<byte> reader = new(sequence);
-
-			if (reader.TryReadTo(out value, HttpNewLineSpan))
-			{
-				// value 不包括结尾的 \r\n
-			}
-
-			return reader.Consumed;
-		}
 	}
+
+	private static bool TryForwardChunk(ref ReadOnlySequence<byte> buffer, PipeWriter target, out bool isLast)
+	{
+		isLast = false;
+		SequenceReader<byte> seqReader = new(buffer);
+
+		if (!seqReader.TryReadTo(out ReadOnlySequence<byte> chunkSizeLine, HttpNewLineSpan))
+		{
+			return false;
+		}
+
+		long lineConsumed = seqReader.Consumed; // includes \r\n
+		long chunkSize = ParseChunkSize(chunkSizeLine);
+
+		if (chunkSize < 0)
+		{
+			throw new InvalidDataException("Invalid chunk size: not a valid hexadecimal number.");
+		}
+
+		if (chunkSize == 0)
+		{
+			// Terminating chunk: "0[;ext]\r\n" followed by optional trailers and a final "\r\n".
+			// Scan for the empty line that ends the trailer section.
+			ReadOnlySequence<byte> afterLine = buffer.Slice(lineConsumed);
+			SequenceReader<byte> trailerReader = new(afterLine);
+
+			while (trailerReader.TryReadTo(out ReadOnlySequence<byte> trailerLine, HttpNewLineSpan))
+			{
+				if (trailerLine.Length == 0)
+				{
+					// Empty line = end of trailers
+					long total = lineConsumed + trailerReader.Consumed;
+					target.Write(buffer.Slice(0, total));
+					buffer = buffer.Slice(total);
+					isLast = true;
+					return true;
+				}
+			}
+
+			return false; // Need more data for trailers
+		}
+
+		// Non-zero chunk: chunk-size line (\r\n included) + data + \r\n
+		long totalLen = lineConsumed + chunkSize + 2;
+
+		if (buffer.Length < totalLen)
+		{
+			return false;
+		}
+
+		target.Write(buffer.Slice(0, totalLen));
+		buffer = buffer.Slice(totalLen);
+		return true;
+	}
+
+	private static long ParseChunkSize(ReadOnlySequence<byte> chunkSizeLine)
+	{
+		SequenceReader<byte> reader = new(chunkSizeLine);
+		long length = 0;
+		int digitCount = 0;
+
+		while (reader.TryRead(out byte c))
+		{
+			if (c == (byte)';')
+			{
+				break; // Stop at chunk extension
+			}
+
+			int digit = c switch
+			{
+				>= (byte)'0' and <= (byte)'9' => c - '0',
+				>= (byte)'a' and <= (byte)'f' => c - 'a' + 10,
+				>= (byte)'A' and <= (byte)'F' => c - 'A' + 10,
+				_ => -1,
+			};
+
+			if (digit < 0)
+			{
+				return -1; // Invalid character in chunk-size (RFC 7230 §4.1: chunk-size = 1*HEXDIG)
+			}
+
+			if (++digitCount > 16)
+			{
+				return -1; // Overflow: chunk size exceeds long.MaxValue (16 hex digits)
+			}
+
+			length = (length << 4) | (uint)digit;
+		}
+
+		return digitCount > 0 ? length : -1;
+	}
+
 }
