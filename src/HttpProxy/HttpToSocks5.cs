@@ -1,4 +1,3 @@
-using HttpProxy.Enums;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Pipelines.Extensions;
@@ -7,289 +6,255 @@ using Socks5.Enums;
 using Socks5.Exceptions;
 using Socks5.Models;
 using System.Buffers;
-using System.Diagnostics.CodeAnalysis;
 using System.IO.Pipelines;
 using System.Text;
 using static HttpProxy.HttpUtils;
 
 namespace HttpProxy;
 
-public class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
+/// <summary>
+/// Forwards HTTP requests through a SOCKS5 proxy, rewriting headers on the fly.
+/// </summary>
+/// <param name="logger">Optional logger instance.</param>
+public partial class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 {
+	#region logging
+
 	private readonly ILogger<HttpToSocks5> _logger = logger ?? NullLogger<HttpToSocks5>.Instance;
 
+	[LoggerMessage(Level = LogLevel.Trace, Message = "Client headers received: \n{Headers}")]
+	private static partial void LogClientHeadersReceived(ILogger logger, string headers);
+
+	[LoggerMessage(Level = LogLevel.Debug, Message = "New request: {Headers}")]
+	private static partial void LogParsedRequestHeaders(ILogger logger, HttpHeaders headers);
+
+	[LoggerMessage(Level = LogLevel.Debug, Message = "Waiting for up to {ContentLength} bytes from client")]
+	private static partial void LogWaitingForClientBytes(ILogger logger, long contentLength);
+
+	[LoggerMessage(Level = LogLevel.Debug, Message = "client sent {ClientSentLength} bytes to server")]
+	private static partial void LogClientSentBytes(ILogger logger, long clientSentLength);
+
+	[LoggerMessage(Level = LogLevel.Trace, Message = "server headers received: \n{Headers}")]
+	private static partial void LogServerHeadersReceived(ILogger logger, string headers);
+
+	[LoggerMessage(Level = LogLevel.Debug, Message = "Waiting for up to {ContentLength} bytes from server")]
+	private static partial void LogWaitingForServerBytes(ILogger logger, long contentLength);
+
+	[LoggerMessage(Level = LogLevel.Debug, Message = "server sent {ServerSentLength} bytes to client")]
+	private static partial void LogServerSentBytes(ILogger logger, long serverSentLength);
+
+	[LoggerMessage(Level = LogLevel.Warning, Message = "Failed to parse HTTP request")]
+	private static partial void LogInvalidRequest(ILogger logger);
+
+	[LoggerMessage(Level = LogLevel.Warning, Message = "Incomplete HTTP request from client")]
+	private static partial void LogIncompleteRequest(ILogger logger);
+
+	[LoggerMessage(Level = LogLevel.Warning, Message = "Socks5 connection to {Hostname}:{Port} was rejected ({Reply})")]
+	private static partial void LogSocks5ConnectionRejected(ILogger logger, string? hostname, ushort port, Socks5Reply reply);
+
+	[LoggerMessage(Level = LogLevel.Error, Message = "Unexpected error forwarding HTTP request")]
+	private static partial void LogUnexpectedError(ILogger logger, Exception exception);
+
+	#endregion
+
+	/// <summary>
+	/// Reads an HTTP request from <paramref name="incomingPipe"/>, connects to the target via SOCKS5, and relays the traffic.
+	/// </summary>
+	/// <param name="incomingPipe">The client-side duplex pipe.</param>
+	/// <param name="socks5CreateOption">Options for creating the SOCKS5 connection.</param>
+	/// <param name="cancellationToken">A token to cancel the operation.</param>
 	public async ValueTask ForwardToSocks5Async(IDuplexPipe incomingPipe, Socks5CreateOption socks5CreateOption, CancellationToken cancellationToken = default)
 	{
 		try
 		{
-			string headers = await ReadHttpHeadersAsync(incomingPipe.Input, cancellationToken);
-			_logger.LogDebug("Client headers received: \n{Headers}", headers);
+			(byte[] rented, int headerLen) = await ReadHeaderBytesAsync(incomingPipe.Input, cancellationToken);
 
-			if (!TryParseHeader(headers, out HttpHeaders? httpHeaders))
-			{
-				await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.InvalidRequest, token: cancellationToken);
-				return;
-			}
-			_logger.LogDebug("New request headers: \n{Headers}", httpHeaders);
-
-			if (httpHeaders.Hostname is null || !httpHeaders.IsConnect && httpHeaders.Request is null)
-			{
-				await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.InvalidRequest, httpHeaders.HttpVersion, cancellationToken);
-				return;
-			}
-
-			using Socks5Client socks5Client = new(socks5CreateOption);
 			try
 			{
-				await socks5Client.ConnectAsync(httpHeaders.Hostname, httpHeaders.Port, cancellationToken);
-			}
-			catch (Socks5ProtocolErrorException ex) when (ex.Socks5Reply == Socks5Reply.ConnectionNotAllowed)
-			{
-				await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.AuthenticationError, httpHeaders.HttpVersion, cancellationToken);
-				return;
-			}
-			catch (Socks5ProtocolErrorException ex) when (ex.Socks5Reply == Socks5Reply.HostUnreachable)
-			{
-				await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.HostUnreachable, httpHeaders.HttpVersion, cancellationToken);
-				return;
-			}
-			catch (Socks5ProtocolErrorException ex) when (ex.Socks5Reply == Socks5Reply.ConnectionRefused)
-			{
-				await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.ConnectionRefused, httpHeaders.HttpVersion, cancellationToken);
-				return;
-			}
-			catch (Socks5ProtocolErrorException)
-			{
-				await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.InvalidRequest, httpHeaders.HttpVersion, cancellationToken);
-				return;
-			}
+				ReadOnlySpan<byte> headerSpan = rented.AsSpan(0, headerLen);
 
-			if (httpHeaders.IsConnect)
-			{
-				await SendConnectSuccessAsync(incomingPipe.Output, httpHeaders.HttpVersion, cancellationToken);
-
-				IDuplexPipe socks5Pipe = socks5Client.GetPipe();
-
-				await socks5Pipe.LinkToAsync(incomingPipe, cancellationToken);
-			}
-			else
-			{
-				IDuplexPipe socks5Pipe = socks5Client.GetPipe();
-
-				await socks5Pipe.Output.WriteAsync(httpHeaders.Request!, cancellationToken);
-				if (httpHeaders.ContentLength > 0)
+				if (_logger.IsEnabled(LogLevel.Trace))
 				{
-					_logger.LogDebug(@"Waiting for up to {ContentLength} bytes from client", httpHeaders.ContentLength);
-
-					long readLength = await incomingPipe.Input.CopyToAsync(socks5Pipe.Output, httpHeaders.ContentLength, cancellationToken);
-
-					_logger.LogDebug(@"client sent {ClientSentLength} bytes to server", readLength);
+					LogClientHeadersReceived(_logger, Encoding.Latin1.GetString(headerSpan));
 				}
 
-				//Read response
-				string responseHeadersStr = await ReadHttpHeadersAsync(socks5Pipe.Input, cancellationToken);
-				_logger.LogDebug("server headers received: \n{Headers}", responseHeadersStr);
-				Dictionary<string, string> responseHeaders = ReadHeaders(responseHeadersStr);
-
-				incomingPipe.Output.Write(responseHeadersStr);
-				incomingPipe.Output.Write(HttpHeaderEnd);
-				await incomingPipe.Output.FlushAsync(cancellationToken);
-
-				if (IsChunked(responseHeaders))
+				if (!TryParseHeaders(headerSpan, out HttpHeaders httpHeaders))
 				{
-					await CopyChunksAsync(socks5Pipe.Input, incomingPipe.Output, cancellationToken);
+					LogInvalidRequest(_logger);
+					await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.InvalidRequest, cancellationToken);
+					return;
 				}
-				else if (TryReadContentLength(responseHeaders, out long serverResponseContentLength))
+
+				LogParsedRequestHeaders(_logger, httpHeaders);
+
+				using Socks5Client socks5Client = new(socks5CreateOption);
+
+				try
 				{
-					if (serverResponseContentLength > 0)
+					await socks5Client.ConnectAsync(httpHeaders.Hostname, httpHeaders.Port, cancellationToken);
+				}
+				catch (Socks5ProtocolErrorException ex)
+				{
+					LogSocks5ConnectionRejected(_logger, httpHeaders.Hostname, httpHeaders.Port, ex.Socks5Reply);
+
+					ConnectionErrorResult errorResult = ex.Socks5Reply switch
 					{
-						_logger.LogDebug(@"Waiting for up to {ContentLength} bytes from server", serverResponseContentLength);
+						Socks5Reply.ConnectionNotAllowed => ConnectionErrorResult.AuthenticationError,
+						Socks5Reply.HostUnreachable => ConnectionErrorResult.HostUnreachable,
+						Socks5Reply.ConnectionRefused => ConnectionErrorResult.ConnectionRefused,
+						_ => ConnectionErrorResult.InvalidRequest,
+					};
 
-						long readLength = await socks5Pipe.Input.CopyToAsync(incomingPipe.Output, serverResponseContentLength, cancellationToken);
-
-						_logger.LogDebug(@"server sent {ServerSentLength} bytes to client", readLength);
-					}
+					await SendErrorAsync(incomingPipe.Output, errorResult, cancellationToken);
+					return;
 				}
+
+				if (httpHeaders.IsConnect)
+				{
+					await SendConnectSuccessAsync(incomingPipe.Output, cancellationToken);
+
+					IDuplexPipe socks5Pipe = socks5Client.GetPipe();
+					await socks5Pipe.LinkToAsync(incomingPipe, cancellationToken);
+				}
+				else
+				{
+					IDuplexPipe socks5Pipe = socks5Client.GetPipe();
+
+					WriteFilteredRequest(rented.AsSpan(0, headerLen), socks5Pipe.Output);
+					await socks5Pipe.Output.FlushAsync(cancellationToken);
+
+					if (httpHeaders.ContentLength > 0)
+					{
+						LogWaitingForClientBytes(_logger, httpHeaders.ContentLength);
+
+						long readLength = await incomingPipe.Input.CopyToAsync(socks5Pipe.Output, httpHeaders.ContentLength, cancellationToken);
+
+						LogClientSentBytes(_logger, readLength);
+					}
+
+					await ReadAndWriteFilteredResponseAsync(socks5Pipe.Input, incomingPipe.Output, cancellationToken);
+				}
+			}
+			finally
+			{
+				ArrayPool<byte>.Shared.Return(rented);
 			}
 		}
-		catch (Exception)
+		catch (Exception ex)
 		{
-			await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.UnknownError, token: cancellationToken);
+			LogUnexpectedError(_logger, ex);
+			await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.UnknownError, cancellationToken);
 			throw;
 		}
 	}
 
-	private static async ValueTask SendErrorAsync(PipeWriter writer, ConnectionErrorResult error, string httpVersion = @"HTTP/1.1", CancellationToken token = default)
+	private async ValueTask ReadAndWriteFilteredResponseAsync(PipeReader reader, PipeWriter output, CancellationToken cancellationToken)
 	{
-		string str = BuildErrorResponse(error, httpVersion);
-		await writer.WriteAsync(str, token);
-	}
+		bool isChunked = false;
+		long serverContentLength = 0;
+		bool headersDone = false;
 
-	private static async ValueTask SendConnectSuccessAsync(PipeWriter writer, string httpVersion = @"HTTP/1.1", CancellationToken token = default)
-	{
-		string str = $"{httpVersion} 200 Connection Established\r\n\r\n";
-		await writer.WriteAsync(str, token);
-	}
-
-	private static bool TryParseHeader(string raw, [NotNullWhen(true)] out HttpHeaders? httpHeaders)
-	{
-		string[] headerLines = raw.SplitLines();
-
-		if (headerLines.Length <= 0)
+		while (!headersDone)
 		{
-			goto InvalidRequest;
-		}
+			ReadResult result = await reader.ReadAsync(cancellationToken);
+			ReadOnlySequence<byte> buffer = result.Buffer;
 
-		string[] methodLine = headerLines[0].Split(' ');
-		if (methodLine.Length is not 3) // METHOD URI HTTP/X.Y
-		{
-			goto InvalidRequest;
-		}
-
-		#region Read Headers
-
-		Dictionary<string, string> headers = new(StringComparer.OrdinalIgnoreCase);
-		foreach (string headerLine in headerLines.Skip(1))
-		{
-			string[] sp = headerLine.Split(':', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-			if (sp.Length != 2)
+			try
 			{
-				goto InvalidRequest;
-			}
-
-			string headerName = sp[0];
-			string headerValue = sp[1];
-
-			if (headerName.IsHopByHopHeader())
-			{
-				continue;
-			}
-
-			headers[headerName] = headerValue;
-		}
-
-		headers[@"Connection"] = @"close";
-
-		#endregion
-
-		httpHeaders = new HttpHeaders
-		{
-			Method = methodLine[0],
-			HostUriString = methodLine[1],
-			HttpVersion = methodLine[2]
-		};
-
-		#region Host
-
-		headers.TryGetValue(@"Host", out string? hostHeader);
-		if (string.IsNullOrEmpty(hostHeader) && httpHeaders.IsConnect)
-		{
-			hostHeader = httpHeaders.HostUriString;
-		}
-
-		Uri hostUri = new(httpHeaders.HostUriString);
-		if (string.IsNullOrEmpty(hostHeader))
-		{
-			httpHeaders.Hostname = hostUri.Host;
-			httpHeaders.Port = (ushort)hostUri.Port;
-		}
-		else
-		{
-			string[] sp = hostHeader.Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-			if (sp.Length <= 0)
-			{
-				goto InvalidRequest;
-			}
-
-			httpHeaders.Hostname = sp[0];
-
-			if (sp.Length > 1)
-			{
-				if (!ushort.TryParse(sp[1], out ushort port))
+				if (TryFindHeaderEnd(buffer, out ReadOnlySequence<byte> responseHeaderBytes, out long consumed))
 				{
-					goto InvalidRequest;
+					if (_logger.IsEnabled(LogLevel.Trace))
+					{
+						LogServerHeadersReceived(_logger, Encoding.Latin1.GetString(responseHeaderBytes));
+					}
+
+					// WriteFilteredResponse copies to contiguous buffer internally, safe before AdvanceTo
+					WriteFilteredResponse(responseHeaderBytes, output, out isChunked, out serverContentLength);
+					await output.FlushAsync(cancellationToken);
+
+					buffer = buffer.Slice(consumed);
+
+					if (!buffer.IsEmpty)
+					{
+						reader.CancelPendingRead();
+					}
+
+					headersDone = true;
 				}
-
-				httpHeaders.Port = port;
+				else if (result.IsCompleted)
+				{
+					break;
+				}
 			}
-		}
-
-		#endregion
-
-		#region Content-Length
-
-		if (!httpHeaders.IsConnect)
-		{
-			headers.TryGetValue(@"Content-Length", out string? contentLengthStr);
-			if (contentLengthStr is not null && long.TryParse(contentLengthStr, out long contentLength))
+			finally
 			{
-				httpHeaders.ContentLength = contentLength;
+				reader.AdvanceTo(buffer.Start, buffer.End);
 			}
 		}
 
-		#endregion
-
-		#region Request String
-
-		if (!httpHeaders.IsConnect)
+		if (!headersDone)
 		{
-			StringBuilder request = new(8192);
-
-			request.Append(httpHeaders.Method);
-			request.Append(' ');
-			request.Append(hostUri.PathAndQuery);
-			request.Append(hostUri.Fragment);
-			request.Append(' ');
-			request.Append(httpHeaders.HttpVersion);
-			request.Append(HttpNewLine);
-
-			foreach ((string name, string value) in headers)
-			{
-				request.Append(name);
-				request.Append(':');
-				request.Append(' ');
-				request.Append(value);
-				request.Append(HttpNewLine);
-			}
-
-			request.Append(HttpNewLine);
-			httpHeaders.Request = request.ToString();
+			throw new InvalidDataException("Cannot read HTTP response headers.");
 		}
 
-		#endregion
+		if (isChunked)
+		{
+			await CopyChunksAsync(reader, output, cancellationToken);
+		}
+		else if (serverContentLength > 0)
+		{
+			LogWaitingForServerBytes(_logger, serverContentLength);
 
-		return true;
-	InvalidRequest:
-		httpHeaders = null;
-		return false;
+			long readLength = await reader.CopyToAsync(output, serverContentLength, cancellationToken);
+
+			LogServerSentBytes(_logger, readLength);
+		}
 	}
 
-	private static bool TryReadContentLength(IDictionary<string, string> headers, out long contentLength)
+	private static bool TryFindHeaderEnd(ReadOnlySequence<byte> buffer, out ReadOnlySequence<byte> headerBytes, out long consumed)
 	{
-		if (headers.TryGetValue(@"Content-Length", out string? value) && long.TryParse(value, out contentLength))
+		SequenceReader<byte> seqReader = new(buffer);
+
+		if (seqReader.TryReadTo(out headerBytes, HttpHeaderEnd))
 		{
+			consumed = seqReader.Consumed;
 			return true;
 		}
 
-		contentLength = 0;
+		consumed = 0;
 		return false;
 	}
 
-	private static async ValueTask<string> ReadHttpHeadersAsync(PipeReader reader, CancellationToken cancellationToken = default)
+	/// <summary>
+	/// Reads from PipeReader until the full header block (\r\n\r\n) is found.
+	/// Returns a rented byte array containing header bytes WITHOUT the trailing \r\n\r\n.
+	/// Caller must return the array to <see cref="ArrayPool{T}.Shared"/>.
+	/// </summary>
+	private static async ValueTask<(byte[] Buffer, int Length)> ReadHeaderBytesAsync(PipeReader reader, CancellationToken cancellationToken)
 	{
 		while (true)
 		{
 			ReadResult result = await reader.ReadAsync(cancellationToken);
 			ReadOnlySequence<byte> buffer = result.Buffer;
+
 			try
 			{
-				if (TryReadHeaders(ref buffer, out string? headers))
+				if (TryFindHeaderEnd(buffer, out ReadOnlySequence<byte> headerBuffer, out long consumed))
 				{
+					// Copy before AdvanceTo (in finally) invalidates the buffer
+					int len = (int)headerBuffer.Length;
+					byte[] rented = ArrayPool<byte>.Shared.Rent(len);
+					headerBuffer.CopyTo(rented);
+
+					// Slice buffer to remaining data; finally will AdvanceTo this position
+					buffer = buffer.Slice(consumed);
+
 					if (!buffer.IsEmpty)
 					{
 						reader.CancelPendingRead();
 					}
-					return headers;
+
+					return (rented, len);
 				}
 
 				if (result.IsCompleted)
@@ -303,53 +268,56 @@ public class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 			}
 		}
 
-		throw new InvalidDataException(@"Cannot read HTTP headers.");
+		throw new InvalidDataException("Cannot read HTTP headers.");
 	}
 
-	private static bool TryReadHeaders(ref ReadOnlySequence<byte> sequence, [NotNullWhen(true)] out string? headers)
+	private static async ValueTask SendErrorAsync(PipeWriter writer, ConnectionErrorResult error, CancellationToken cancellationToken = default)
 	{
-		SequenceReader<byte> reader = new(sequence);
-		if (reader.TryReadTo(out ReadOnlySequence<byte> headerBuffer, HttpHeaderEnd))
+		switch (error)
 		{
-			sequence = sequence.Slice(reader.Consumed);
-			headers = Encoding.UTF8.GetString(headerBuffer); // 不包括结尾的 \r\n\r\n
-			return true;
-		}
-
-		headers = default;
-		return false;
-	}
-
-	private static Dictionary<string, string> ReadHeaders(string raw)
-	{
-		string[] headerLines = raw.SplitLines();
-		Dictionary<string, string> headers = new(StringComparer.OrdinalIgnoreCase);
-		foreach (string headerLine in headerLines.Skip(1))
-		{
-			string[] sp = headerLine.Split(':', 2, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-			if (sp.Length != 2)
+			case ConnectionErrorResult.AuthenticationError:
 			{
-				continue;
+				writer.Write("HTTP/1.1 401 Unauthorized\r\n\r\n"u8);
+				break;
 			}
-
-			string headerName = sp[0];
-			string headerValue = sp[1];
-
-			headers[headerName] = headerValue;
+			case ConnectionErrorResult.HostUnreachable:
+			{
+				writer.Write("HTTP/1.1 502 HostUnreachable\r\n\r\n"u8);
+				break;
+			}
+			case ConnectionErrorResult.ConnectionRefused:
+			{
+				writer.Write("HTTP/1.1 502 ConnectionRefused\r\n\r\n"u8);
+				break;
+			}
+			case ConnectionErrorResult.ConnectionReset:
+			{
+				writer.Write("HTTP/1.1 502 ConnectionReset\r\n\r\n"u8);
+				break;
+			}
+			case ConnectionErrorResult.InvalidRequest:
+			{
+				writer.Write("HTTP/1.1 500 Internal Server Error\r\nX-Proxy-Error-Type: InvalidRequest\r\n\r\n"u8);
+				break;
+			}
+			case ConnectionErrorResult.UnknownError:
+			default:
+			{
+				writer.Write("HTTP/1.1 500 Internal Server Error\r\nX-Proxy-Error-Type: UnknownError\r\n\r\n"u8);
+				break;
+			}
 		}
-		return headers;
+
+		await writer.FlushAsync(cancellationToken);
 	}
 
-	private static bool IsChunked(IDictionary<string, string> headers)
+	private static async ValueTask SendConnectSuccessAsync(PipeWriter writer, CancellationToken cancellationToken = default)
 	{
-		//Transfer-Encoding: chunked
-		return headers.TryGetValue(@"Transfer-Encoding", out string? value) && value.Equals(@"chunked", StringComparison.OrdinalIgnoreCase);
+		writer.Write("HTTP/1.1 200 Connection Established\r\n\r\n"u8);
+		await writer.FlushAsync(cancellationToken);
 	}
 
-	private static async ValueTask CopyChunksAsync(
-		PipeReader reader,
-		PipeWriter target,
-		CancellationToken cancellationToken = default)
+	private static async ValueTask CopyChunksAsync(PipeReader reader, PipeWriter target, CancellationToken cancellationToken = default)
 	{
 		while (true)
 		{
@@ -361,6 +329,7 @@ public class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 				while (true)
 				{
 					long lengthOfChunkLength = ReadLine(buffer, out ReadOnlySequence<byte> chunkLengthBuffer);
+
 					if (lengthOfChunkLength <= 0)
 					{
 						break;
@@ -369,6 +338,7 @@ public class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 					long chunkLength = GetChunkLength(chunkLengthBuffer);
 
 					long length = lengthOfChunkLength + chunkLength + 2;
+
 					if (buffer.Length < length)
 					{
 						break;
@@ -382,6 +352,7 @@ public class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 						return;
 					}
 				}
+
 				if (result.IsCompleted)
 				{
 					break;
@@ -399,17 +370,24 @@ public class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 		{
 			SequenceReader<byte> reader = new(sequence);
 			long length = 0L;
+
 			while (reader.TryRead(out byte c))
 			{
 				length <<= 4;
-				length += c > '9' ? (c > 'Z' ? (c - 'a' + 10) : (c - 'A' + 10)) : (c - '0');
+				length += c > '9'
+					? c > 'Z'
+						? c - 'a' + 10
+						: c - 'A' + 10
+					: c - '0';
 			}
+
 			return length;
 		}
 
 		static long ReadLine(ReadOnlySequence<byte> sequence, out ReadOnlySequence<byte> value)
 		{
 			SequenceReader<byte> reader = new(sequence);
+
 			if (reader.TryReadTo(out value, HttpNewLineSpan))
 			{
 				// value 不包括结尾的 \r\n

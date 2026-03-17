@@ -4,81 +4,149 @@ using Socks5.Servers;
 using Socks5.Utils;
 using System.Buffers;
 using System.Net;
+using System.Net.Security;
 
 namespace UnitTest;
 
 public class HttpTest
 {
-	[Test]
-	public async Task TestAsync()
+	private sealed record Fixture(
+		MockHttpServer MockHttp,
+		MockHttpServer MockHttps,
+		SimpleSocks5Server Socks5Server,
+		HttpSocks5Service HttpServer,
+		HttpClient HttpClient,
+		Socks5CreateOption ForwardSocks5Option);
+
+	private static Fixture? _fixture;
+
+	private static Fixture F => _fixture ?? throw new InvalidOperationException();
+
+	[Before(Class)]
+	public static void Setup()
 	{
+		MockHttpServer mockHttp = new();
+		MockHttpServer mockHttps = new() { UseTls = true };
+		mockHttp.Start();
+		mockHttps.Start();
+
 		IPEndPoint serverEndpoint = new(IPAddress.Loopback, 0);
 		UsernamePassword userPass = new()
 		{
 			UserName = @"114514！",
 			Password = @"1919810￥"
 		};
-		SimpleSocks5Server server = new(serverEndpoint, userPass);
-		_ = server.StartAsync();
+		SimpleSocks5Server socks5Server = new(serverEndpoint, userPass);
+		_ = socks5Server.StartAsync();
 
-		try
+		ushort socks5Port = (ushort)((IPEndPoint)socks5Server.TcpListener.LocalEndpoint).Port;
+		Socks5CreateOption socks5CreateOption = new()
 		{
-			ushort port = (ushort)((IPEndPoint)server.TcpListener.LocalEndpoint).Port;
-			Socks5CreateOption socks5CreateOption = new()
+			Address = IPAddress.Loopback,
+			Port = socks5Port,
+			UsernamePassword = userPass
+		};
+		HttpSocks5Service httpServer = new(serverEndpoint, new HttpToSocks5(), socks5CreateOption);
+		_ = httpServer.StartAsync();
+
+		IPAddress httpAddress = ((IPEndPoint)httpServer.TcpListener.LocalEndpoint).Address;
+		ushort httpPort = (ushort)((IPEndPoint)httpServer.TcpListener.LocalEndpoint).Port;
+		SocketsHttpHandler handler = new()
+		{
+			UseProxy = true,
+			Proxy = new WebProxy(httpAddress.ToString(), httpPort),
+			AllowAutoRedirect = false,
+			SslOptions = new SslClientAuthenticationOptions { RemoteCertificateValidationCallback = (_, _, _, _) => true }
+		};
+
+		_fixture = new Fixture(
+			mockHttp,
+			mockHttps,
+			socks5Server,
+			httpServer,
+			new HttpClient(handler),
+			new Socks5CreateOption
 			{
-				Address = IPAddress.Loopback,
-				Port = port,
+				Address = httpAddress,
+				Port = httpPort,
 				UsernamePassword = userPass
-			};
-			HttpSocks5Service httpServer = new(serverEndpoint, new HttpToSocks5(), socks5CreateOption);
-			_ = httpServer.StartAsync();
+			});
+	}
 
-			try
-			{
-				IPAddress httpAddress = ((IPEndPoint)httpServer.TcpListener.LocalEndpoint).Address;
-				ushort httpPort = (ushort)((IPEndPoint)httpServer.TcpListener.LocalEndpoint).Port;
-				SocketsHttpHandler handler = new()
-				{
-					UseProxy = true,
-					Proxy = new WebProxy(httpAddress.ToString(), httpPort)
-				};
-				HttpClient httpClient = new(handler);
-
-				// CONNECT
-				string httpsStr = await httpClient.GetStringAsync(@"https://api.ip.sb/ip");
-				await Assert.That(string.IsNullOrWhiteSpace(httpsStr)).IsFalse();
-
-				// HTTP chunk
-				byte[] httpChunkBytes = await httpClient.GetByteArrayAsync(@"http://httpbin.org/stream-bytes/1024");
-				await Assert.That(httpChunkBytes.Length).IsEqualTo(1024);
-
-				// HTTP Content-Length
-				httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(@"curl");
-				string httpStr = await httpClient.GetStringAsync(@"http://ip.sb");
-				await Assert.That(string.IsNullOrWhiteSpace(httpStr)).IsFalse();
-
-				// HTTP no body
-				HttpResponseMessage response = await httpClient.GetAsync(@"http://cp.cloudflare.com");
-				await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
-
-				// Forward to SOCKS5
-				socks5CreateOption = new Socks5CreateOption
-				{
-					Address = httpAddress,
-					Port = httpPort,
-					UsernamePassword = userPass
-				};
-				await Assert.That(await Socks5TestUtils.Socks5ConnectAsync(socks5CreateOption)).IsTrue();
-			}
-			finally
-			{
-				httpServer.Stop();
-			}
-		}
-		finally
+	[After(Class)]
+	public static void Cleanup()
+	{
+		if (_fixture is not { } f)
 		{
-			server.Stop();
+			return;
 		}
+
+		f.HttpClient.Dispose();
+		f.HttpServer.Stop();
+		f.Socks5Server.Stop();
+		f.MockHttps.Dispose();
+		f.MockHttp.Dispose();
+	}
+
+	[Test]
+	public async Task ConnectAsync()
+	{
+		string httpsStr = await F.HttpClient.GetStringAsync($"https://localhost:{F.MockHttps.Port}/get");
+		await Assert.That(string.IsNullOrWhiteSpace(httpsStr)).IsFalse();
+	}
+
+	[Test]
+	public async Task ConnectIPv6Async()
+	{
+		string httpsStr = await F.HttpClient.GetStringAsync($"https://[::1]:{F.MockHttps.Port}/get");
+		await Assert.That(string.IsNullOrWhiteSpace(httpsStr)).IsFalse();
+	}
+
+	[Test]
+	public async Task HttpChunkAsync()
+	{
+		byte[] bytes = await F.HttpClient.GetByteArrayAsync($"http://localhost:{F.MockHttp.Port}/stream-bytes/1024");
+		await Assert.That(bytes.Length).IsEqualTo(1024);
+	}
+
+	[Test]
+	public async Task HttpContentLengthAsync()
+	{
+		string httpStr = await F.HttpClient.GetStringAsync($"http://localhost:{F.MockHttp.Port}/get");
+		await Assert.That(string.IsNullOrWhiteSpace(httpStr)).IsFalse();
+	}
+
+	[Test]
+	public async Task HttpContentLengthIPv6Async()
+	{
+		string httpStr = await F.HttpClient.GetStringAsync($"http://[::1]:{F.MockHttp.Port}/get");
+		await Assert.That(string.IsNullOrWhiteSpace(httpStr)).IsFalse();
+	}
+
+	[Test]
+	public async Task HttpDuplicateResponseHeadersAsync()
+	{
+		HttpResponseMessage response = await F.HttpClient.GetAsync($"http://localhost:{F.MockHttp.Port}/set-cookies");
+		string[] cookies = response.Headers.GetValues("Set-Cookie").ToArray();
+		await Assert.That(cookies.Length).IsEqualTo(2);
+	}
+
+	[Test]
+	public async Task HttpNoBodyAsync()
+	{
+		HttpResponseMessage response = await F.HttpClient.GetAsync($"http://localhost:{F.MockHttp.Port}/status/204");
+		await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
+	}
+
+	[Test]
+	public async Task ForwardToSocks5Async()
+	{
+		await Assert.That(await Socks5TestUtils.Socks5ConnectAsync(
+			F.ForwardSocks5Option,
+			target: "/status/204",
+			targetHost: "localhost",
+			targetPort: (ushort)F.MockHttp.Port
+		)).IsTrue();
 	}
 
 	[Test]

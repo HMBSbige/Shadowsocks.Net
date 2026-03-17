@@ -1,4 +1,4 @@
-namespace HttpProxy.Enums;
+namespace HttpProxy;
 
 internal enum ConnectionErrorResult
 {

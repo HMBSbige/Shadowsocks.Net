@@ -209,27 +209,19 @@ public static class PipelinesExtensions
 		}
 
 		/// <summary>
-		/// Writes a <see cref="ReadOnlySequence{T}"/> to the <see cref="PipeWriter"/>, flushing after each segment.
+		/// Writes a <see cref="ReadOnlySequence{T}"/> to the <see cref="PipeWriter"/> and flushes once.
 		/// </summary>
 		/// <param name="sequence">The byte sequence to write.</param>
 		/// <param name="cancellationToken">The cancellation token.</param>
-		/// <returns>The flush result from the last segment.</returns>
+		/// <returns>The flush result.</returns>
 		public async ValueTask<FlushResult> WriteAsync(ReadOnlySequence<byte> sequence, CancellationToken cancellationToken = default)
 		{
-			FlushResult flushResult = default;
-
 			foreach (ReadOnlyMemory<byte> memory in sequence)
 			{
 				writer.Write(memory.Span);
-				flushResult = await writer.FlushAndCheckIsCanceledAsync(cancellationToken);
-
-				if (flushResult.IsCompleted)
-				{
-					break;
-				}
 			}
 
-			return flushResult;
+			return await writer.FlushAndCheckIsCanceledAsync(cancellationToken);
 		}
 
 		/// <summary>
