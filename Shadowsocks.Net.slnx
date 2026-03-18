@@ -5,11 +5,13 @@
     <File Path="LICENSE" />
     <File Path="NuGet.Config" />
     <File Path="README.md" />
-    <File Path=".github/workflows/release.yml" />
     <File Path=".github\renovate.json" />
-    <File Path=".github\workflows\CI.yml" />
     <File Path="Directory.Build.props" />
     <File Path="Directory.Packages.props" />
+  </Folder>
+  <Folder Name="/Solution Items/workflows/">
+    <File Path=".github/workflows/release.yml" />
+    <File Path=".github\workflows\CI.yml" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src\HttpProxy\HttpProxy.csproj" />
