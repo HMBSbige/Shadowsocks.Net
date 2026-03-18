@@ -1,26 +1,29 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Pipelines.Extensions;
-using Socks5.Clients;
-using Socks5.Enums;
-using Socks5.Exceptions;
-using Socks5.Models;
+using Proxy.Abstractions;
 using System.Buffers;
 using System.IO.Pipelines;
+using System.Net.Sockets;
 using System.Text;
 using static HttpProxy.HttpUtils;
 
 namespace HttpProxy;
 
 /// <summary>
-/// Forwards HTTP requests through a SOCKS5 proxy, rewriting headers on the fly.
+/// Forwards HTTP requests through a configurable outbound connector, rewriting headers on the fly.
 /// </summary>
+/// <param name="credential">Optional proxy credentials. When set, clients must present matching Basic credentials.</param>
 /// <param name="logger">Optional logger instance.</param>
-public partial class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
+public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogger<HttpForwarder>? logger = null) : IInbound
 {
+	private readonly string? _expectedAuth = credential is not null
+		? "Basic " + Convert.ToBase64String(Encoding.UTF8.GetBytes($"{credential.UserName}:{credential.Password}"))
+		: null;
+
 	#region logging
 
-	private readonly ILogger<HttpToSocks5> _logger = logger ?? NullLogger<HttpToSocks5>.Instance;
+	private readonly ILogger<HttpForwarder> _logger = logger ?? NullLogger<HttpForwarder>.Instance;
 
 	[LoggerMessage(Level = LogLevel.Trace, Message = "Client headers received: \n{Headers}")]
 	private static partial void LogClientHeadersReceived(ILogger logger, string headers);
@@ -43,11 +46,8 @@ public partial class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 	[LoggerMessage(Level = LogLevel.Warning, Message = "Failed to parse HTTP request")]
 	private static partial void LogInvalidRequest(ILogger logger);
 
-	[LoggerMessage(Level = LogLevel.Warning, Message = "Incomplete HTTP request from client")]
-	private static partial void LogIncompleteRequest(ILogger logger);
-
-	[LoggerMessage(Level = LogLevel.Warning, Message = "Socks5 connection to {Hostname}:{Port} was rejected ({Reply})")]
-	private static partial void LogSocks5ConnectionRejected(ILogger logger, string? hostname, ushort port, Socks5Reply reply);
+	[LoggerMessage(Level = LogLevel.Warning, Message = "Connection to {Hostname}:{Port} failed ({SocketError})")]
+	private static partial void LogConnectionFailed(ILogger logger, string hostname, ushort port, SocketError socketError);
 
 	[LoggerMessage(Level = LogLevel.Error, Message = "Unexpected error forwarding HTTP request")]
 	private static partial void LogUnexpectedError(ILogger logger, Exception exception);
@@ -55,16 +55,17 @@ public partial class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 	#endregion
 
 	/// <summary>
-	/// Reads an HTTP request from <paramref name="incomingPipe"/>, connects to the target via SOCKS5, and relays the traffic.
+	/// Reads an HTTP request from <paramref name="clientPipe"/>, connects to the target via
+	/// <paramref name="outbound"/>, and relays the traffic.
 	/// </summary>
-	/// <param name="incomingPipe">The client-side duplex pipe.</param>
-	/// <param name="socks5CreateOption">Options for creating the SOCKS5 connection.</param>
+	/// <param name="clientPipe">The client-side duplex pipe.</param>
+	/// <param name="outbound">The outbound connector used to reach the target host.</param>
 	/// <param name="cancellationToken">A token to cancel the operation.</param>
-	public async ValueTask ForwardToSocks5Async(IDuplexPipe incomingPipe, Socks5CreateOption socks5CreateOption, CancellationToken cancellationToken = default)
+	public async ValueTask HandleAsync(IDuplexPipe clientPipe, IOutbound outbound, CancellationToken cancellationToken = default)
 	{
 		try
 		{
-			(byte[] rented, int headerLen) = await ReadHeaderBytesAsync(incomingPipe.Input, cancellationToken);
+			(byte[] rented, int headerLen) = await ReadHeaderBytesAsync(clientPipe.Input, cancellationToken);
 
 			try
 			{
@@ -78,62 +79,76 @@ public partial class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 				if (!TryParseHeaders(headerSpan, out HttpHeaders httpHeaders))
 				{
 					LogInvalidRequest(_logger);
-					await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.InvalidRequest, cancellationToken);
+					await SendErrorAsync(clientPipe.Output, ConnectionErrorResult.InvalidRequest, cancellationToken);
 					return;
 				}
 
 				LogParsedRequestHeaders(_logger, httpHeaders);
 
-				using Socks5Client socks5Client = new(socks5CreateOption);
-
-				try
+				if (_expectedAuth is not null &&
+					!string.Equals(httpHeaders.ProxyAuthorization, _expectedAuth, StringComparison.Ordinal))
 				{
-					await socks5Client.ConnectAsync(httpHeaders.Hostname, httpHeaders.Port, cancellationToken);
-				}
-				catch (Socks5ProtocolErrorException ex)
-				{
-					LogSocks5ConnectionRejected(_logger, httpHeaders.Hostname, httpHeaders.Port, ex.Socks5Reply);
-
-					ConnectionErrorResult errorResult = ex.Socks5Reply switch
-					{
-						Socks5Reply.ConnectionNotAllowed => ConnectionErrorResult.AuthenticationError,
-						Socks5Reply.HostUnreachable => ConnectionErrorResult.HostUnreachable,
-						Socks5Reply.ConnectionRefused => ConnectionErrorResult.ConnectionRefused,
-						_ => ConnectionErrorResult.InvalidRequest,
-					};
-
-					await SendErrorAsync(incomingPipe.Output, errorResult, cancellationToken);
+					await SendErrorAsync(clientPipe.Output, ConnectionErrorResult.AuthenticationError, cancellationToken);
 					return;
 				}
 
-				if (httpHeaders.IsConnect)
+				IConnection connection;
+				try
 				{
-					await SendConnectSuccessAsync(incomingPipe.Output, cancellationToken);
-
-					IDuplexPipe socks5Pipe = socks5Client.GetPipe();
-					await socks5Pipe.LinkToAsync(incomingPipe, cancellationToken);
+					connection = await outbound.ConnectAsync(new ProxyDestination(httpHeaders.Hostname, httpHeaders.Port), cancellationToken);
 				}
-				else
+				catch (SocketException ex)
 				{
-					IDuplexPipe socks5Pipe = socks5Client.GetPipe();
+					LogConnectionFailed(_logger, httpHeaders.Hostname, httpHeaders.Port, ex.SocketErrorCode);
 
-					WriteFilteredRequest(rented.AsSpan(0, headerLen), socks5Pipe.Output);
-					await socks5Pipe.Output.FlushAsync(cancellationToken);
-
-					if (httpHeaders.IsChunked)
+					ConnectionErrorResult errorResult = ex.SocketErrorCode switch
 					{
-						await CopyChunkedRequestAsync(incomingPipe.Input, socks5Pipe.Output, cancellationToken);
-					}
-					else if (httpHeaders.ContentLength > 0)
+						SocketError.HostNotFound or SocketError.HostUnreachable => ConnectionErrorResult.HostUnreachable,
+						SocketError.ConnectionRefused => ConnectionErrorResult.ConnectionRefused,
+						SocketError.ConnectionReset => ConnectionErrorResult.ConnectionReset,
+						_ => ConnectionErrorResult.UnknownError,
+					};
+
+					await SendErrorAsync(clientPipe.Output, errorResult, cancellationToken);
+					return;
+				}
+
+				await using (connection)
+				{
+					if (httpHeaders.IsConnect)
 					{
-						LogWaitingForClientBytes(_logger, httpHeaders.ContentLength);
-
-						long readLength = await incomingPipe.Input.CopyToAsync(socks5Pipe.Output, httpHeaders.ContentLength, cancellationToken);
-
-						LogClientSentBytes(_logger, readLength);
+						await SendConnectSuccessAsync(clientPipe.Output, cancellationToken);
+						await connection.LinkToAsync(clientPipe, cancellationToken);
 					}
+					else
+					{
+						WriteFilteredRequest(rented.AsSpan(0, headerLen), connection.Output);
+						await connection.Output.FlushAsync(cancellationToken);
 
-					await ReadAndWriteFilteredResponseAsync(socks5Pipe.Input, incomingPipe.Output, cancellationToken);
+						// ContentLength: null=chunked, 0=no body, >0=fixed
+						if (httpHeaders.ContentLength is null)
+						{
+							await CopyChunkedRequestAsync(clientPipe.Input, connection.Output, cancellationToken);
+						}
+						else if (httpHeaders.ContentLength > 0)
+						{
+							LogWaitingForClientBytes(_logger, httpHeaders.ContentLength.Value);
+
+							long readLength = await clientPipe.Input.CopyToAsync(connection.Output, httpHeaders.ContentLength.Value, cancellationToken);
+
+							LogClientSentBytes(_logger, readLength);
+
+							if (readLength < httpHeaders.ContentLength.Value)
+							{
+								return; // Client sent fewer bytes than Content-Length — abort
+							}
+						}
+
+						if (!await ReadAndWriteFilteredResponseAsync(connection.Input, clientPipe.Output, cancellationToken))
+						{
+							await SendErrorAsync(clientPipe.Output, ConnectionErrorResult.InvalidResponse, cancellationToken);
+						}
+					}
 				}
 			}
 			finally
@@ -144,12 +159,17 @@ public partial class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 		catch (Exception ex)
 		{
 			LogUnexpectedError(_logger, ex);
-			await SendErrorAsync(incomingPipe.Output, ConnectionErrorResult.UnknownError, cancellationToken);
+			try
+			{ await SendErrorAsync(clientPipe.Output, ConnectionErrorResult.UnknownError, cancellationToken); }
+			catch { /* Don't mask the original exception */ }
 			throw;
 		}
 	}
 
-	private async ValueTask ReadAndWriteFilteredResponseAsync(PipeReader reader, PipeWriter output, CancellationToken cancellationToken)
+	/// <summary>
+	/// Returns <c>false</c> when the upstream response has a framing error (caller should send 502).
+	/// </summary>
+	private async ValueTask<bool> ReadAndWriteFilteredResponseAsync(PipeReader reader, PipeWriter output, CancellationToken cancellationToken)
 	{
 		bool headersDone = false;
 
@@ -167,8 +187,13 @@ public partial class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 						LogServerHeadersReceived(_logger, Encoding.Latin1.GetString(responseHeaderBytes));
 					}
 
-					// WriteFilteredResponse copies to contiguous buffer internally, safe before AdvanceTo
-					WriteFilteredResponse(responseHeaderBytes, output);
+					// WriteFilteredResponse copies to contiguous buffer internally, safe before AdvanceTo.
+					// Returns false on response framing errors (RFC 7230 §3.3.3 → 502).
+					if (!WriteFilteredResponse(responseHeaderBytes, output))
+					{
+						return false;
+					}
+
 					await output.FlushAsync(cancellationToken);
 
 					buffer = buffer.Slice(consumed);
@@ -193,7 +218,7 @@ public partial class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 
 		if (!headersDone)
 		{
-			throw new InvalidDataException("Cannot read HTTP response headers.");
+			return false; // Upstream closed before sending complete headers → 502
 		}
 
 		// Copy remaining body to client until server closes the connection.
@@ -202,6 +227,7 @@ public partial class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 		// (Content-Length, chunked, or close-delimited).
 		long readLength = await reader.CopyToAsync(output, long.MaxValue, cancellationToken);
 		LogServerSentBytes(_logger, readLength);
+		return true;
 	}
 
 	private static bool TryFindHeaderEnd(ReadOnlySequence<byte> buffer, out ReadOnlySequence<byte> headerBytes, out long consumed)
@@ -270,22 +296,37 @@ public partial class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 		{
 			case ConnectionErrorResult.AuthenticationError:
 			{
-				writer.Write("HTTP/1.1 401 Unauthorized"u8);
+				writer.Write("HTTP/1.1 407 Proxy Authentication Required"u8);
+				writer.Write(HttpNewLine);
+				writer.Write("Proxy-Authenticate: Basic realm=\"proxy\""u8);
 				break;
 			}
 			case ConnectionErrorResult.HostUnreachable:
 			{
-				writer.Write("HTTP/1.1 502 HostUnreachable"u8);
+				writer.Write("HTTP/1.1 502 Bad Gateway"u8);
+				writer.Write(HttpNewLine);
+				writer.Write("X-Proxy-Error-Type: HostUnreachable"u8);
 				break;
 			}
 			case ConnectionErrorResult.ConnectionRefused:
 			{
-				writer.Write("HTTP/1.1 502 ConnectionRefused"u8);
+				writer.Write("HTTP/1.1 502 Bad Gateway"u8);
+				writer.Write(HttpNewLine);
+				writer.Write("X-Proxy-Error-Type: ConnectionRefused"u8);
 				break;
 			}
 			case ConnectionErrorResult.ConnectionReset:
 			{
-				writer.Write("HTTP/1.1 502 ConnectionReset"u8);
+				writer.Write("HTTP/1.1 502 Bad Gateway"u8);
+				writer.Write(HttpNewLine);
+				writer.Write("X-Proxy-Error-Type: ConnectionReset"u8);
+				break;
+			}
+			case ConnectionErrorResult.InvalidResponse:
+			{
+				writer.Write("HTTP/1.1 502 Bad Gateway"u8);
+				writer.Write(HttpNewLine);
+				writer.Write("X-Proxy-Error-Type: InvalidResponse"u8);
 				break;
 			}
 			case ConnectionErrorResult.InvalidRequest:
@@ -305,6 +346,8 @@ public partial class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 			}
 		}
 
+		writer.Write(HttpNewLine);
+		writer.Write("Connection: close"u8);
 		writer.Write(HttpHeaderEnd);
 
 		await writer.FlushAsync(cancellationToken);
@@ -441,3 +484,4 @@ public partial class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 	}
 
 }
+

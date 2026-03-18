@@ -180,7 +180,13 @@ public static class HttpUtils
 	/// </summary>
 	private static ReadOnlySpan<byte> ExtractRelativePath(ReadOnlySpan<byte> absoluteUri)
 	{
-		// Find "://"
+		// Origin-form starts with "/" — already relative, return as-is.
+		if (absoluteUri.Length > 0 && absoluteUri[0] == (byte)'/')
+		{
+			return absoluteUri;
+		}
+
+		// Find "://" to locate scheme end in absolute-form URI.
 		int schemeEnd = absoluteUri.IndexOf("://"u8);
 
 		if (schemeEnd < 0)
@@ -190,15 +196,16 @@ public static class HttpUtils
 
 		ReadOnlySpan<byte> afterScheme = absoluteUri.Slice(schemeEnd + 3);
 
-		// Find first '/' after authority
-		int slash = afterScheme.IndexOf((byte)'/');
+		// Find first '/' or '?' after authority (RFC 3986: path-empty + query is valid)
+		int pos = afterScheme.IndexOfAny((byte)'/', (byte)'?');
 
-		if (slash < 0)
+		if (pos < 0)
 		{
 			return "/"u8;
 		}
 
-		return afterScheme.Slice(slash);
+		// "/path..." or "?query" (caller prepends "/" when result starts with '?')
+		return afterScheme.Slice(pos);
 	}
 
 	/// <summary>
@@ -206,7 +213,7 @@ public static class HttpUtils
 	/// appends Connection: close, writes directly to PipeWriter.
 	/// <paramref name="headerBytes"/> must NOT include the trailing \r\n\r\n.
 	/// </summary>
-	public static void WriteFilteredRequest(ReadOnlySpan<byte> headerBytes, PipeWriter output)
+	internal static void WriteFilteredRequest(ReadOnlySpan<byte> headerBytes, PipeWriter output)
 	{
 		// Parse request line: METHOD SP URI SP HTTP/X.Y \r\n
 		int requestLineEnd = headerBytes.IndexOf(HttpNewLine);
@@ -248,6 +255,13 @@ public static class HttpUtils
 		// Write rewritten request line
 		output.Write(method);
 		output.Write(" "u8);
+
+		// origin-form requires path to start with '/'; query-only URIs return "?..."
+		if (relativePath.Length > 0 && relativePath[0] == (byte)'?')
+		{
+			output.Write("/"u8);
+		}
+
 		output.Write(relativePath);
 		output.Write(" "u8);
 		output.Write(version);
@@ -260,11 +274,13 @@ public static class HttpUtils
 	}
 
 	/// <summary>
-	/// Single-pass response header filter. Reads from a <see cref="ReadOnlySequence{T}"/> (PipeReader buffer),
-	/// writes status line + filtered headers directly to <paramref name="output"/>.
+	/// Filters response headers and writes them to <paramref name="output"/>.
+	/// Returns <c>false</c> when the upstream response has invalid framing
+	/// (e.g. unparseable or conflicting Content-Length without Transfer-Encoding),
+	/// which per RFC 7230 §3.3.3 must be treated as a 502.
 	/// The sequence must NOT include the trailing \r\n\r\n.
 	/// </summary>
-	public static void WriteFilteredResponse(ReadOnlySequence<byte> headerBytes, PipeWriter output)
+	internal static bool WriteFilteredResponse(ReadOnlySequence<byte> headerBytes, PipeWriter output)
 	{
 		// Copy to contiguous buffer for simpler parsing — headers are typically small
 		int len = (int)headerBytes.Length;
@@ -283,6 +299,18 @@ public static class HttpUtils
 			ReadOnlySpan<byte> statusLine = statusLineEnd < 0 ? span : span.Slice(0, statusLineEnd);
 			ReadOnlySpan<byte> headerSection = statusLineEnd < 0 ? [] : span.Slice(statusLineEnd + 2);
 
+			// RFC 7230 §3.1.2: status-line must start with "HTTP/"
+			if (!statusLine.StartsWith("HTTP/"u8))
+			{
+				return false;
+			}
+
+			// RFC 7230 §3.3.3: reject before writing anything to the PipeWriter
+			if (HasResponseFramingError(headerSection))
+			{
+				return false;
+			}
+
 			output.Write(statusLine);
 
 			WriteFilteredHeaders(headerSection, output);
@@ -290,6 +318,7 @@ public static class HttpUtils
 			output.Write(HttpNewLine);
 			output.Write("Connection: close"u8);
 			output.Write(HttpHeaderEnd);
+			return true;
 		}
 		finally
 		{
@@ -298,6 +327,58 @@ public static class HttpUtils
 				ArrayPool<byte>.Shared.Return(rented);
 			}
 		}
+	}
+
+	/// <summary>
+	/// RFC 7230 §3.3.3 rule 4: invalid or conflicting Content-Length without
+	/// Transfer-Encoding is an unrecoverable framing error for a proxy.
+	/// </summary>
+	private static bool HasResponseFramingError(ReadOnlySpan<byte> headerSection)
+	{
+		bool hasTransferEncoding = false;
+		bool hasContentLength = false;
+		bool validContentLength = true;
+		long contentLength = 0;
+
+		ReadOnlySpan<byte> remaining = headerSection;
+
+		while (!remaining.IsEmpty)
+		{
+			int lineEnd = remaining.IndexOf(HttpNewLine);
+			ReadOnlySpan<byte> line = lineEnd < 0 ? remaining : remaining.Slice(0, lineEnd);
+			remaining = lineEnd < 0 ? [] : remaining.Slice(lineEnd + 2);
+
+			if (line.IsEmpty)
+			{
+				continue;
+			}
+
+			int colon = line.IndexOf((byte)':');
+
+			if (colon <= 0)
+			{
+				continue;
+			}
+
+			ReadOnlySpan<byte> name = line.Slice(0, colon).TrimEnd((byte)' ');
+			ReadOnlySpan<byte> value = line.Slice(colon + 1).Trim((byte)' ');
+
+			if (Ascii.EqualsIgnoreCase(name, "Transfer-Encoding"u8))
+			{
+				hasTransferEncoding = true;
+			}
+			else if (Ascii.EqualsIgnoreCase(name, "Content-Length"u8))
+			{
+				if (!TryAccumulateContentLength(value, ref contentLength, ref hasContentLength))
+				{
+					validContentLength = false;
+				}
+			}
+		}
+
+		// TE present → CL is ignored per §3.3.3 rule 3 (not a framing error).
+		// No TE + invalid CL → unrecoverable framing error (§3.3.3 rule 4).
+		return !hasTransferEncoding && !validContentLength;
 	}
 
 	/// <summary>
@@ -543,12 +624,13 @@ public static class HttpUtils
 
 		bool isConnect = Ascii.EqualsIgnoreCase(method, "CONNECT"u8);
 
-		// Single pass: extract Host, Content-Length, and Transfer-Encoding header values
+		// Single pass: extract Host, Content-Length, Transfer-Encoding, and Proxy-Authorization header values
 		ReadOnlySpan<byte> hostValue = default;
 		long contentLength = 0;
 		bool hasContentLength = false;
 		bool isChunked = false;
 		bool hasTransferEncoding = false;
+		string? proxyAuth = null;
 		ReadOnlySpan<byte> scan = headerSection;
 
 		while (!scan.IsEmpty)
@@ -582,6 +664,10 @@ public static class HttpUtils
 				hasTransferEncoding = true;
 				isChunked = HasChunkedEncoding(line.Slice(colon + 1).Trim((byte)' '));
 			}
+			else if (Ascii.EqualsIgnoreCase(name, "Proxy-Authorization"u8))
+			{
+				proxyAuth = Encoding.Latin1.GetString(line.Slice(colon + 1).Trim((byte)' '));
+			}
 		}
 
 		// RFC 7230 §3.3.1: For requests, chunked must be the final transfer coding.
@@ -591,10 +677,18 @@ public static class HttpUtils
 			return false;
 		}
 
-		// RFC 7230 §3.3.3: If Transfer-Encoding is present, ignore Content-Length
+		long? bodyLength;
 		if (hasTransferEncoding)
 		{
-			contentLength = 0;
+			bodyLength = null; // chunked
+		}
+		else if (hasContentLength)
+		{
+			bodyLength = contentLength;
+		}
+		else
+		{
+			bodyLength = 0; // no body
 		}
 
 		ReadOnlySpan<byte> authority;
@@ -602,20 +696,25 @@ public static class HttpUtils
 
 		if (isConnect)
 		{
-			// CONNECT host:port HTTP/1.1 — URI is the authority
-			authority = !hostValue.IsEmpty ? hostValue : uri;
+			// RFC 7231 §4.3.6: CONNECT request-target is the authority — always prefer it over Host.
+			authority = uri;
 			defaultPort = 443;
 		}
 		else
 		{
-			if (!hostValue.IsEmpty)
+			// RFC 7230 §5.3: origin-form starts with "/"; absolute-form starts with scheme.
+			// Only extract authority from absolute-form URIs; origin-form uses Host header.
+			if (uri.Length > 0 && uri[0] != (byte)'/' && uri.IndexOf("://"u8) >= 0)
+			{
+				authority = ExtractAuthority(uri);
+			}
+			else if (!hostValue.IsEmpty)
 			{
 				authority = hostValue;
 			}
 			else
 			{
-				// Extract authority from absolute URI: http://host:port/path
-				authority = ExtractAuthority(uri);
+				authority = uri;
 			}
 
 			// Determine default port from scheme
@@ -636,7 +735,7 @@ public static class HttpUtils
 		}
 
 		string hostname = Encoding.Latin1.GetString(host);
-		result = new HttpHeaders(isConnect, hostname, port, contentLength, isChunked);
+		result = new HttpHeaders(isConnect, hostname, port, bodyLength, proxyAuth);
 		return true;
 	}
 
@@ -654,8 +753,9 @@ public static class HttpUtils
 
 		ReadOnlySpan<byte> afterScheme = absoluteUri.Slice(schemeEnd + 3);
 
-		int slash = afterScheme.IndexOf((byte)'/');
+		// Authority ends at first '/' or '?' (RFC 3986: path-empty + query is valid)
+		int end = afterScheme.IndexOfAny((byte)'/', (byte)'?');
 
-		return slash < 0 ? afterScheme : afterScheme.Slice(0, slash);
+		return end < 0 ? afterScheme : afterScheme.Slice(0, end);
 	}
 }

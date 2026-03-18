@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsPackable>true</IsPackable>
+    <PackageTags>proxy</PackageTags>
+    <Description>Proxy abstractions for inbound/outbound connections</Description>
+  </PropertyGroup>
+
+</Project>

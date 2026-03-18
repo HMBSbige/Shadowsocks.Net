@@ -12,7 +12,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Socks5\Socks5.csproj" />
+    <ProjectReference Include="..\Pipelines.Extensions\Pipelines.Extensions.csproj" />
+    <ProjectReference Include="..\Proxy.Abstractions\Proxy.Abstractions.csproj" />
   </ItemGroup>
 
 </Project>

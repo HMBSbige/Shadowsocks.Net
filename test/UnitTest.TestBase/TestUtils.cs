@@ -1,9 +1,9 @@
 using System.Buffers;
 using System.Diagnostics;
 
-namespace UnitTest;
+namespace UnitTest.TestBase;
 
-internal static class TestUtils
+public static class TestUtils
 {
 	public static ReadOnlySequence<byte> GetMultiSegmentSequence(Memory<byte> source, params int[] index)
 	{

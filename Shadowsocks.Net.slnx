@@ -19,9 +19,11 @@
     <Project Path="src\Shadowsocks.Crypto\Shadowsocks.Crypto.csproj" />
     <Project Path="src\Shadowsocks.Protocol\Shadowsocks.Protocol.csproj" />
     <Project Path="src\Socks5\Socks5.csproj" />
+    <Project Path="src\Proxy.Abstractions\Proxy.Abstractions.csproj" />
   </Folder>
   <Folder Name="/test/">
     <Project Path="test\Benchmark\Benchmark.csproj" />
+    <Project Path="test\UnitTest.TestBase\UnitTest.TestBase.csproj" />
     <Project Path="test\UnitTest\UnitTest.csproj" />
   </Folder>
 </Solution>

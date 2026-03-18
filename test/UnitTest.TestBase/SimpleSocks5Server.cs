@@ -1,12 +1,13 @@
 using Pipelines.Extensions;
 using Socks5.Enums;
 using Socks5.Models;
+using Socks5.Servers;
 using System.Diagnostics;
 using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
 
-namespace Socks5.Servers;
+namespace UnitTest.TestBase;
 
 /// <summary>
 /// A simple SOCKS5 server for test use only

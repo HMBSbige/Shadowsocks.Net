@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\HttpProxy\HttpProxy.csproj" />
+    <ProjectReference Include="..\..\src\Pipelines.Extensions\Pipelines.Extensions.csproj" />
+    <ProjectReference Include="..\..\src\Socks5\Socks5.csproj" />
+  </ItemGroup>
+
+</Project>

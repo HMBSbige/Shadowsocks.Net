@@ -1,8 +1,8 @@
 using System.Buffers;
 
-namespace UnitTest;
+namespace UnitTest.TestBase;
 
-internal class BufferSegment : ReadOnlySequenceSegment<byte>
+public class BufferSegment : ReadOnlySequenceSegment<byte>
 {
 	public static BufferSegment Empty => new(Memory<byte>.Empty);
 

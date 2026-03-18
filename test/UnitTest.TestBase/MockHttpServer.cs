@@ -6,9 +6,9 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 
-namespace UnitTest;
+namespace UnitTest.TestBase;
 
-internal sealed class MockHttpServer : IDisposable
+public sealed class MockHttpServer : IDisposable
 {
 	private readonly TcpListener _listener = new(IPAddress.IPv6Any, 0) { Server = { DualMode = true } };
 	private readonly CancellationTokenSource _cts = new();
@@ -113,6 +113,10 @@ internal sealed class MockHttpServer : IDisposable
 				{
 					await WriteEchoTeAsync(stream, buf, total);
 				}
+				else if (path == "/echo-request-line" || path.StartsWith("/echo-request-line?"))
+				{
+					await WriteAsync(stream, 200, "OK", firstLine);
+				}
 				else if (path == "/echo-headers")
 				{
 					string allHeaders = Encoding.UTF8.GetString(buf, 0, total);
@@ -131,6 +135,16 @@ internal sealed class MockHttpServer : IDisposable
 				{
 					await WriteCloseDelimitedAsync(stream);
 				}
+				else if (path == "/bad-content-length")
+				{
+					await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Length: abc\r\nConnection: close\r\n\r\nhello"u8.ToArray());
+					await stream.FlushAsync();
+				}
+				else if (path == "/conflicting-content-length")
+				{
+					await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Length: 5\r\nContent-Length: 10\r\nConnection: close\r\n\r\nhello"u8.ToArray());
+					await stream.FlushAsync();
+				}
 				else if (path.StartsWith("/stream-bytes-ext/") && int.TryParse(path["/stream-bytes-ext/".Length..], out int extCount))
 				{
 					await WriteChunkedAsync(stream, extCount, chunkExtension: ";ext=val", terminator: "0;ext=final\r\n\r\n");
@@ -138,6 +152,24 @@ internal sealed class MockHttpServer : IDisposable
 				else if (path.StartsWith("/stream-bytes-trailer/") && int.TryParse(path["/stream-bytes-trailer/".Length..], out int trailerCount))
 				{
 					await WriteChunkedAsync(stream, trailerCount, terminator: "0\r\nX-Checksum: abc123\r\n\r\n");
+				}
+				else if (path == "/truncated-headers")
+				{
+					// Write partial headers then close — no \r\n\r\n
+					await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-"u8.ToArray());
+					await stream.FlushAsync();
+					return; // close without shutdown — skip graceful teardown below
+				}
+				else if (path == "/garbage-response")
+				{
+					// Write non-HTTP data as response
+					await stream.WriteAsync("XYZZY totally not HTTP\r\n\r\n"u8.ToArray());
+					await stream.FlushAsync();
+				}
+				else if (path.StartsWith("/?"))
+				{
+					// Echo full request line — used by path-less query-string tests
+					await WriteAsync(stream, 200, "OK", firstLine);
 				}
 				else
 				{
@@ -283,7 +315,10 @@ internal sealed class MockHttpServer : IDisposable
 			{
 				int n = await stream.ReadAsync(body.AsMemory(offset, remaining));
 				if (n == 0)
+				{
 					break;
+				}
+
 				offset += n;
 				remaining -= n;
 			}
@@ -309,7 +344,10 @@ internal sealed class MockHttpServer : IDisposable
 		{
 			int n = await stream.ReadAsync(readBuf);
 			if (n == 0)
+			{
 				break;
+			}
+
 			raw.Write(readBuf, 0, n);
 		}
 
@@ -323,18 +361,24 @@ internal sealed class MockHttpServer : IDisposable
 		{
 			int lineEnd = data.AsSpan(pos, dataLen - pos).IndexOf("\r\n"u8);
 			if (lineEnd < 0)
+			{
 				break;
+			}
 
 			string sizeLine = Encoding.ASCII.GetString(data, pos, lineEnd);
 			int semi = sizeLine.IndexOf(';');
 			if (semi >= 0)
+			{
 				sizeLine = sizeLine[..semi];
+			}
 
 			int chunkSize = Convert.ToInt32(sizeLine.Trim(), 16);
 			pos += lineEnd + 2;
 
 			if (chunkSize == 0)
+			{
 				break;
+			}
 
 			decoded.Write(data, pos, chunkSize);
 			pos += chunkSize + 2;// skip data + \r\n
@@ -351,12 +395,16 @@ internal sealed class MockHttpServer : IDisposable
 			{
 				int lineEnd = span[idx..].IndexOf("\r\n"u8);
 				if (lineEnd < 0)
+				{
 					return false;
+				}
 
 				string sizePart = Encoding.ASCII.GetString(span.Slice(idx, lineEnd));
 				int semi = sizePart.IndexOf(';');
 				if (semi >= 0)
+				{
 					sizePart = sizePart[..semi];
+				}
 
 				if (int.TryParse(sizePart.Trim(), NumberStyles.HexNumber, null, out int size) && size == 0)
 				{

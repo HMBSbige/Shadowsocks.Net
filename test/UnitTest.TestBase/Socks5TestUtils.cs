@@ -10,25 +10,20 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace Socks5.Utils;
+namespace UnitTest.TestBase;
 
 public static class Socks5TestUtils
 {
 	private static ReadOnlySpan<byte> Newline => "\r\n"u8;
 
 	/// <summary>
-	/// 使用 HTTP1.1 204 测试 SOCKS5 CONNECT 
-	/// <para>Example:</para>
-	/// <para>http://www.google.com/generate_204</para>
-	/// <para>http://connectivitycheck.gstatic.com/generate_204</para>
-	/// <para>http://connect.rom.miui.com/generate_204</para>
-	/// <para>http://cp.cloudflare.com</para>
+	/// 使用 HTTP1.1 204 测试 SOCKS5 CONNECT
 	/// </summary>
 	public static async ValueTask<bool> Socks5ConnectAsync(
 		Socks5CreateOption option,
-		string target = @"http://cp.cloudflare.com",
-		string targetHost = @"cp.cloudflare.com",
-		ushort targetPort = 80,
+		string target,
+		string targetHost,
+		ushort targetPort,
 		CancellationToken cancellationToken = default)
 	{
 		string sendString = $"GET {target} HTTP/1.1\r\nHost: {targetHost}\r\n\r\n";
@@ -87,13 +82,12 @@ public static class Socks5TestUtils
 	}
 
 	/// <summary>
-	/// 使用 DNS 测试 SOCKS5 UDP
+	/// 使用本地 UDP echo server 测试 SOCKS5 UDP ASSOCIATE
 	/// </summary>
 	public static async ValueTask<bool> Socks5UdpAssociateAsync(
 		Socks5CreateOption option,
-		string target = @"bing.com",
-		string targetHost = @"8.8.8.8",
-		ushort targetPort = 53,
+		string targetHost,
+		ushort targetPort,
 		CancellationToken cancellationToken = default)
 	{
 		using Socks5Client client = new(option);
@@ -102,36 +96,13 @@ public static class Socks5TestUtils
 
 		Debug.WriteLine($@"UDP: Supported, {bound.Type} {(bound.Type == AddressType.Domain ? bound.Domain : bound.Address)}:{bound.Port}");
 
-		byte[] buffer = ArrayPool<byte>.Shared.Rent(ushort.MaxValue + 1);
-		try
-		{
-			RandomNumberGenerator.Fill(buffer.AsSpan(0, 2));
-			buffer[2] = 0x01;
-			buffer[3] = 0x00;
-			buffer[4] = 0x00;
-			buffer[5] = 0x01;
-			buffer[6] = 0x00;
-			buffer[7] = 0x00;
-			buffer[8] = 0x00;
-			buffer[9] = 0x00;
-			buffer[10] = 0x00;
-			buffer[11] = 0x00;
-			int offset = 12;
-			offset += Pack.DnsDomain(target, buffer.AsSpan(12));
-			buffer[offset++] = 0x00;
-			buffer[offset++] = 0x01;
-			buffer[offset++] = 0x00;
-			buffer[offset++] = 0x01;
+		byte[] payload = new byte[64];
+		RandomNumberGenerator.Fill(payload);
 
-			await client.SendUdpAsync(buffer.AsMemory(0, offset), targetHost, targetPort, cancellationToken);
+		await client.SendUdpAsync(payload, targetHost, targetPort, cancellationToken);
 
-			Socks5UdpReceivePacket res = await client.ReceiveAsync(cancellationToken);
+		Socks5UdpReceivePacket res = await client.ReceiveAsync(cancellationToken);
 
-			return res.Data.Span[..2].SequenceEqual(buffer.AsSpan(0, 2));
-		}
-		finally
-		{
-			ArrayPool<byte>.Shared.Return(buffer);
-		}
+		return res.Data.Span.SequenceEqual(payload);
 	}
 }

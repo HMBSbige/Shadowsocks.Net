@@ -6,8 +6,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Benchmark\Benchmark.csproj" />
-    <ProjectReference Include="..\..\src\HttpProxy\HttpProxy.csproj" />
-    <ProjectReference Include="..\..\src\Socks5\Socks5.csproj" />
+    <ProjectReference Include="..\UnitTest.TestBase\UnitTest.TestBase.csproj" />
   </ItemGroup>
 
 </Project>

@@ -7,8 +7,9 @@ public class BenchmarkTest
 {
 	[Explicit]
 	[Test]
-	public void PipelinesBenchmark(CancellationToken cancellationToken)
+	public async Task PipelinesBenchmark(CancellationToken cancellationToken)
 	{
+		await Task.CompletedTask;
 		BenchmarkRunner.Run<PipelinesBenchmark>();
 	}
 }

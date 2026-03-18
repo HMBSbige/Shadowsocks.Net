@@ -8,4 +8,5 @@ internal enum ConnectionErrorResult
 	HostUnreachable,
 	ConnectionRefused,
 	ConnectionReset,
+	InvalidResponse,
 }

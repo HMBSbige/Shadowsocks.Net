@@ -1,6 +1,7 @@
 using Pipelines.Extensions;
 using System.Buffers;
 using System.Security.Cryptography;
+using UnitTest.TestBase;
 
 namespace UnitTest;
 
@@ -28,8 +29,8 @@ public class ReadOnlySequenceStreamTest
 		byte[] t = new byte[16];
 		await Assert.That(EmptyStream.ReadByte()).IsEqualTo(-1);
 		await Assert.That(EmptyStream.Read(t)).IsEqualTo(0);
-		await Assert.That(await EmptyStream.ReadAsync(t)).IsEqualTo(0);
-		await Assert.That(await EmptyStream.ReadAsync(t, 0, t.Length)).IsEqualTo(0);
+		await Assert.That(await EmptyStream.ReadAsync(t, cancellationToken)).IsEqualTo(0);
+		await Assert.That(await EmptyStream.ReadAsync(t, 0, t.Length, cancellationToken)).IsEqualTo(0);
 	}
 
 	[Test]
@@ -38,11 +39,9 @@ public class ReadOnlySequenceStreamTest
 		Stream stream = EmptyStream;
 		byte[] b = new byte[16];
 
-		// ReSharper disable AccessToDisposedClosure
 		await Assert.That(() => stream.WriteByte(b[0])).ThrowsExactly<NotSupportedException>();
 		await Assert.That(() => stream.Write(b, 0, b.Length)).ThrowsExactly<NotSupportedException>();
 		await Assert.That(() => stream.Write(b)).ThrowsExactly<NotSupportedException>();
-		// ReSharper restore AccessToDisposedClosure
 
 		await stream.DisposeAsync();
 		await Assert.That(() => stream.WriteByte(b[0])).ThrowsExactly<ObjectDisposedException>();
@@ -54,11 +53,12 @@ public class ReadOnlySequenceStreamTest
 	public async Task EmptySequenceFlush(CancellationToken cancellationToken)
 	{
 		Stream stream = EmptyStream;
+		// ReSharper disable once MethodHasAsyncOverloadWithCancellation
 		stream.Flush();
-		await stream.FlushAsync();
+		await stream.FlushAsync(cancellationToken);
 		await stream.DisposeAsync();
 		await Assert.That(() => stream.Flush()).ThrowsExactly<ObjectDisposedException>();
-		await Assert.That(() => stream.FlushAsync()).ThrowsExactly<ObjectDisposedException>();
+		await Assert.That(() => stream.FlushAsync(cancellationToken)).ThrowsExactly<ObjectDisposedException>();
 	}
 
 	[Test]
@@ -126,7 +126,6 @@ public class ReadOnlySequenceStreamTest
 	public async Task SetLength(CancellationToken cancellationToken)
 	{
 		Stream stream = EmptyStream;
-		// ReSharper disable once AccessToDisposedClosure
 		await Assert.That(() => stream.SetLength(0)).ThrowsExactly<NotSupportedException>();
 		await stream.DisposeAsync();
 		await Assert.That(() => stream.SetLength(0)).ThrowsExactly<ObjectDisposedException>();
@@ -162,10 +161,8 @@ public class ReadOnlySequenceStreamTest
 		multiStream.Position = MultiSegmentSequence.Length;
 		await Assert.That(multiStream.ReadByte()).IsEqualTo(-1);
 
-		// ReSharper disable AccessToDisposedClosure
 		await Assert.That(() => multiStream.Position = MultiSegmentSequence.Length + 1).ThrowsExactly<ArgumentOutOfRangeException>();
 		await Assert.That(() => multiStream.Position = -1).ThrowsExactly<ArgumentOutOfRangeException>();
-		// ReSharper restore AccessToDisposedClosure
 
 		await multiStream.DisposeAsync();
 		await Assert.That(() => multiStream.Position = 0).ThrowsExactly<ObjectDisposedException>();
@@ -209,14 +206,14 @@ public class ReadOnlySequenceStreamTest
 		// Single segment
 		await using MemoryStream singleDest = new();
 		await using Stream singleStream = SingleSegmentSequence.AsStream();
-		await singleStream.CopyToAsync(singleDest);
+		await singleStream.CopyToAsync(singleDest, cancellationToken);
 		await Assert.That(singleDest.Length).IsEqualTo(SingleSegmentSequence.Length);
 		await Assert.That(singleDest.ToArray().SequenceEqual(SingleSegmentSequence.ToArray())).IsTrue();
 
 		// Multi segment
 		await using MemoryStream multiDest = new();
 		await using Stream multiStream = MultiSegmentSequence.AsStream();
-		await multiStream.CopyToAsync(multiDest);
+		await multiStream.CopyToAsync(multiDest, cancellationToken);
 		await Assert.That(multiDest.Length).IsEqualTo(MultiSegmentSequence.Length);
 		await Assert.That(multiDest.ToArray().SequenceEqual(MultiSegmentSequence.ToArray())).IsTrue();
 
@@ -224,20 +221,20 @@ public class ReadOnlySequenceStreamTest
 		await using MemoryStream partialDest = new();
 		await using Stream partialStream = MultiSegmentSequence.AsStream();
 		partialStream.Position = 10;
-		await partialStream.CopyToAsync(partialDest);
+		await partialStream.CopyToAsync(partialDest, cancellationToken);
 		await Assert.That(partialDest.Length).IsEqualTo(MultiSegmentSequence.Length - 10);
 		await Assert.That(partialDest.ToArray().SequenceEqual(MultiSegmentSequence.Slice(10).ToArray())).IsTrue();
 		await Assert.That(partialStream.Position).IsEqualTo(MultiSegmentSequence.Length);
 
 		// Empty
 		await using MemoryStream emptyDest = new();
-		await EmptyStream.CopyToAsync(emptyDest);
+		await EmptyStream.CopyToAsync(emptyDest, cancellationToken);
 		await Assert.That(emptyDest.Length).IsEqualTo(0);
 
 		// Disposed
 		Stream disposed = MultiSegmentSequence.AsStream();
 		await disposed.DisposeAsync();
-		await Assert.That(() => disposed.CopyToAsync(new MemoryStream())).ThrowsExactly<ObjectDisposedException>();
+		await Assert.That(() => disposed.CopyToAsync(new MemoryStream(), cancellationToken)).ThrowsExactly<ObjectDisposedException>();
 	}
 
 	[Test]

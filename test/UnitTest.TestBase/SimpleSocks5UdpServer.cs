@@ -6,7 +6,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 
-namespace Socks5.Servers;
+namespace UnitTest.TestBase;
 
 /// <summary>
 /// Just for test use only

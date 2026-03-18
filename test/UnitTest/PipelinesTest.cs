@@ -22,28 +22,28 @@ public class PipelinesTest
 		{
 			Task t = Task.Run(async () =>
 				{
-					using Socket socket = await server.AcceptSocketAsync();
+					using Socket socket = await server.AcceptSocketAsync(cancellationToken);
 					IDuplexPipe pipe = socket.AsDuplexPipe();
 					PipeReader reader = pipe.Input;
 					long read = 0L;
 
 					while (read < length)
 					{
-						ReadResult result = await reader.ReadAsync();
+						ReadResult result = await reader.ReadAsync(cancellationToken);
 						read += result.Buffer.Length;
 						reader.AdvanceTo(result.Buffer.End);
 					}
-				}
-			);
+				},
+				cancellationToken);
 
 			using TcpClient client = new();
-			await client.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)server.LocalEndpoint).Port);
+			await client.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)server.LocalEndpoint).Port, cancellationToken);
 
 			PipeWriter writer = client.Client.AsDuplexPipe().AsStream().AsPipeWriter();
 
 			for (long i = 0L; i < length; i += bufferSize)
 			{
-				await writer.WriteAsync(buffer);
+				await writer.WriteAsync(buffer, cancellationToken);
 
 				using CancellationTokenSource cts = new();
 				cts.CancelAfter(TimeSpan.FromSeconds(3));
@@ -62,7 +62,7 @@ public class PipelinesTest
 	[Test]
 	public async Task SocketStreamDisposeWithOwnsSocketClosesSocketAsync(CancellationToken cancellationToken)
 	{
-		(TcpListener listener, TcpClient client, Socket serverSocket) = await CreateConnectedSocketPairAsync();
+		(TcpListener listener, TcpClient client, Socket serverSocket) = await CreateConnectedSocketPairAsync(cancellationToken);
 
 		try
 		{
@@ -82,7 +82,7 @@ public class PipelinesTest
 	[Test]
 	public async Task SocketStreamDisposeWithoutOwnsSocketLeavesSocketOpenAsync(CancellationToken cancellationToken)
 	{
-		(TcpListener listener, TcpClient client, Socket serverSocket) = await CreateConnectedSocketPairAsync();
+		(TcpListener listener, TcpClient client, Socket serverSocket) = await CreateConnectedSocketPairAsync(cancellationToken);
 
 		try
 		{
@@ -102,7 +102,7 @@ public class PipelinesTest
 		}
 	}
 
-	private static async Task<(TcpListener Listener, TcpClient Client, Socket ServerSocket)> CreateConnectedSocketPairAsync()
+	private static async Task<(TcpListener Listener, TcpClient Client, Socket ServerSocket)> CreateConnectedSocketPairAsync(CancellationToken cancellationToken = default)
 	{
 		TcpListener listener = TcpListener.Create(default);
 		listener.Start();
@@ -111,8 +111,8 @@ public class PipelinesTest
 
 		try
 		{
-			Task<Socket> acceptTask = listener.AcceptSocketAsync();
-			await client.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
+			ValueTask<Socket> acceptTask = listener.AcceptSocketAsync(cancellationToken);
+			await client.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port, cancellationToken);
 			Socket serverSocket = await acceptTask;
 			return (listener, client, serverSocket);
 		}
