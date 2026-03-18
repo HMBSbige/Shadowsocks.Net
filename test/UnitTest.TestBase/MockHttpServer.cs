@@ -83,17 +83,6 @@ public sealed class MockHttpServer : IDisposable
 				string[] parts = firstLine.Split(' ');
 				string path = parts.Length > 1 ? parts[1] : "/";
 
-				// Strip scheme+authority from absolute-form URIs (e.g. http://host/path → /path).
-				// Do NOT use Uri.TryCreate: on Unix, paths starting with "/" are treated as
-				// file:// URIs, and AbsolutePath strips the query string — breaking routing.
-				int schemeIdx = path.IndexOf("://", StringComparison.Ordinal);
-				if (schemeIdx >= 0 && path.Length > 0 && path[0] != '/')
-				{
-					int afterScheme = schemeIdx + 3;
-					int pathStart = path.IndexOfAny(['/', '?'], afterScheme);
-					path = pathStart >= 0 ? path[pathStart..] : "/";
-				}
-
 				if (path.StartsWith("/stream-bytes/") && int.TryParse(path["/stream-bytes/".Length..], out int count))
 				{
 					await WriteChunkedAsync(stream, count, delay: true);
