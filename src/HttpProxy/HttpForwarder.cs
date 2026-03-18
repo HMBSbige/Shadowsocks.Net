@@ -17,8 +17,8 @@ namespace HttpProxy;
 /// <param name="logger">Optional logger instance.</param>
 public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogger<HttpForwarder>? logger = null) : IInbound
 {
-	private readonly string? _expectedAuth = credential is not null
-		? "Basic " + Convert.ToBase64String(Encoding.UTF8.GetBytes($"{credential.UserName}:{credential.Password}"))
+	private readonly byte[]? _expectedAuthBytes = credential is not null
+		? Encoding.ASCII.GetBytes("Basic " + Convert.ToBase64String(Encoding.UTF8.GetBytes($"{credential.UserName}:{credential.Password}")))
 		: null;
 
 	#region logging
@@ -28,8 +28,8 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 	[LoggerMessage(Level = LogLevel.Trace, Message = "Client headers received: \n{Headers}")]
 	private static partial void LogClientHeadersReceived(ILogger logger, string headers);
 
-	[LoggerMessage(Level = LogLevel.Debug, Message = "New request: {Headers}")]
-	private static partial void LogParsedRequestHeaders(ILogger logger, HttpHeaders headers);
+	[LoggerMessage(Level = LogLevel.Debug, Message = "New request: Connect={IsConnect}, Host={Hostname}, Port={Port}, ContentLength={ContentLength}")]
+	private static partial void LogParsedRequest(ILogger logger, bool isConnect, string hostname, ushort port, long? contentLength);
 
 	[LoggerMessage(Level = LogLevel.Debug, Message = "Waiting for up to {ContentLength} bytes from client")]
 	private static partial void LogWaitingForClientBytes(ILogger logger, long contentLength);
@@ -69,37 +69,46 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 
 			try
 			{
-				ReadOnlySpan<byte> headerSpan = rented.AsSpan(0, headerLen);
+				ReadOnlyMemory<byte> headerBytes = rented.AsMemory(0, headerLen);
+				ReadOnlySpan<byte> headerSpan = headerBytes.Span;
 
 				if (_logger.IsEnabled(LogLevel.Trace))
 				{
 					LogClientHeadersReceived(_logger, Encoding.Latin1.GetString(headerSpan));
 				}
 
-				if (!TryParseHeaders(headerSpan, out HttpHeaders httpHeaders))
+				if (!TryParseHeaders(headerBytes, out HttpHeaders httpHeaders))
 				{
 					LogInvalidRequest(_logger);
 					await SendErrorAsync(clientPipe.Output, ConnectionErrorResult.InvalidRequest, cancellationToken);
 					return;
 				}
 
-				LogParsedRequestHeaders(_logger, httpHeaders);
-
-				if (_expectedAuth is not null &&
-					!string.Equals(httpHeaders.ProxyAuthorization, _expectedAuth, StringComparison.Ordinal))
+				if (_expectedAuthBytes is not null &&
+					!httpHeaders.ProxyAuthorization.Span.SequenceEqual(_expectedAuthBytes))
 				{
 					await SendErrorAsync(clientPipe.Output, ConnectionErrorResult.AuthenticationError, cancellationToken);
 					return;
 				}
 
+				string? hostname = null;
+
+				if (_logger.IsEnabled(LogLevel.Debug))
+				{
+					hostname = Encoding.Latin1.GetString(httpHeaders.Hostname.Span);
+					LogParsedRequest(_logger, httpHeaders.IsConnect, hostname, httpHeaders.Port, httpHeaders.ContentLength);
+				}
+
 				IConnection connection;
 				try
 				{
-					connection = await outbound.ConnectAsync(new ProxyDestination(httpHeaders.Hostname, httpHeaders.Port), cancellationToken);
+					hostname ??= Encoding.Latin1.GetString(httpHeaders.Hostname.Span);
+					connection = await outbound.ConnectAsync(new ProxyDestination(hostname, httpHeaders.Port), cancellationToken);
 				}
 				catch (SocketException ex)
 				{
-					LogConnectionFailed(_logger, httpHeaders.Hostname, httpHeaders.Port, ex.SocketErrorCode);
+					hostname ??= Encoding.Latin1.GetString(httpHeaders.Hostname.Span);
+					LogConnectionFailed(_logger, hostname, httpHeaders.Port, ex.SocketErrorCode);
 
 					ConnectionErrorResult errorResult = ex.SocketErrorCode switch
 					{
@@ -484,4 +493,3 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 	}
 
 }
-

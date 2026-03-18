@@ -105,7 +105,7 @@ public static class HttpUtils
 	/// Parses an authority (host[:port]) from bytes. Handles IPv4, IPv6 ([::1]:port), and hostnames.
 	/// Returns false if the authority is empty or malformed.
 	/// </summary>
-	private static bool TryParseAuthority(ReadOnlySpan<byte> authority, out ReadOnlySpan<byte> host, out ushort port)
+	private static bool TryParseAuthority(ReadOnlyMemory<byte> authority, out ReadOnlyMemory<byte> host, out ushort port)
 	{
 		port = 0;
 		host = default;
@@ -117,10 +117,12 @@ public static class HttpUtils
 			return false;
 		}
 
-		if (authority[0] == (byte)'[')
+		ReadOnlySpan<byte> authoritySpan = authority.Span;
+
+		if (authoritySpan[0] == (byte)'[')
 		{
 			// IPv6: [::1]:port
-			int closeBracket = authority.IndexOf((byte)']');
+			int closeBracket = authoritySpan.IndexOf((byte)']');
 
 			if (closeBracket < 0)
 			{
@@ -129,7 +131,7 @@ public static class HttpUtils
 
 			host = authority.Slice(1, closeBracket - 1);
 
-			ReadOnlySpan<byte> rest = authority.Slice(closeBracket + 1);
+			ReadOnlySpan<byte> rest = authoritySpan.Slice(closeBracket + 1);
 
 			if (!rest.IsEmpty)
 			{
@@ -148,7 +150,7 @@ public static class HttpUtils
 		{
 			// host:port or host — find last colon (not first, to avoid issues with bare IPv6 without brackets,
 			// though that's technically invalid in HTTP)
-			int colon = authority.LastIndexOf((byte)':');
+			int colon = authoritySpan.LastIndexOf((byte)':');
 
 			if (colon < 0)
 			{
@@ -156,7 +158,7 @@ public static class HttpUtils
 			}
 			else
 			{
-				ReadOnlySpan<byte> potentialPort = authority.Slice(colon + 1);
+				ReadOnlySpan<byte> potentialPort = authoritySpan.Slice(colon + 1);
 
 				if (Utf8Parser.TryParse(potentialPort, out port, out int consumed2) && consumed2 == potentialPort.Length)
 				{
@@ -595,14 +597,15 @@ public static class HttpUtils
 	/// For non-CONNECT requests, the full header bytes must be provided to later write
 	/// the filtered request via <see cref="WriteFilteredRequest"/>.
 	/// </summary>
-	internal static bool TryParseHeaders(ReadOnlySpan<byte> headerBytes, out HttpHeaders result)
+	internal static bool TryParseHeaders(ReadOnlyMemory<byte> headerBytes, out HttpHeaders result)
 	{
 		result = default;
+		ReadOnlySpan<byte> headerSpan = headerBytes.Span;
 
 		// Request line: METHOD SP URI SP HTTP/X.Y
-		int requestLineEnd = headerBytes.IndexOf(HttpNewLine);
-		ReadOnlySpan<byte> requestLine = requestLineEnd < 0 ? headerBytes : headerBytes.Slice(0, requestLineEnd);
-		ReadOnlySpan<byte> headerSection = requestLineEnd < 0 ? [] : headerBytes.Slice(requestLineEnd + 2);
+		int requestLineEnd = headerSpan.IndexOf(HttpNewLine);
+		ReadOnlySpan<byte> requestLine = requestLineEnd < 0 ? headerSpan : headerSpan.Slice(0, requestLineEnd);
+		ReadOnlyMemory<byte> headerSection = requestLineEnd < 0 ? ReadOnlyMemory<byte>.Empty : headerBytes.Slice(requestLineEnd + 2);
 
 		int firstSpace = requestLine.IndexOf((byte)' ');
 
@@ -611,42 +614,42 @@ public static class HttpUtils
 			return false;
 		}
 
-		ReadOnlySpan<byte> method = requestLine.Slice(0, firstSpace);
-		ReadOnlySpan<byte> rest = requestLine.Slice(firstSpace + 1);
-		int secondSpace = rest.IndexOf((byte)' ');
+		int secondSpace = requestLine.Slice(firstSpace + 1).IndexOf((byte)' ');
 
 		if (secondSpace < 0)
 		{
 			return false;
 		}
 
-		ReadOnlySpan<byte> uri = rest.Slice(0, secondSpace);
-
-		bool isConnect = Ascii.EqualsIgnoreCase(method, "CONNECT"u8);
+		bool isConnect = Ascii.EqualsIgnoreCase(requestLine.Slice(0, firstSpace), "CONNECT"u8);
+		ReadOnlyMemory<byte> uri = headerBytes.Slice(firstSpace + 1, secondSpace);
 
 		// Single pass: extract Host, Content-Length, Transfer-Encoding, and Proxy-Authorization header values
-		ReadOnlySpan<byte> hostValue = default;
+		ReadOnlyMemory<byte> hostValue = default;
 		long contentLength = 0;
 		bool hasContentLength = false;
 		bool isChunked = false;
 		bool hasTransferEncoding = false;
-		string? proxyAuth = null;
-		ReadOnlySpan<byte> scan = headerSection;
+		ReadOnlyMemory<byte> proxyAuth = default;
+		ReadOnlyMemory<byte> scan = headerSection;
+		ReadOnlySpan<byte> scanSpan = scan.Span;
 
-		while (!scan.IsEmpty)
+		while (!scanSpan.IsEmpty)
 		{
-			int lineEnd = scan.IndexOf(HttpNewLine);
-			ReadOnlySpan<byte> line = lineEnd < 0 ? scan : scan.Slice(0, lineEnd);
-			scan = lineEnd < 0 ? [] : scan.Slice(lineEnd + 2);
+			int lineEnd = scanSpan.IndexOf(HttpNewLine);
+			ReadOnlySpan<byte> lineSpan = lineEnd < 0 ? scanSpan : scanSpan.Slice(0, lineEnd);
+			ReadOnlyMemory<byte> line = lineEnd < 0 ? scan : scan.Slice(0, lineEnd);
+			scanSpan = lineEnd < 0 ? [] : scanSpan.Slice(lineEnd + 2);
+			scan = lineEnd < 0 ? ReadOnlyMemory<byte>.Empty : scan.Slice(lineEnd + 2);
 
-			int colon = line.IndexOf((byte)':');
+			int colon = lineSpan.IndexOf((byte)':');
 
 			if (colon <= 0)
 			{
 				continue;
 			}
 
-			ReadOnlySpan<byte> name = line.Slice(0, colon).TrimEnd((byte)' ');
+			ReadOnlySpan<byte> name = lineSpan.Slice(0, colon).TrimEnd((byte)' ');
 
 			if (Ascii.EqualsIgnoreCase(name, "Host"u8))
 			{
@@ -654,7 +657,7 @@ public static class HttpUtils
 			}
 			else if (!isConnect && Ascii.EqualsIgnoreCase(name, "Content-Length"u8))
 			{
-				if (!TryAccumulateContentLength(line.Slice(colon + 1).Trim((byte)' '), ref contentLength, ref hasContentLength))
+				if (!TryAccumulateContentLength(lineSpan.Slice(colon + 1).Trim((byte)' '), ref contentLength, ref hasContentLength))
 				{
 					return false;
 				}
@@ -662,11 +665,11 @@ public static class HttpUtils
 			else if (!isConnect && Ascii.EqualsIgnoreCase(name, "Transfer-Encoding"u8))
 			{
 				hasTransferEncoding = true;
-				isChunked = HasChunkedEncoding(line.Slice(colon + 1).Trim((byte)' '));
+				isChunked = HasChunkedEncoding(lineSpan.Slice(colon + 1).Trim((byte)' '));
 			}
 			else if (Ascii.EqualsIgnoreCase(name, "Proxy-Authorization"u8))
 			{
-				proxyAuth = Encoding.Latin1.GetString(line.Slice(colon + 1).Trim((byte)' '));
+				proxyAuth = line.Slice(colon + 1).Trim((byte)' ');
 			}
 		}
 
@@ -691,7 +694,7 @@ public static class HttpUtils
 			bodyLength = 0; // no body
 		}
 
-		ReadOnlySpan<byte> authority;
+		ReadOnlyMemory<byte> authority;
 		ushort defaultPort = 80;
 
 		if (isConnect)
@@ -704,7 +707,9 @@ public static class HttpUtils
 		{
 			// RFC 7230 §5.3: origin-form starts with "/"; absolute-form starts with scheme.
 			// Only extract authority from absolute-form URIs; origin-form uses Host header.
-			if (uri.Length > 0 && uri[0] != (byte)'/' && uri.IndexOf("://"u8) >= 0)
+			ReadOnlySpan<byte> uriSpan = uri.Span;
+
+			if (uriSpan.Length > 0 && uriSpan[0] != (byte)'/' && uriSpan.IndexOf("://"u8) >= 0)
 			{
 				authority = ExtractAuthority(uri);
 			}
@@ -718,13 +723,13 @@ public static class HttpUtils
 			}
 
 			// Determine default port from scheme
-			if (uri.Length > 8 && Ascii.EqualsIgnoreCase(uri.Slice(0, 8), "https://"u8))
+			if (uriSpan.Length > 8 && Ascii.EqualsIgnoreCase(uriSpan.Slice(0, 8), "https://"u8))
 			{
 				defaultPort = 443;
 			}
 		}
 
-		if (!TryParseAuthority(authority, out ReadOnlySpan<byte> host, out ushort port))
+		if (!TryParseAuthority(authority, out ReadOnlyMemory<byte> host, out ushort port))
 		{
 			return false;
 		}
@@ -734,27 +739,28 @@ public static class HttpUtils
 			port = defaultPort;
 		}
 
-		string hostname = Encoding.Latin1.GetString(host);
-		result = new HttpHeaders(isConnect, hostname, port, bodyLength, proxyAuth);
+		result = new HttpHeaders(isConnect, host, port, bodyLength, proxyAuth);
 		return true;
 	}
 
 	/// <summary>
 	/// Extracts the authority portion from an absolute URI (e.g., "http://host:port/path" → "host:port").
 	/// </summary>
-	private static ReadOnlySpan<byte> ExtractAuthority(ReadOnlySpan<byte> absoluteUri)
+	private static ReadOnlyMemory<byte> ExtractAuthority(ReadOnlyMemory<byte> absoluteUri)
 	{
-		int schemeEnd = absoluteUri.IndexOf("://"u8);
+		ReadOnlySpan<byte> uriSpan = absoluteUri.Span;
+		int schemeEnd = uriSpan.IndexOf("://"u8);
 
 		if (schemeEnd < 0)
 		{
 			return absoluteUri;
 		}
 
-		ReadOnlySpan<byte> afterScheme = absoluteUri.Slice(schemeEnd + 3);
+		ReadOnlyMemory<byte> afterScheme = absoluteUri.Slice(schemeEnd + 3);
+		ReadOnlySpan<byte> afterSchemeSpan = afterScheme.Span;
 
 		// Authority ends at first '/' or '?' (RFC 3986: path-empty + query is valid)
-		int end = afterScheme.IndexOfAny((byte)'/', (byte)'?');
+		int end = afterSchemeSpan.IndexOfAny((byte)'/', (byte)'?');
 
 		return end < 0 ? afterScheme : afterScheme.Slice(0, end);
 	}
