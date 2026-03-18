@@ -18,7 +18,7 @@ public static class HttpUtils
 	/// <summary>
 	/// The byte sequence <c>\r\n</c> used as a line separator in HTTP headers.
 	/// </summary>
-	public static ReadOnlySpan<byte> HttpNewLineSpan => "\r\n"u8;
+	public static ReadOnlySpan<byte> HttpNewLine => "\r\n"u8;
 
 	/// <summary>
 	/// Checks whether the buffer starts with a valid HTTP request header.
@@ -35,7 +35,7 @@ public static class HttpUtils
 		// Get request line (up to first \r\n, or entire headerBuffer if no additional headers)
 		reader = new SequenceReader<byte>(headerBuffer);
 
-		if (!reader.TryReadTo(out ReadOnlySequence<byte> requestLine, HttpNewLineSpan))
+		if (!reader.TryReadTo(out ReadOnlySequence<byte> requestLine, HttpNewLine))
 		{
 			requestLine = headerBuffer;
 		}
@@ -209,7 +209,7 @@ public static class HttpUtils
 	public static void WriteFilteredRequest(ReadOnlySpan<byte> headerBytes, PipeWriter output)
 	{
 		// Parse request line: METHOD SP URI SP HTTP/X.Y \r\n
-		int requestLineEnd = headerBytes.IndexOf("\r\n"u8);
+		int requestLineEnd = headerBytes.IndexOf(HttpNewLine);
 		ReadOnlySpan<byte> requestLine = requestLineEnd < 0 ? headerBytes : headerBytes.Slice(0, requestLineEnd);
 		ReadOnlySpan<byte> headerSection = requestLineEnd < 0 ? [] : headerBytes.Slice(requestLineEnd + 2);
 
@@ -254,7 +254,8 @@ public static class HttpUtils
 
 		WriteFilteredHeaders(headerSection, output);
 
-		output.Write("\r\nConnection: close"u8);
+		output.Write(HttpNewLine);
+		output.Write("Connection: close"u8);
 		output.Write(HttpHeaderEnd);
 	}
 
@@ -278,7 +279,7 @@ public static class HttpUtils
 			ReadOnlySpan<byte> span = buffer;
 
 			// Status line
-			int statusLineEnd = span.IndexOf("\r\n"u8);
+			int statusLineEnd = span.IndexOf(HttpNewLine);
 			ReadOnlySpan<byte> statusLine = statusLineEnd < 0 ? span : span.Slice(0, statusLineEnd);
 			ReadOnlySpan<byte> headerSection = statusLineEnd < 0 ? [] : span.Slice(statusLineEnd + 2);
 
@@ -286,6 +287,8 @@ public static class HttpUtils
 
 			WriteFilteredHeaders(headerSection, output);
 
+			output.Write(HttpNewLine);
+			output.Write("Connection: close"u8);
 			output.Write(HttpHeaderEnd);
 		}
 		finally
@@ -325,7 +328,7 @@ public static class HttpUtils
 
 			while (!remaining.IsEmpty)
 			{
-				int lineEnd = remaining.IndexOf("\r\n"u8);
+				int lineEnd = remaining.IndexOf(HttpNewLine);
 				ReadOnlySpan<byte> line = lineEnd < 0 ? remaining : remaining.Slice(0, lineEnd);
 				remaining = lineEnd < 0 ? [] : remaining.Slice(lineEnd + 2);
 
@@ -376,7 +379,7 @@ public static class HttpUtils
 
 			while (!remaining.IsEmpty)
 			{
-				int lineEnd = remaining.IndexOf("\r\n"u8);
+				int lineEnd = remaining.IndexOf(HttpNewLine);
 				ReadOnlySpan<byte> line = lineEnd < 0 ? remaining : remaining.Slice(0, lineEnd);
 				remaining = lineEnd < 0 ? [] : remaining.Slice(lineEnd + 2);
 
@@ -409,14 +412,15 @@ public static class HttpUtils
 					continue;
 				}
 
-				output.Write(HttpNewLineSpan);
+				output.Write(HttpNewLine);
 				output.Write(line);
 			}
 
 			// Write combined Transfer-Encoding header (preserve even when not chunked)
 			if (teLen > 0)
 			{
-				output.Write("\r\nTransfer-Encoding: "u8);
+				output.Write(HttpNewLine);
+				output.Write("Transfer-Encoding: "u8);
 				output.Write(combinedTe);
 			}
 
@@ -425,7 +429,8 @@ public static class HttpUtils
 			{
 				Span<byte> clBuf = stackalloc byte[20];
 				Utf8Formatter.TryFormat(contentLength, clBuf, out int clLen);
-				output.Write("\r\nContent-Length: "u8);
+				output.Write(HttpNewLine);
+				output.Write("Content-Length: "u8);
 				output.Write(clBuf.Slice(0, clLen));
 			}
 		}
@@ -514,7 +519,7 @@ public static class HttpUtils
 		result = default;
 
 		// Request line: METHOD SP URI SP HTTP/X.Y
-		int requestLineEnd = headerBytes.IndexOf("\r\n"u8);
+		int requestLineEnd = headerBytes.IndexOf(HttpNewLine);
 		ReadOnlySpan<byte> requestLine = requestLineEnd < 0 ? headerBytes : headerBytes.Slice(0, requestLineEnd);
 		ReadOnlySpan<byte> headerSection = requestLineEnd < 0 ? [] : headerBytes.Slice(requestLineEnd + 2);
 
@@ -548,7 +553,7 @@ public static class HttpUtils
 
 		while (!scan.IsEmpty)
 		{
-			int lineEnd = scan.IndexOf("\r\n"u8);
+			int lineEnd = scan.IndexOf(HttpNewLine);
 			ReadOnlySpan<byte> line = lineEnd < 0 ? scan : scan.Slice(0, lineEnd);
 			scan = lineEnd < 0 ? [] : scan.Slice(lineEnd + 2);
 

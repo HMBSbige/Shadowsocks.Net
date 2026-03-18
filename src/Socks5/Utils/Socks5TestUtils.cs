@@ -41,7 +41,8 @@ public static class Socks5TestUtils
 
 		IDuplexPipe pipe = client.GetPipe();
 
-		await pipe.Output.WriteAsync(sendString, cancellationToken);
+		pipe.Output.Write(sendString);
+		await pipe.Output.FlushAsync(cancellationToken);
 
 		// Response
 

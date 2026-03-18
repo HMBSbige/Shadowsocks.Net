@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -115,7 +116,7 @@ internal sealed class MockHttpServer : IDisposable
 				else if (path == "/echo-headers")
 				{
 					string allHeaders = Encoding.UTF8.GetString(buf, 0, total);
-					int headerEnd = allHeaders.IndexOf("\r\n\r\n");
+					int headerEnd = allHeaders.IndexOf("\r\n\r\n", StringComparison.Ordinal);
 					string headersOnly = headerEnd >= 0 ? allHeaders[..headerEnd] : allHeaders;
 					await WriteAsync(stream, 200, "OK", headersOnly);
 				}
@@ -148,15 +149,26 @@ internal sealed class MockHttpServer : IDisposable
 				// can cause TCP RST, which discards buffered response data at the
 				// SOCKS5 relay before the proxy reads it.
 				try
-				{ socket.Shutdown(SocketShutdown.Send); }
-				catch { }
+				{
+					socket.Shutdown(SocketShutdown.Send);
+				}
+				catch
+				{
+					// ignored
+				}
+
 				try
 				{
 					byte[] drain = new byte[4096];
+
 					while (await stream.ReadAsync(drain) > 0)
-					{ }
+					{
+					}
 				}
-				catch { }
+				catch
+				{
+					// ignored
+				}
 			}
 		}
 		catch
@@ -236,6 +248,7 @@ internal sealed class MockHttpServer : IDisposable
 		int contentLength = 0;
 		bool isChunked = false;
 		string headers = Encoding.UTF8.GetString(requestBuf, 0, headerEndIdx);
+
 		foreach (string line in headers.Split("\r\n"))
 		{
 			if (line.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase))
@@ -252,16 +265,20 @@ internal sealed class MockHttpServer : IDisposable
 		}
 
 		byte[] body = [];
+
 		if (contentLength > 0)
 		{
 			body = new byte[contentLength];
 			int alreadyRead = Math.Min(requestTotal - bodyStartIdx, contentLength);
+
 			if (alreadyRead > 0)
 			{
 				Buffer.BlockCopy(requestBuf, bodyStartIdx, body, 0, alreadyRead);
 			}
+
 			int remaining = contentLength - alreadyRead;
 			int offset = alreadyRead;
+
 			while (remaining > 0)
 			{
 				int n = await stream.ReadAsync(body.AsMemory(offset, remaining));
@@ -286,6 +303,7 @@ internal sealed class MockHttpServer : IDisposable
 		raw.Write(requestBuf, bodyStartIdx, requestTotal - bodyStartIdx);
 
 		byte[] readBuf = new byte[4096];
+
 		// Read until we have the terminating chunk (use GetBuffer to avoid O(n²) copies)
 		while (!HasTerminatingChunk(raw.GetBuffer().AsSpan(0, (int)raw.Length)))
 		{
@@ -319,7 +337,7 @@ internal sealed class MockHttpServer : IDisposable
 				break;
 
 			decoded.Write(data, pos, chunkSize);
-			pos += chunkSize + 2; // skip data + \r\n
+			pos += chunkSize + 2;// skip data + \r\n
 		}
 
 		return decoded.ToArray();
@@ -328,6 +346,7 @@ internal sealed class MockHttpServer : IDisposable
 		{
 			// Look for "0\r\n" as a chunk-size line followed by "\r\n" (end of trailers)
 			int idx = 0;
+
 			while (idx < span.Length)
 			{
 				int lineEnd = span[idx..].IndexOf("\r\n"u8);
@@ -339,7 +358,7 @@ internal sealed class MockHttpServer : IDisposable
 				if (semi >= 0)
 					sizePart = sizePart[..semi];
 
-				if (int.TryParse(sizePart.Trim(), System.Globalization.NumberStyles.HexNumber, null, out int size) && size == 0)
+				if (int.TryParse(sizePart.Trim(), NumberStyles.HexNumber, null, out int size) && size == 0)
 				{
 					// Found terminating chunk line, check there's at least \r\n after it
 					return idx + lineEnd + 2 + 2 <= span.Length;
@@ -357,6 +376,7 @@ internal sealed class MockHttpServer : IDisposable
 	{
 		string headers = Encoding.UTF8.GetString(requestBuf, 0, requestTotal);
 		string teValue = "";
+
 		foreach (string line in headers.Split("\r\n"))
 		{
 			if (line.StartsWith("Transfer-Encoding:", StringComparison.OrdinalIgnoreCase))

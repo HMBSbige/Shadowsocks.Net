@@ -270,43 +270,50 @@ public partial class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 		{
 			case ConnectionErrorResult.AuthenticationError:
 			{
-				writer.Write("HTTP/1.1 401 Unauthorized\r\n\r\n"u8);
+				writer.Write("HTTP/1.1 401 Unauthorized"u8);
 				break;
 			}
 			case ConnectionErrorResult.HostUnreachable:
 			{
-				writer.Write("HTTP/1.1 502 HostUnreachable\r\n\r\n"u8);
+				writer.Write("HTTP/1.1 502 HostUnreachable"u8);
 				break;
 			}
 			case ConnectionErrorResult.ConnectionRefused:
 			{
-				writer.Write("HTTP/1.1 502 ConnectionRefused\r\n\r\n"u8);
+				writer.Write("HTTP/1.1 502 ConnectionRefused"u8);
 				break;
 			}
 			case ConnectionErrorResult.ConnectionReset:
 			{
-				writer.Write("HTTP/1.1 502 ConnectionReset\r\n\r\n"u8);
+				writer.Write("HTTP/1.1 502 ConnectionReset"u8);
 				break;
 			}
 			case ConnectionErrorResult.InvalidRequest:
 			{
-				writer.Write("HTTP/1.1 500 Internal Server Error\r\nX-Proxy-Error-Type: InvalidRequest\r\n\r\n"u8);
+				writer.Write("HTTP/1.1 500 Internal Server Error"u8);
+				writer.Write(HttpNewLine);
+				writer.Write("X-Proxy-Error-Type: InvalidRequest"u8);
 				break;
 			}
 			case ConnectionErrorResult.UnknownError:
 			default:
 			{
-				writer.Write("HTTP/1.1 500 Internal Server Error\r\nX-Proxy-Error-Type: UnknownError\r\n\r\n"u8);
+				writer.Write("HTTP/1.1 500 Internal Server Error"u8);
+				writer.Write(HttpNewLine);
+				writer.Write("X-Proxy-Error-Type: UnknownError"u8);
 				break;
 			}
 		}
+
+		writer.Write(HttpHeaderEnd);
 
 		await writer.FlushAsync(cancellationToken);
 	}
 
 	private static async ValueTask SendConnectSuccessAsync(PipeWriter writer, CancellationToken cancellationToken = default)
 	{
-		writer.Write("HTTP/1.1 200 Connection Established\r\n\r\n"u8);
+		writer.Write("HTTP/1.1 200 Connection Established"u8);
+		writer.Write(HttpHeaderEnd);
 		await writer.FlushAsync(cancellationToken);
 	}
 
@@ -347,7 +354,7 @@ public partial class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 		isLast = false;
 		SequenceReader<byte> seqReader = new(buffer);
 
-		if (!seqReader.TryReadTo(out ReadOnlySequence<byte> chunkSizeLine, HttpNewLineSpan))
+		if (!seqReader.TryReadTo(out ReadOnlySequence<byte> chunkSizeLine, HttpNewLine))
 		{
 			return false;
 		}
@@ -367,7 +374,7 @@ public partial class HttpToSocks5(ILogger<HttpToSocks5>? logger = null)
 			ReadOnlySequence<byte> afterLine = buffer.Slice(lineConsumed);
 			SequenceReader<byte> trailerReader = new(afterLine);
 
-			while (trailerReader.TryReadTo(out ReadOnlySequence<byte> trailerLine, HttpNewLineSpan))
+			while (trailerReader.TryReadTo(out ReadOnlySequence<byte> trailerLine, HttpNewLine))
 			{
 				if (trailerLine.Length == 0)
 				{

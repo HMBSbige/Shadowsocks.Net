@@ -183,19 +183,6 @@ public static class PipelinesExtensions
 		}
 
 		/// <summary>
-		/// Writes a UTF-8 string to the <see cref="PipeWriter"/> and flushes.
-		/// </summary>
-		/// <param name="str">The string to write.</param>
-		/// <param name="cancellationToken">The cancellation token.</param>
-		/// <returns>The flush result.</returns>
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public async ValueTask<FlushResult> WriteAsync(string str, CancellationToken cancellationToken = default)
-		{
-			writer.Write(str);
-			return await writer.FlushAsync(cancellationToken);
-		}
-
-		/// <summary>
 		/// Writes all segments of a <see cref="ReadOnlySequence{T}"/> to the <see cref="PipeWriter"/> without flushing.
 		/// </summary>
 		/// <param name="sequence">The byte sequence to write.</param>

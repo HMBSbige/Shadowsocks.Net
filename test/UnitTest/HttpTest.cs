@@ -360,7 +360,7 @@ public class HttpTest
 		string request = $"GET http://localhost:{F.MockHttp.Port}/echo-headers HTTP/1.1\r\n"
 					   + $"Host: localhost:{F.MockHttp.Port}\r\n"
 					   + $"Connection: {connTokens}\r\n"
-					   + extraHeaders.ToString()
+					   + extraHeaders
 					   + "\r\n";
 
 		string response = await SendRawRequestAsync(request, cancellationToken, 16384);
