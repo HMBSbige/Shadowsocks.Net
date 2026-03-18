@@ -93,14 +93,14 @@ public class HttpTest
 	public async Task ConnectAsync(CancellationToken cancellationToken)
 	{
 		string httpsStr = await F.HttpClient.GetStringAsync($"https://localhost:{F.MockHttps.Port}/get", cancellationToken);
-		await Assert.That(string.IsNullOrWhiteSpace(httpsStr)).IsFalse();
+		await Assert.That(httpsStr).IsNotNullOrWhiteSpace();
 	}
 
 	[Test]
 	public async Task ConnectIPv6Async(CancellationToken cancellationToken)
 	{
 		string httpsStr = await F.HttpClient.GetStringAsync($"https://[::1]:{F.MockHttps.Port}/get", cancellationToken);
-		await Assert.That(string.IsNullOrWhiteSpace(httpsStr)).IsFalse();
+		await Assert.That(httpsStr).IsNotNullOrWhiteSpace();
 	}
 
 	[Test]
@@ -114,14 +114,14 @@ public class HttpTest
 	public async Task HttpContentLengthAsync(CancellationToken cancellationToken)
 	{
 		string httpStr = await F.HttpClient.GetStringAsync($"http://localhost:{F.MockHttp.Port}/get", cancellationToken);
-		await Assert.That(string.IsNullOrWhiteSpace(httpStr)).IsFalse();
+		await Assert.That(httpStr).IsNotNullOrWhiteSpace();
 	}
 
 	[Test]
 	public async Task HttpContentLengthIPv6Async(CancellationToken cancellationToken)
 	{
 		string httpStr = await F.HttpClient.GetStringAsync($"http://[::1]:{F.MockHttp.Port}/get", cancellationToken);
-		await Assert.That(string.IsNullOrWhiteSpace(httpStr)).IsFalse();
+		await Assert.That(httpStr).IsNotNullOrWhiteSpace();
 	}
 
 	[Test]
@@ -147,7 +147,7 @@ public class HttpTest
 		request.Headers.TransferEncodingChunked = true;
 		HttpResponseMessage response = await F.HttpClient.SendAsync(request, cancellationToken);
 		string body = await response.Content.ReadAsStringAsync(cancellationToken);
-		await Assert.That(body.Contains("Hello, chunked world!")).IsTrue();
+		await Assert.That(body).Contains("Hello, chunked world!");
 	}
 
 	[Test]
@@ -156,7 +156,7 @@ public class HttpTest
 		StringContent content = new("Hello, fixed-length world!");
 		HttpResponseMessage response = await F.HttpClient.PostAsync($"http://localhost:{F.MockHttp.Port}/echo", content, cancellationToken);
 		string body = await response.Content.ReadAsStringAsync(cancellationToken);
-		await Assert.That(body.Contains("Hello, fixed-length world!")).IsTrue();
+		await Assert.That(body).Contains("Hello, fixed-length world!");
 	}
 
 	[Test]
@@ -192,7 +192,7 @@ public class HttpTest
 								+ "\r\n";
 
 		string response = await SendChunkedRequestAsync(requestHeaders, payload, cancellationToken);
-		await Assert.That(response.Contains("Hello, chunked world!")).IsTrue();
+		await Assert.That(response).Contains("Hello, chunked world!");
 	}
 
 	[Test]
@@ -206,7 +206,7 @@ public class HttpTest
 								+ "\r\n";
 
 		string response = await SendChunkedRequestAsync(requestHeaders, payload, cancellationToken);
-		await Assert.That(response.Contains("Hello, chunked world!")).IsTrue();
+		await Assert.That(response).Contains("Hello, chunked world!");
 	}
 
 	[Test]
@@ -223,7 +223,7 @@ public class HttpTest
 
 		string response = await SendChunkedRequestAsync(requestHeaders, payload, cancellationToken);
 		// Origin must see the combined TE value including "gzip", not just "chunked"
-		await Assert.That(response.Contains("gzip")).IsTrue();
+		await Assert.That(response).Contains("gzip");
 	}
 
 	[Test]
@@ -240,7 +240,7 @@ public class HttpTest
 
 		string response = await SendRawRequestAsync(request, cancellationToken);
 		// X-Secret was nominated by the second Connection line — must be stripped
-		await Assert.That(response.Contains("X-Secret")).IsFalse();
+		await Assert.That(response).DoesNotContain("X-Secret");
 	}
 
 	[Test]
@@ -255,7 +255,7 @@ public class HttpTest
 
 		string response = await SendChunkedRequestAsync(requestHeaders, payload, cancellationToken);
 		// Proxy must preserve the full TE value, not rewrite to just "chunked"
-		await Assert.That(response.Contains("gzip, chunked")).IsTrue();
+		await Assert.That(response).Contains("gzip, chunked");
 	}
 
 	[Test]
@@ -291,7 +291,7 @@ public class HttpTest
 
 		string response = await ReadResponseAsync(ns, cancellationToken);
 		// Proxy should reject "1G" with 500, not silently accept it as size=1
-		await Assert.That(response.Contains("HTTP/1.1 500")).IsTrue();
+		await Assert.That(response).Contains("HTTP/1.1 500");
 	}
 
 	[Test]
@@ -319,7 +319,7 @@ public class HttpTest
 		await ns.FlushAsync(cancellationToken);
 
 		string response = await ReadResponseAsync(ns, cancellationToken);
-		await Assert.That(response.Contains("HTTP/1.1 500")).IsTrue();
+		await Assert.That(response).Contains("HTTP/1.1 500");
 	}
 
 	[Test]
@@ -332,7 +332,7 @@ public class HttpTest
 						+ "\r\n";
 
 		string response = await SendRawRequestAsync(request, cancellationToken);
-		await Assert.That(response.Contains("Transfer-Encoding: gzip", StringComparison.OrdinalIgnoreCase)).IsTrue();
+		await Assert.That(response).Contains("Transfer-Encoding: gzip", StringComparison.OrdinalIgnoreCase);
 	}
 
 	[Test]
@@ -363,9 +363,9 @@ public class HttpTest
 
 		string response = await SendRawRequestAsync(request, cancellationToken, 16384);
 		// Should get a valid 200, not a 500 from buffer overflow
-		await Assert.That(response.Contains("HTTP/1.1 200")).IsTrue();
+		await Assert.That(response).Contains("HTTP/1.1 200");
 		// All X-Hdr-NNN headers should be stripped (Connection-nominated)
-		await Assert.That(response.Contains("X-Hdr-")).IsFalse();
+		await Assert.That(response).DoesNotContain("X-Hdr-");
 	}
 
 	[Test]
@@ -383,7 +383,7 @@ public class HttpTest
 						+ "0\r\n\r\n";
 
 		string response = await SendRawRequestAsync(request, cancellationToken);
-		await Assert.That(response.Contains("HTTP/1.1 500")).IsTrue();
+		await Assert.That(response).Contains("HTTP/1.1 500");
 	}
 
 	[Test]
@@ -398,7 +398,7 @@ public class HttpTest
 						+ "ABCDE";
 
 		string response = await SendRawRequestAsync(request, cancellationToken);
-		await Assert.That(response.Contains("HTTP/1.1 500")).IsTrue();
+		await Assert.That(response).Contains("HTTP/1.1 500");
 	}
 
 	[Test]
@@ -412,7 +412,7 @@ public class HttpTest
 						+ "ABCDE";
 
 		string response = await SendRawRequestAsync(request, cancellationToken);
-		await Assert.That(response.Contains("HTTP/1.1 500")).IsTrue();
+		await Assert.That(response).Contains("HTTP/1.1 500");
 	}
 
 	[Test]
@@ -445,21 +445,21 @@ public class HttpTest
 	public async Task AuthProxy_CorrectCredentials_ForwardsAsync(CancellationToken cancellationToken)
 	{
 		string httpStr = await F.AuthHttpClient.GetStringAsync($"http://localhost:{F.MockHttp.Port}/get", cancellationToken);
-		await Assert.That(string.IsNullOrWhiteSpace(httpStr)).IsFalse();
+		await Assert.That(httpStr).IsNotNullOrWhiteSpace();
 	}
 
 	[Test]
 	public async Task AuthProxy_Connect_CorrectCredentialsAsync(CancellationToken cancellationToken)
 	{
 		string httpsStr = await F.AuthHttpClient.GetStringAsync($"https://localhost:{F.MockHttps.Port}/get", cancellationToken);
-		await Assert.That(string.IsNullOrWhiteSpace(httpsStr)).IsFalse();
+		await Assert.That(httpsStr).IsNotNullOrWhiteSpace();
 	}
 
 	[Test]
 	public async Task AuthProxy_CredentialNotLeakedToOriginAsync(CancellationToken cancellationToken)
 	{
 		string body = await F.AuthHttpClient.GetStringAsync($"http://localhost:{F.MockHttp.Port}/echo-headers", cancellationToken);
-		await Assert.That(body.Contains("Proxy-Authorization")).IsFalse();
+		await Assert.That(body).DoesNotContain("Proxy-Authorization");
 	}
 
 	[Test]
@@ -537,7 +537,7 @@ public class HttpTest
 			$"GET http://localhost:{F.MockHttp.Port}/get HTTP/1.1\r\nHost: localhost:1\r\n\r\n",
 			cancellationToken);
 
-		await Assert.That(response.Contains("HTTP/1.1 200")).IsTrue();
+		await Assert.That(response).Contains("HTTP/1.1 200");
 	}
 
 	[Test]
@@ -583,7 +583,7 @@ public class HttpTest
 		string response = Encoding.UTF8.GetString(buf, 0, n);
 
 		// Must NOT get a 200 with the echoed (incomplete) body
-		await Assert.That(response.Contains("HTTP/1.1 200")).IsFalse();
+		await Assert.That(response).DoesNotContain("HTTP/1.1 200");
 	}
 
 	[Test]
@@ -597,7 +597,7 @@ public class HttpTest
 			$"GET http://localhost:{F.MockHttp.Port}?x=1 HTTP/1.1\r\nHost: localhost:{F.MockHttp.Port}\r\n\r\n",
 			cancellationToken);
 
-		await Assert.That(response.Contains("?x=1")).IsTrue();
+		await Assert.That(response).Contains("?x=1");
 	}
 
 	[Test]
@@ -616,7 +616,7 @@ public class HttpTest
 		int n = await ns.ReadAsync(buf, cancellationToken);
 		string response = Encoding.UTF8.GetString(buf, 0, n);
 
-		await Assert.That(response.StartsWith("HTTP/1.1 200")).IsTrue();
+		await Assert.That(response).StartsWith("HTTP/1.1 200");
 	}
 
 	#region helpers
@@ -745,7 +745,7 @@ public class HttpTest
 			$"GET /echo-request-line HTTP/1.1\r\nHost: localhost:{F.MockHttp.Port}\r\n\r\n",
 			cancellationToken);
 
-		await Assert.That(response.Contains("HTTP/1.1 200")).IsTrue();
+		await Assert.That(response).Contains("HTTP/1.1 200");
 	}
 
 	[Test]
@@ -757,9 +757,9 @@ public class HttpTest
 			$"GET /echo-request-line?next=http://a/b HTTP/1.1\r\nHost: localhost:{F.MockHttp.Port}\r\n\r\n",
 			cancellationToken);
 
-		await Assert.That(response.Contains("HTTP/1.1 200")).IsTrue();
+		await Assert.That(response).Contains("HTTP/1.1 200");
 		// Verify the request-line forwarded to the server preserves the original path+query
-		await Assert.That(response.Contains("/echo-request-line?next=http://a/b")).IsTrue();
+		await Assert.That(response).Contains("/echo-request-line?next=http://a/b");
 	}
 
 	[Test]
@@ -783,7 +783,7 @@ public class HttpTest
 			$"GET http://localhost:{F.MockHttp.Port}/garbage-response HTTP/1.1\r\nHost: localhost:{F.MockHttp.Port}\r\n\r\n",
 			cancellationToken);
 
-		await Assert.That(response.Contains("502")).IsTrue();
+		await Assert.That(response).Contains("502");
 	}
 
 	#endregion
