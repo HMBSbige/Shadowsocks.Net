@@ -32,7 +32,7 @@ public static class Socks5TestUtils
 
 		ServerBound bound = await client.ConnectAsync(targetHost, targetPort, cancellationToken);
 
-		Debug.WriteLine($@"TCP: Supported, {bound.Type} {(bound.Type == AddressType.Domain ? bound.Domain : bound.Address)}:{bound.Port}");
+		Debug.WriteLine($@"TCP: Supported, {bound.Type} {(bound.Type is AddressType.Domain ? bound.Domain : bound.Address)}:{bound.Port}");
 
 		IDuplexPipe pipe = client.GetPipe();
 
@@ -94,7 +94,7 @@ public static class Socks5TestUtils
 
 		ServerBound bound = await client.UdpAssociateAsync(IPAddress.Any, 0, cancellationToken);
 
-		Debug.WriteLine($@"UDP: Supported, {bound.Type} {(bound.Type == AddressType.Domain ? bound.Domain : bound.Address)}:{bound.Port}");
+		Debug.WriteLine($@"UDP: Supported, {bound.Type} {(bound.Type is AddressType.Domain ? bound.Domain : bound.Address)}:{bound.Port}");
 
 		byte[] payload = new byte[64];
 		RandomNumberGenerator.Fill(payload);

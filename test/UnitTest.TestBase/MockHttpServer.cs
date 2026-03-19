@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -46,161 +45,141 @@ public sealed class MockHttpServer : IDisposable
 
 	private async Task HandleAsync(Socket socket)
 	{
-		try
-		{
-			Stream stream = new NetworkStream(socket, ownsSocket: true);
+		Stream stream = new NetworkStream(socket, ownsSocket: true);
 
-			if (_cert is not null)
+		if (_cert is not null)
+		{
+			SslStream ssl = new(stream, leaveInnerStreamOpen: false);
+			await ssl.AuthenticateAsServerAsync(_cert);
+			stream = ssl;
+		}
+
+		await using Stream _ = stream;
+
+		byte[] buf = new byte[4096];
+		int total = 0;
+
+		while (total < buf.Length)
+		{
+			int n = await stream.ReadAsync(buf.AsMemory(total));
+
+			if (n is 0)
 			{
-				SslStream ssl = new(stream, leaveInnerStreamOpen: false);
-				await ssl.AuthenticateAsServerAsync(_cert);
-				stream = ssl;
+				break;
 			}
 
-			await using (stream)
+			total += n;
+
+			if (buf.AsSpan(0, total).IndexOf("\r\n\r\n"u8) >= 0)
 			{
-				byte[] buf = new byte[4096];
-				int total = 0;
-
-				while (total < buf.Length)
-				{
-					int n = await stream.ReadAsync(buf.AsMemory(total));
-
-					if (n == 0)
-					{
-						break;
-					}
-
-					total += n;
-
-					if (buf.AsSpan(0, total).IndexOf("\r\n\r\n"u8) >= 0)
-					{
-						break;
-					}
-				}
-
-				string firstLine = Encoding.UTF8.GetString(buf, 0, total).Split("\r\n")[0];
-				string[] parts = firstLine.Split(' ');
-				string path = parts.Length > 1 ? parts[1] : "/";
-
-				if (path.StartsWith("/stream-bytes/") && int.TryParse(path["/stream-bytes/".Length..], out int count))
-				{
-					await WriteChunkedAsync(stream, count, delay: true);
-				}
-				else if (path == "/status/204")
-				{
-					await WriteAsync(stream, 204, "No Content");
-				}
-				else if (path == "/get")
-				{
-					await WriteAsync(stream, 200, "OK", """{"message":"hello"}""");
-				}
-				else if (path == "/set-cookies")
-				{
-					await stream.WriteAsync("HTTP/1.1 200 OK\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"u8.ToArray());
-					await stream.FlushAsync();
-				}
-				else if (path == "/echo")
-				{
-					await WriteEchoAsync(stream, buf, total);
-				}
-				else if (path == "/echo-te")
-				{
-					await WriteEchoTeAsync(stream, buf, total);
-				}
-				else if (path == "/echo-request-line" || path.StartsWith("/echo-request-line?"))
-				{
-					await WriteAsync(stream, 200, "OK", firstLine);
-				}
-				else if (path == "/echo-headers")
-				{
-					string allHeaders = Encoding.UTF8.GetString(buf, 0, total);
-					int headerEnd = allHeaders.IndexOf("\r\n\r\n", StringComparison.Ordinal);
-					string headersOnly = headerEnd >= 0 ? allHeaders[..headerEnd] : allHeaders;
-					await WriteAsync(stream, 200, "OK", headersOnly);
-				}
-				else if (path == "/te-gzip-response")
-				{
-					// Response with Transfer-Encoding: gzip (close-delimited, no chunked)
-					await stream.WriteAsync("HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip\r\nConnection: close\r\n\r\n"u8.ToArray());
-					await stream.WriteAsync(new byte[] { 0x1f, 0x8b, 0x08, 0x00 });
-					await stream.FlushAsync();
-				}
-				else if (path == "/close-delimited")
-				{
-					await WriteCloseDelimitedAsync(stream);
-				}
-				else if (path == "/bad-content-length")
-				{
-					await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Length: abc\r\nConnection: close\r\n\r\nhello"u8.ToArray());
-					await stream.FlushAsync();
-				}
-				else if (path == "/conflicting-content-length")
-				{
-					await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Length: 5\r\nContent-Length: 10\r\nConnection: close\r\n\r\nhello"u8.ToArray());
-					await stream.FlushAsync();
-				}
-				else if (path.StartsWith("/stream-bytes-ext/") && int.TryParse(path["/stream-bytes-ext/".Length..], out int extCount))
-				{
-					await WriteChunkedAsync(stream, extCount, chunkExtension: ";ext=val", terminator: "0;ext=final\r\n\r\n");
-				}
-				else if (path.StartsWith("/stream-bytes-trailer/") && int.TryParse(path["/stream-bytes-trailer/".Length..], out int trailerCount))
-				{
-					await WriteChunkedAsync(stream, trailerCount, terminator: "0\r\nX-Checksum: abc123\r\n\r\n");
-				}
-				else if (path == "/truncated-headers")
-				{
-					// Write partial headers then close — no \r\n\r\n
-					await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-"u8.ToArray());
-					await stream.FlushAsync();
-					return; // close without shutdown — skip graceful teardown below
-				}
-				else if (path == "/garbage-response")
-				{
-					// Write non-HTTP data as response
-					await stream.WriteAsync("XYZZY totally not HTTP\r\n\r\n"u8.ToArray());
-					await stream.FlushAsync();
-				}
-				else if (path.StartsWith("/?"))
-				{
-					// Echo full request line — used by path-less query-string tests
-					await WriteAsync(stream, 200, "OK", firstLine);
-				}
-				else
-				{
-					await WriteAsync(stream, 204, "No Content");
-				}
-
-				// Graceful shutdown: send FIN on write side, then drain remaining
-				// request body. Without this, closing the socket with unread data
-				// can cause TCP RST, which discards buffered response data at the
-				// SOCKS5 relay before the proxy reads it.
-				try
-				{
-					socket.Shutdown(SocketShutdown.Send);
-				}
-				catch
-				{
-					// ignored
-				}
-
-				try
-				{
-					byte[] drain = new byte[4096];
-
-					while (await stream.ReadAsync(drain) > 0)
-					{
-					}
-				}
-				catch
-				{
-					// ignored
-				}
+				break;
 			}
 		}
-		catch
+
+		string firstLine = Encoding.UTF8.GetString(buf, 0, total).Split("\r\n")[0];
+		string[] parts = firstLine.Split(' ');
+		string path = parts.Length > 1 ? parts[1] : "/";
+
+		if (path.StartsWith("/stream-bytes/") && int.TryParse(path["/stream-bytes/".Length..], out int count))
 		{
-			// ignored
+			await WriteChunkedAsync(stream, count, delay: true);
+		}
+		else if (path is "/status/204")
+		{
+			await WriteAsync(stream, 204, "No Content");
+		}
+		else if (path is "/get")
+		{
+			await WriteAsync(stream, 200, "OK", """{"message":"hello"}""");
+		}
+		else if (path is "/set-cookies")
+		{
+			await stream.WriteAsync("HTTP/1.1 200 OK\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"u8.ToArray());
+			await stream.FlushAsync();
+		}
+		else if (path is "/echo")
+		{
+			await WriteEchoAsync(stream, buf, total);
+		}
+		else if (path is "/echo-te")
+		{
+			await WriteEchoTeAsync(stream, buf, total);
+		}
+		else if (path is "/echo-request-line" || path.StartsWith("/echo-request-line?"))
+		{
+			await WriteAsync(stream, 200, "OK", firstLine);
+		}
+		else if (path is "/echo-headers")
+		{
+			string allHeaders = Encoding.UTF8.GetString(buf, 0, total);
+			int headerEnd = allHeaders.IndexOf("\r\n\r\n", StringComparison.Ordinal);
+			string headersOnly = headerEnd >= 0 ? allHeaders[..headerEnd] : allHeaders;
+			await WriteAsync(stream, 200, "OK", headersOnly);
+		}
+		else if (path is "/te-gzip-response")
+		{
+			// Response with Transfer-Encoding: gzip (close-delimited, no chunked)
+			await stream.WriteAsync("HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip\r\nConnection: close\r\n\r\n"u8.ToArray());
+			await stream.WriteAsync(new byte[] { 0x1f, 0x8b, 0x08, 0x00 });
+			await stream.FlushAsync();
+		}
+		else if (path is "/close-delimited")
+		{
+			await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"u8.ToArray());
+			await stream.WriteAsync("""{"message":"close-delimited"}"""u8.ToArray());
+			await stream.FlushAsync();
+		}
+		else if (path is "/bad-content-length")
+		{
+			await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Length: abc\r\nConnection: close\r\n\r\nhello"u8.ToArray());
+			await stream.FlushAsync();
+		}
+		else if (path is "/conflicting-content-length")
+		{
+			await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Length: 5\r\nContent-Length: 10\r\nConnection: close\r\n\r\nhello"u8.ToArray());
+			await stream.FlushAsync();
+		}
+		else if (path.StartsWith("/stream-bytes-ext/") && int.TryParse(path["/stream-bytes-ext/".Length..], out int extCount))
+		{
+			await WriteChunkedAsync(stream, extCount, chunkExtension: ";ext=val", terminator: "0;ext=final\r\n\r\n");
+		}
+		else if (path.StartsWith("/stream-bytes-trailer/") && int.TryParse(path["/stream-bytes-trailer/".Length..], out int trailerCount))
+		{
+			await WriteChunkedAsync(stream, trailerCount, terminator: "0\r\nX-Checksum: abc123\r\n\r\n");
+		}
+		else if (path is "/truncated-headers")
+		{
+			// Write partial headers then close — no \r\n\r\n
+			await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-"u8.ToArray());
+			await stream.FlushAsync();
+			return;// close without shutdown — skip graceful teardown below
+		}
+		else if (path is "/garbage-response")
+		{
+			// Write non-HTTP data as response
+			await stream.WriteAsync("XYZZY totally not HTTP\r\n\r\n"u8.ToArray());
+			await stream.FlushAsync();
+		}
+		else if (path.StartsWith("/?"))
+		{
+			// Echo full request line — used by path-less query-string tests
+			await WriteAsync(stream, 200, "OK", firstLine);
+		}
+		else
+		{
+			await WriteAsync(stream, 204, "No Content");
+		}
+
+		// Graceful shutdown: send FIN on write side, then drain remaining
+		// request body. Without this, closing the socket with unread data
+		// can cause TCP RST, which discards buffered response data at the
+		// SOCKS5 relay before the proxy reads it.
+		socket.Shutdown(SocketShutdown.Send);
+
+		byte[] drain = new byte[4096];
+
+		while (await stream.ReadAsync(drain) > 0)
+		{
 		}
 	}
 
@@ -263,13 +242,6 @@ public sealed class MockHttpServer : IDisposable
 	{
 		ReadOnlySpan<byte> span = requestBuf.AsSpan(0, requestTotal);
 		int headerEndIdx = span.IndexOf("\r\n\r\n"u8);
-
-		if (headerEndIdx < 0)
-		{
-			await WriteAsync(stream, 400, "Bad Request");
-			return;
-		}
-
 		int bodyStartIdx = headerEndIdx + 4;
 
 		int contentLength = 0;
@@ -293,15 +265,15 @@ public sealed class MockHttpServer : IDisposable
 
 		byte[] body = [];
 
-		if (contentLength > 0)
+		if (isChunked)
+		{
+			body = await ReadChunkedBodyAsync(stream, requestBuf, requestTotal, bodyStartIdx);
+		}
+		else if (contentLength > 0)
 		{
 			body = new byte[contentLength];
 			int alreadyRead = Math.Min(requestTotal - bodyStartIdx, contentLength);
-
-			if (alreadyRead > 0)
-			{
-				Buffer.BlockCopy(requestBuf, bodyStartIdx, body, 0, alreadyRead);
-			}
+			requestBuf.AsSpan(bodyStartIdx, alreadyRead).CopyTo(body);
 
 			int remaining = contentLength - alreadyRead;
 			int offset = alreadyRead;
@@ -309,7 +281,8 @@ public sealed class MockHttpServer : IDisposable
 			while (remaining > 0)
 			{
 				int n = await stream.ReadAsync(body.AsMemory(offset, remaining));
-				if (n == 0)
+
+				if (n is 0)
 				{
 					break;
 				}
@@ -318,50 +291,45 @@ public sealed class MockHttpServer : IDisposable
 				remaining -= n;
 			}
 		}
-		else if (isChunked)
-		{
-			body = await ReadChunkedBodyAsync(stream, requestBuf, requestTotal, bodyStartIdx);
-		}
 
 		await WriteAsync(stream, 200, "OK", Encoding.UTF8.GetString(body));
 	}
 
 	private static async Task<byte[]> ReadChunkedBodyAsync(Stream stream, byte[] requestBuf, int requestTotal, int bodyStartIdx)
 	{
-		// Gather raw chunked data: bytes already in buffer + read more from stream
-		MemoryStream raw = new();
-		raw.Write(requestBuf, bodyStartIdx, requestTotal - bodyStartIdx);
+		byte[] buf = new byte[8192];
+		int len = requestTotal - bodyStartIdx;
+		requestBuf.AsSpan(bodyStartIdx, len).CopyTo(buf);
 
-		byte[] readBuf = new byte[4096];
-
-		// Read until we have the terminating chunk (use GetBuffer to avoid O(n²) copies)
-		while (!HasTerminatingChunk(raw.GetBuffer().AsSpan(0, (int)raw.Length)))
+		// All valid chunked bodies end with \r\n\r\n (0\r\n\r\n or 0\r\ntrailer\r\n\r\n)
+		while (!buf.AsSpan(0, len).EndsWith("\r\n\r\n"u8))
 		{
-			int n = await stream.ReadAsync(readBuf);
-			if (n == 0)
+			int n = await stream.ReadAsync(buf.AsMemory(len));
+
+			if (n is 0)
 			{
 				break;
 			}
 
-			raw.Write(readBuf, 0, n);
+			len += n;
 		}
 
-		// Decode chunks (reuse the underlying buffer)
-		byte[] data = raw.GetBuffer();
-		int dataLen = (int)raw.Length;
-		MemoryStream decoded = new();
+		// Decode chunks in-place — write pointer never overtakes read pointer
+		int decodedLen = 0;
 		int pos = 0;
 
-		while (pos < dataLen)
+		while (pos < len)
 		{
-			int lineEnd = data.AsSpan(pos, dataLen - pos).IndexOf("\r\n"u8);
+			int lineEnd = buf.AsSpan(pos, len - pos).IndexOf("\r\n"u8);
+
 			if (lineEnd < 0)
 			{
 				break;
 			}
 
-			string sizeLine = Encoding.ASCII.GetString(data, pos, lineEnd);
+			string sizeLine = Encoding.ASCII.GetString(buf, pos, lineEnd);
 			int semi = sizeLine.IndexOf(';');
+
 			if (semi >= 0)
 			{
 				sizeLine = sizeLine[..semi];
@@ -370,76 +338,34 @@ public sealed class MockHttpServer : IDisposable
 			int chunkSize = Convert.ToInt32(sizeLine.Trim(), 16);
 			pos += lineEnd + 2;
 
-			if (chunkSize == 0)
+			if (chunkSize is 0)
 			{
 				break;
 			}
 
-			decoded.Write(data, pos, chunkSize);
-			pos += chunkSize + 2;// skip data + \r\n
+			buf.AsSpan(pos, chunkSize).CopyTo(buf.AsSpan(decodedLen));
+			decodedLen += chunkSize;
+			pos += chunkSize + 2; // skip data + \r\n
 		}
 
-		return decoded.ToArray();
-
-		static bool HasTerminatingChunk(ReadOnlySpan<byte> span)
-		{
-			// Look for "0\r\n" as a chunk-size line followed by "\r\n" (end of trailers)
-			int idx = 0;
-
-			while (idx < span.Length)
-			{
-				int lineEnd = span[idx..].IndexOf("\r\n"u8);
-				if (lineEnd < 0)
-				{
-					return false;
-				}
-
-				string sizePart = Encoding.ASCII.GetString(span.Slice(idx, lineEnd));
-				int semi = sizePart.IndexOf(';');
-				if (semi >= 0)
-				{
-					sizePart = sizePart[..semi];
-				}
-
-				if (int.TryParse(sizePart.Trim(), NumberStyles.HexNumber, null, out int size) && size == 0)
-				{
-					// Found terminating chunk line, check there's at least \r\n after it
-					return idx + lineEnd + 2 + 2 <= span.Length;
-				}
-
-				// Skip chunk: size-line + data + \r\n
-				idx += lineEnd + 2 + size + 2;
-			}
-
-			return false;
-		}
+		return buf[..decodedLen];
 	}
 
 	private static async Task WriteEchoTeAsync(Stream stream, byte[] requestBuf, int requestTotal)
 	{
 		string headers = Encoding.UTF8.GetString(requestBuf, 0, requestTotal);
-		string teValue = "";
+		List<string> teValues = [];
 
 		foreach (string line in headers.Split("\r\n"))
 		{
 			if (line.StartsWith("Transfer-Encoding:", StringComparison.OrdinalIgnoreCase))
 			{
-				teValue = line.Substring("Transfer-Encoding:".Length).Trim();
-				break;
+				teValues.Add(line.Substring("Transfer-Encoding:".Length).Trim());
 			}
 		}
 
-		await WriteAsync(stream, 200, "OK", teValue);
+		await WriteAsync(stream, 200, "OK", string.Join(", ", teValues));
 	}
-
-	private static async Task WriteCloseDelimitedAsync(Stream stream)
-	{
-		byte[] body = """{"message":"close-delimited"}"""u8.ToArray();
-		await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"u8.ToArray());
-		await stream.WriteAsync(body);
-		await stream.FlushAsync();
-	}
-
 
 	private static X509Certificate2 CreateSelfSignedCert()
 	{

@@ -8,12 +8,10 @@ using System.Net.Sockets;
 
 namespace UnitTest.TestBase;
 
-/// <summary>
-/// Just for test use only
-/// </summary>
-public class SimpleSocks5UdpServer : IDisposable
+public sealed class SimpleSocks5UdpServer : IDisposable
 {
 	public UdpClient UdpListener { get; }
+
 	private readonly IPEndPoint _remoteEndpoint;
 
 	private readonly CancellationTokenSource _cts;
@@ -38,6 +36,7 @@ public class SimpleSocks5UdpServer : IDisposable
 			while (true)
 			{
 				UdpReceiveResult message = await UdpListener.ReceiveAsync(_cts.Token);
+
 				if (Equals(message.RemoteEndPoint.Address, _remoteEndpoint.Address))
 				{
 					await HandleAsync(message, _cts.Token);
@@ -58,12 +57,14 @@ public class SimpleSocks5UdpServer : IDisposable
 		}
 
 		Socks5UdpReceivePacket socks5UdpPacket = Unpack.Udp(result.Buffer);
+
 		if (socks5UdpPacket.Fragment is not 0x00)
 		{
-			return; // Ignore
+			return;// Ignore
 		}
 
 		UdpClient client;
+
 		if (socks5UdpPacket.Type is AddressType.Domain)
 		{
 			Debug.Assert(socks5UdpPacket.Domain is not null);
@@ -80,6 +81,7 @@ public class SimpleSocks5UdpServer : IDisposable
 
 		int headerLength = result.Buffer.Length - socks5UdpPacket.Data.Length;
 		byte[] receiveBuffer = ArrayPool<byte>.Shared.Rent(MaxUdpSize);
+
 		try
 		{
 			int receiveLength = await client.Client.ReceiveAsync(receiveBuffer.AsMemory(headerLength), SocketFlags.None, cancellationToken);

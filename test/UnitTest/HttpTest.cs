@@ -11,7 +11,7 @@ using UnitTest.TestBase;
 
 namespace UnitTest;
 
-[Timeout(10_000)]
+[Timeout(5_000)]
 public class HttpTest
 {
 	private sealed record Fixture(
@@ -106,8 +106,9 @@ public class HttpTest
 	[Test]
 	public async Task HttpChunkAsync(CancellationToken cancellationToken)
 	{
-		byte[] bytes = await F.HttpClient.GetByteArrayAsync($"http://localhost:{F.MockHttp.Port}/stream-bytes/1024", cancellationToken);
-		await Assert.That(bytes.Length).IsEqualTo(1024);
+		const int chunkSize = 1023;
+		byte[] bytes = await F.HttpClient.GetByteArrayAsync($"http://localhost:{F.MockHttp.Port}/stream-bytes/{chunkSize}", cancellationToken);
+		await Assert.That(bytes.Length).IsEqualTo(chunkSize);
 	}
 
 	[Test]
@@ -137,6 +138,7 @@ public class HttpTest
 	{
 		HttpResponseMessage response = await F.HttpClient.GetAsync($"http://localhost:{F.MockHttp.Port}/status/204", cancellationToken);
 		await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
+		await Assert.That(await response.Content.ReadAsStringAsync(cancellationToken)).IsEqualTo(string.Empty);
 	}
 
 	[Test]
@@ -169,15 +171,17 @@ public class HttpTest
 	[Test]
 	public async Task HttpChunkExtensionAsync(CancellationToken cancellationToken)
 	{
-		byte[] bytes = await F.HttpClient.GetByteArrayAsync($"http://localhost:{F.MockHttp.Port}/stream-bytes-ext/1024", cancellationToken);
-		await Assert.That(bytes.Length).IsEqualTo(1024);
+		const int chunkSize = 1023;
+		byte[] bytes = await F.HttpClient.GetByteArrayAsync($"http://localhost:{F.MockHttp.Port}/stream-bytes-ext/{chunkSize}", cancellationToken);
+		await Assert.That(bytes.Length).IsEqualTo(chunkSize);
 	}
 
 	[Test]
 	public async Task HttpChunkTrailerAsync(CancellationToken cancellationToken)
 	{
-		byte[] bytes = await F.HttpClient.GetByteArrayAsync($"http://localhost:{F.MockHttp.Port}/stream-bytes-trailer/1024", cancellationToken);
-		await Assert.That(bytes.Length).IsEqualTo(1024);
+		const int chunkSize = 1023;
+		byte[] bytes = await F.HttpClient.GetByteArrayAsync($"http://localhost:{F.MockHttp.Port}/stream-bytes-trailer/{chunkSize}", cancellationToken);
+		await Assert.That(bytes.Length).IsEqualTo(chunkSize);
 	}
 
 	[Test]
@@ -459,7 +463,7 @@ public class HttpTest
 	public async Task AuthProxy_CredentialNotLeakedToOriginAsync(CancellationToken cancellationToken)
 	{
 		string body = await F.AuthHttpClient.GetStringAsync($"http://localhost:{F.MockHttp.Port}/echo-headers", cancellationToken);
-		await Assert.That(body).DoesNotContain("Proxy-Authorization");
+		await Assert.That(body).DoesNotContain("Proxy-Authorization", StringComparison.OrdinalIgnoreCase);
 	}
 
 	[Test]
@@ -564,21 +568,13 @@ public class HttpTest
 		using TcpClient tcp = new();
 		NetworkStream ns = await ConnectToProxyAsync(tcp, cancellationToken);
 		await ns.WriteAsync(Encoding.UTF8.GetBytes(
-			$"POST http://localhost:{F.MockHttp.Port}/echo HTTP/1.1\r\nHost: localhost:{F.MockHttp.Port}\r\nContent-Length: 100\r\n\r\nhello"), cancellationToken);
+				$"POST http://localhost:{F.MockHttp.Port}/echo HTTP/1.1\r\nHost: localhost:{F.MockHttp.Port}\r\nContent-Length: 100\r\n\r\nhello"),
+			cancellationToken);
 		await ns.FlushAsync(cancellationToken);
 		tcp.Client.Shutdown(SocketShutdown.Send);
 
 		byte[] buf = new byte[4096];
-		int n = 0;
-
-		try
-		{
-			n = await ns.ReadAsync(buf, cancellationToken);
-		}
-		catch (IOException)
-		{
-			// Connection reset is acceptable — proxy dropped the connection
-		}
+		int n = await ns.ReadAsync(buf, cancellationToken);
 
 		string response = Encoding.UTF8.GetString(buf, 0, n);
 
@@ -608,7 +604,8 @@ public class HttpTest
 		using TcpClient tcp = new();
 		NetworkStream ns = await ConnectToProxyAsync(tcp, cancellationToken);
 		await ns.WriteAsync(Encoding.UTF8.GetBytes(
-			$"CONNECT localhost:{F.MockHttps.Port} HTTP/1.1\r\nHost: localhost:1\r\n\r\n"), cancellationToken);
+				$"CONNECT localhost:{F.MockHttps.Port} HTTP/1.1\r\nHost: localhost:1\r\n\r\n"),
+			cancellationToken);
 		await ns.FlushAsync(cancellationToken);
 
 		// Read only the CONNECT response status line (tunnel stays open after 200).
@@ -617,6 +614,54 @@ public class HttpTest
 		string response = Encoding.UTF8.GetString(buf, 0, n);
 
 		await Assert.That(response).StartsWith("HTTP/1.1 200");
+	}
+
+	[Test]
+	public async Task RelativeFormRequest_UsesHostHeader(CancellationToken cancellationToken)
+	{
+		// GET /echo-request-line (relative-form) with Host pointing to the mock server.
+		// Proxy MUST use Host header as target (not "/echo-request-line" as authority).
+		string response = await SendRawRequestAsync(
+			$"GET /echo-request-line HTTP/1.1\r\nHost: localhost:{F.MockHttp.Port}\r\n\r\n",
+			cancellationToken);
+
+		await Assert.That(response).Contains("HTTP/1.1 200");
+	}
+
+	[Test]
+	public async Task RelativeFormRequest_QueryContainsScheme_UsesHostHeader(CancellationToken cancellationToken)
+	{
+		// GET /echo-request-line?next=http://a/b (origin-form with "://" in query).
+		// Proxy MUST treat this as relative-form: use Host header, preserve path+query as-is.
+		string response = await SendRawRequestAsync(
+			$"GET /echo-request-line?next=http://a/b HTTP/1.1\r\nHost: localhost:{F.MockHttp.Port}\r\n\r\n",
+			cancellationToken);
+
+		await Assert.That(response).Contains("HTTP/1.1 200");
+		// Verify the request-line forwarded to the server preserves the original path+query
+		await Assert.That(response).Contains("/echo-request-line?next=http://a/b");
+	}
+
+	[Test]
+	public async Task TruncatedUpstreamHeaders_Returns502(CancellationToken cancellationToken)
+	{
+		// Upstream closes before sending complete headers (\r\n\r\n).
+		// Proxy should return 502, not 500.
+		HttpResponseMessage response = await F.HttpClient.GetAsync(
+			$"http://localhost:{F.MockHttp.Port}/truncated-headers",
+			cancellationToken);
+
+		await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.BadGateway);
+	}
+
+	[Test]
+	public async Task GarbageUpstreamResponse_Returns502(CancellationToken cancellationToken)
+	{
+		// Upstream sends non-HTTP response (status line doesn't start with "HTTP/").
+		// Proxy should return 502, not forward garbage.
+		HttpResponseMessage response = await F.HttpClient.GetAsync($"http://localhost:{F.MockHttp.Port}/garbage-response", cancellationToken);
+
+		await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.BadGateway);
 	}
 
 	#region helpers
@@ -661,7 +706,7 @@ public class HttpTest
 			{
 				int n = await ns.ReadAsync(buf.AsMemory(totalRead), cancellationToken);
 
-				if (n == 0)
+				if (n is 0)
 				{
 					break;
 				}
@@ -734,56 +779,6 @@ public class HttpTest
 			await cts.CancelAsync();
 			listener.Stop();
 		}
-	}
-
-	[Test]
-	public async Task RelativeFormRequest_UsesHostHeader(CancellationToken cancellationToken)
-	{
-		// GET /echo-request-line (relative-form) with Host pointing to the mock server.
-		// Proxy MUST use Host header as target (not "/echo-request-line" as authority).
-		string response = await SendRawRequestAsync(
-			$"GET /echo-request-line HTTP/1.1\r\nHost: localhost:{F.MockHttp.Port}\r\n\r\n",
-			cancellationToken);
-
-		await Assert.That(response).Contains("HTTP/1.1 200");
-	}
-
-	[Test]
-	public async Task RelativeFormRequest_QueryContainsScheme_UsesHostHeader(CancellationToken cancellationToken)
-	{
-		// GET /echo-request-line?next=http://a/b (origin-form with "://" in query).
-		// Proxy MUST treat this as relative-form: use Host header, preserve path+query as-is.
-		string response = await SendRawRequestAsync(
-			$"GET /echo-request-line?next=http://a/b HTTP/1.1\r\nHost: localhost:{F.MockHttp.Port}\r\n\r\n",
-			cancellationToken);
-
-		await Assert.That(response).Contains("HTTP/1.1 200");
-		// Verify the request-line forwarded to the server preserves the original path+query
-		await Assert.That(response).Contains("/echo-request-line?next=http://a/b");
-	}
-
-	[Test]
-	public async Task TruncatedUpstreamHeaders_Returns502(CancellationToken cancellationToken)
-	{
-		// Upstream closes before sending complete headers (\r\n\r\n).
-		// Proxy should return 502, not 500.
-		HttpResponseMessage response = await F.HttpClient.GetAsync(
-			$"http://localhost:{F.MockHttp.Port}/truncated-headers", cancellationToken);
-
-		await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.BadGateway);
-	}
-
-	[Test]
-	public async Task GarbageUpstreamResponse_Returns502(CancellationToken cancellationToken)
-	{
-		// Upstream sends non-HTTP response (status line doesn't start with "HTTP/").
-		// Proxy should return 502, not forward garbage.
-		// HttpClient can't parse non-HTTP responses, so use raw TCP.
-		string response = await SendRawRequestAsync(
-			$"GET http://localhost:{F.MockHttp.Port}/garbage-response HTTP/1.1\r\nHost: localhost:{F.MockHttp.Port}\r\n\r\n",
-			cancellationToken);
-
-		await Assert.That(response).Contains("502");
 	}
 
 	#endregion

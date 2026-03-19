@@ -9,10 +9,7 @@ using System.Net.Sockets;
 
 namespace UnitTest.TestBase;
 
-/// <summary>
-/// A simple SOCKS5 server for test use only
-/// </summary>
-public class SimpleSocks5Server(IPEndPoint bindEndPoint, UsernamePassword? credential = null)
+public sealed class SimpleSocks5Server(IPEndPoint bindEndPoint, UsernamePassword? credential = null)
 {
 	public TcpListener TcpListener { get; } = new(bindEndPoint);
 
@@ -31,6 +28,7 @@ public class SimpleSocks5Server(IPEndPoint bindEndPoint, UsernamePassword? crede
 		try
 		{
 			TcpListener.Start();
+
 			while (!_cts.IsCancellationRequested)
 			{
 				Socket socket = await TcpListener.AcceptSocketAsync();
@@ -57,6 +55,7 @@ public class SimpleSocks5Server(IPEndPoint bindEndPoint, UsernamePassword? crede
 				case Command.Connect:
 				{
 					using TcpClient tcp = new();
+
 					if (service.Target.Type is AddressType.Domain)
 					{
 						Debug.Assert(service.Target.Domain is not null);
@@ -127,12 +126,9 @@ public class SimpleSocks5Server(IPEndPoint bindEndPoint, UsernamePassword? crede
 		{
 			await source.CopyToAsync(destination, long.MaxValue, cancellationToken);
 		}
-		catch (Exception) { /* connection reset, cancelled, etc. */ }
 		finally
 		{
-			try
-			{ socketToShutdown.Shutdown(SocketShutdown.Send); }
-			catch (SocketException) { /* already disconnected */ }
+			socketToShutdown.Shutdown(SocketShutdown.Send);
 		}
 	}
 
