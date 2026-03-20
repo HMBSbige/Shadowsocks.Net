@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Buffers.Text;
 using System.Text;
 
@@ -261,5 +262,199 @@ public static partial class HttpUtils
 
 		contentLength = cl;
 		return true;
+	}
+
+	/// <summary>
+	/// Given an absolute URI like "http://host/path?q=1", returns the relative part "/path?q=1".
+	/// If no path is found after the authority, returns "/".
+	/// </summary>
+	private static ReadOnlySpan<byte> ExtractRelativePath(ReadOnlySpan<byte> absoluteUri)
+	{
+		// Origin-form starts with "/" — already relative, return as-is.
+		if (absoluteUri.Length > 0 && absoluteUri[0] is (byte)'/')
+		{
+			return absoluteUri;
+		}
+
+		// Find "://" to locate scheme end in absolute-form URI.
+		// If no scheme is found (e.g. bare hostname), return as-is — let the upstream handle it.
+		int schemeEnd = absoluteUri.IndexOf("://"u8);
+
+		if (schemeEnd < 0)
+		{
+			return absoluteUri;
+		}
+
+		ReadOnlySpan<byte> afterScheme = absoluteUri.Slice(schemeEnd + 3);
+
+		// Find first '/' or '?' after authority (RFC 3986: path-empty + query is valid)
+		int pos = afterScheme.IndexOfAny((byte)'/', (byte)'?');
+
+		if (pos < 0)
+		{
+			return "/"u8;
+		}
+
+		// "/path..." or "?query" (caller prepends "/" when result starts with '?')
+		return afterScheme.Slice(pos);
+	}
+
+	/// <summary>
+	/// RFC 9112 §6.3 rule 5: invalid or conflicting Content-Length without
+	/// Transfer-Encoding is an unrecoverable framing error for a proxy.
+	/// </summary>
+	private static bool HasResponseFramingError(ReadOnlySpan<byte> headerSection)
+	{
+		bool hasTransferEncoding = false;
+		bool validContentLength = true;
+		long? contentLength = null;
+
+		ReadOnlySpan<byte> remaining = headerSection;
+
+		while (!remaining.IsEmpty)
+		{
+			int lineEnd = remaining.IndexOf(HttpNewLine);
+			ReadOnlySpan<byte> line = lineEnd < 0 ? remaining : remaining.Slice(0, lineEnd);
+			remaining = lineEnd < 0 ? [] : remaining.Slice(lineEnd + 2);
+
+			if (line.IsEmpty)
+			{
+				continue;
+			}
+
+			int colon = line.IndexOf((byte)':');
+
+			if (colon <= 0)
+			{
+				continue;
+			}
+
+			ReadOnlySpan<byte> name = line.Slice(0, colon).TrimEnd((byte)' ');
+			ReadOnlySpan<byte> value = line.Slice(colon + 1).Trim((byte)' ');
+
+			if (Ascii.EqualsIgnoreCase(name, "Transfer-Encoding"u8))
+			{
+				hasTransferEncoding = true;
+			}
+			else if (validContentLength && Ascii.EqualsIgnoreCase(name, "Content-Length"u8))
+			{
+				validContentLength = TryAccumulateContentLength(value, ref contentLength);
+			}
+		}
+
+		// TE present → CL is ignored per §6.3 rule 3 (not a framing error).
+		// No TE + invalid CL → unrecoverable framing error (§6.3 rule 5).
+		return !hasTransferEncoding && !validContentLength;
+	}
+
+	/// <summary>
+	/// Returns true if <paramref name="name"/> is a hop-by-hop header that should be removed
+	/// before forwarding (RFC 9110 §7.6.1). Proxy-Authenticate and Proxy-Authorization are also
+	/// removed to prevent credential leakage. Comparison is case-insensitive, ASCII-only.
+	/// </summary>
+	private static bool IsHopByHopHeader(ReadOnlySpan<byte> name)
+	{
+		return Ascii.EqualsIgnoreCase(name, "CONNECTION"u8)
+				|| Ascii.EqualsIgnoreCase(name, "TRANSFER-ENCODING"u8)
+				|| Ascii.EqualsIgnoreCase(name, "PROXY-AUTHORIZATION"u8)
+				|| Ascii.EqualsIgnoreCase(name, "KEEP-ALIVE"u8)
+				|| Ascii.EqualsIgnoreCase(name, "PROXY-AUTHENTICATE"u8)
+				|| Ascii.EqualsIgnoreCase(name, "Proxy-Connection"u8)
+				|| Ascii.EqualsIgnoreCase(name, "TE"u8)
+				|| Ascii.EqualsIgnoreCase(name, "UPGRADE"u8);
+	}
+
+	/// <summary>
+	/// Returns true if <paramref name="name"/> appears as a comma-separated token
+	/// inside the Connection header <paramref name="connectionValue"/>.
+	/// </summary>
+	private static bool IsConnectionNominated(ReadOnlySpan<byte> connectionValue, ReadOnlySpan<byte> name)
+	{
+		while (!connectionValue.IsEmpty)
+		{
+			int comma = connectionValue.IndexOf((byte)',');
+			ReadOnlySpan<byte> token = comma < 0 ? connectionValue : connectionValue.Slice(0, comma);
+			token = token.Trim((byte)' ');
+
+			if (Ascii.EqualsIgnoreCase(token, name))
+			{
+				return true;
+			}
+
+			connectionValue = comma < 0 ? [] : connectionValue.Slice(comma + 1);
+		}
+
+		return false;
+	}
+
+	/// <summary>
+	/// Appends a header value to a growable buffer, joining with ", " for multi-line headers.
+	/// Falls back to <see cref="ArrayPool{T}"/> when the buffer overflows.
+	/// </summary>
+	private static void AppendHeaderValue(ref Span<byte> buf, ref byte[]? rented, ref int len, ReadOnlySpan<byte> value)
+	{
+		int needed = len + 2 + value.Length;
+
+		if (needed > buf.Length)
+		{
+			byte[] grown = ArrayPool<byte>.Shared.Rent(needed);
+			buf.Slice(0, len).CopyTo(grown);
+
+			if (rented is not null)
+			{
+				ArrayPool<byte>.Shared.Return(rented);
+			}
+
+			buf = rented = grown;
+		}
+
+		if (len > 0)
+		{
+			buf[len++] = (byte)',';
+			buf[len++] = (byte)' ';
+		}
+
+		value.CopyTo(buf.Slice(len));
+		len += value.Length;
+	}
+
+	internal static bool TryFindHeaderEnd(ReadOnlySequence<byte> buffer, out ReadOnlySequence<byte> headerBytes, out long consumed)
+	{
+		SequenceReader<byte> seqReader = new(buffer);
+
+		if (seqReader.TryReadTo(out headerBytes, HttpHeaderEnd))
+		{
+			consumed = seqReader.Consumed;
+			return true;
+		}
+
+		consumed = 0;
+		return false;
+	}
+
+	internal static long ParseChunkSize(ReadOnlySequence<byte> chunkSizeLine)
+	{
+		scoped ReadOnlySpan<byte> span;
+
+		if (chunkSizeLine.IsSingleSegment)
+		{
+			span = chunkSizeLine.FirstSpan;
+		}
+		else
+		{
+			Span<byte> buf = stackalloc byte[(int)chunkSizeLine.Length];
+			chunkSizeLine.CopyTo(buf);
+			span = buf;
+		}
+
+		int semi = span.IndexOf((byte)';');
+		ReadOnlySpan<byte> hex = semi >= 0 ? span.Slice(0, semi) : span;
+
+		if (!Utf8Parser.TryParse(hex, out long size, out int consumed, 'X') || consumed != hex.Length)
+		{
+			return -1;
+		}
+
+		return size;
 	}
 }

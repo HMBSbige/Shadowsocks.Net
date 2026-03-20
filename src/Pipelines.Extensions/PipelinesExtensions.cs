@@ -188,9 +188,21 @@ public static class PipelinesExtensions
 		/// <param name="sequence">The byte sequence to write.</param>
 		public void Write(ReadOnlySequence<byte> sequence)
 		{
-			foreach (ReadOnlyMemory<byte> memory in sequence)
+			if (sequence.IsSingleSegment)
 			{
-				writer.Write(memory.Span);
+				writer.Write(sequence.FirstSpan);
+				return;
+			}
+
+			WriteMultiSegment(writer, sequence);
+			return;
+
+			static void WriteMultiSegment(PipeWriter target, ReadOnlySequence<byte> sequence)
+			{
+				foreach (ReadOnlyMemory<byte> memory in sequence)
+				{
+					target.Write(memory.Span);
+				}
 			}
 		}
 

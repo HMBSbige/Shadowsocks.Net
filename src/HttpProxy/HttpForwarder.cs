@@ -81,14 +81,14 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 				if (!TryParseHeaders(headerBytes, out HttpHeaders httpHeaders))
 				{
 					LogInvalidRequest();
-					await SendErrorAsync(clientPipe.Output, ConnectionErrorResult.InvalidRequest, cancellationToken);
+					await clientPipe.Output.SendErrorAsync(ConnectionErrorResult.InvalidRequest, cancellationToken);
 					return;
 				}
 
 				if (_expectedAuthBytes is not null &&
 					!httpHeaders.ProxyAuthorization.Span.SequenceEqual(_expectedAuthBytes))
 				{
-					await SendErrorAsync(clientPipe.Output, ConnectionErrorResult.AuthenticationError, cancellationToken);
+					await clientPipe.Output.SendErrorAsync(ConnectionErrorResult.AuthenticationError, cancellationToken);
 					return;
 				}
 
@@ -116,7 +116,7 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 						_ => ConnectionErrorResult.UnknownError,
 					};
 
-					await SendErrorAsync(clientPipe.Output, errorResult, cancellationToken);
+					await clientPipe.Output.SendErrorAsync(errorResult, cancellationToken);
 					return;
 				}
 
@@ -124,7 +124,7 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 				{
 					if (httpHeaders.IsConnect)
 					{
-						await SendConnectSuccessAsync(clientPipe.Output, cancellationToken);
+						await clientPipe.Output.SendConnectSuccessAsync(cancellationToken);
 						await connection.LinkToAsync(clientPipe, cancellationToken);
 					}
 					else
@@ -153,7 +153,7 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 
 						if (!await ReadAndWriteFilteredResponseAsync(connection.Input, clientPipe.Output, cancellationToken))
 						{
-							await SendErrorAsync(clientPipe.Output, ConnectionErrorResult.InvalidResponse, cancellationToken);
+							await clientPipe.Output.SendErrorAsync(ConnectionErrorResult.InvalidResponse, cancellationToken);
 						}
 					}
 				}
@@ -169,7 +169,7 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 
 			try
 			{
-				await SendErrorAsync(clientPipe.Output, ConnectionErrorResult.UnknownError, cancellationToken);
+				await clientPipe.Output.SendErrorAsync(ConnectionErrorResult.UnknownError, cancellationToken);
 			}
 			catch
 			{
@@ -245,20 +245,6 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 		return true;
 	}
 
-	private static bool TryFindHeaderEnd(ReadOnlySequence<byte> buffer, out ReadOnlySequence<byte> headerBytes, out long consumed)
-	{
-		SequenceReader<byte> seqReader = new(buffer);
-
-		if (seqReader.TryReadTo(out headerBytes, HttpHeaderEnd))
-		{
-			consumed = seqReader.Consumed;
-			return true;
-		}
-
-		consumed = 0;
-		return false;
-	}
-
 	/// <summary>
 	/// Reads from PipeReader until the full header block (\r\n\r\n) is found.
 	/// Returns a rented byte array containing header bytes WITHOUT the trailing \r\n\r\n.
@@ -303,76 +289,6 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 		}
 
 		throw new InvalidDataException("Cannot read HTTP headers.");
-	}
-
-	private static async ValueTask SendErrorAsync(PipeWriter writer, ConnectionErrorResult error, CancellationToken cancellationToken = default)
-	{
-		switch (error)
-		{
-			case ConnectionErrorResult.AuthenticationError:
-			{
-				writer.Write("HTTP/1.1 407 Proxy Authentication Required"u8);
-				writer.Write(HttpNewLine);
-				writer.Write("Proxy-Authenticate: Basic realm=\"proxy\""u8);
-				break;
-			}
-			case ConnectionErrorResult.HostUnreachable:
-			{
-				writer.Write("HTTP/1.1 502 Bad Gateway"u8);
-				writer.Write(HttpNewLine);
-				writer.Write("X-Proxy-Error-Type: HostUnreachable"u8);
-				break;
-			}
-			case ConnectionErrorResult.ConnectionRefused:
-			{
-				writer.Write("HTTP/1.1 502 Bad Gateway"u8);
-				writer.Write(HttpNewLine);
-				writer.Write("X-Proxy-Error-Type: ConnectionRefused"u8);
-				break;
-			}
-			case ConnectionErrorResult.ConnectionReset:
-			{
-				writer.Write("HTTP/1.1 502 Bad Gateway"u8);
-				writer.Write(HttpNewLine);
-				writer.Write("X-Proxy-Error-Type: ConnectionReset"u8);
-				break;
-			}
-			case ConnectionErrorResult.InvalidResponse:
-			{
-				writer.Write("HTTP/1.1 502 Bad Gateway"u8);
-				writer.Write(HttpNewLine);
-				writer.Write("X-Proxy-Error-Type: InvalidResponse"u8);
-				break;
-			}
-			case ConnectionErrorResult.InvalidRequest:
-			{
-				writer.Write("HTTP/1.1 500 Internal Server Error"u8);
-				writer.Write(HttpNewLine);
-				writer.Write("X-Proxy-Error-Type: InvalidRequest"u8);
-				break;
-			}
-			case ConnectionErrorResult.UnknownError:
-			default:
-			{
-				writer.Write("HTTP/1.1 500 Internal Server Error"u8);
-				writer.Write(HttpNewLine);
-				writer.Write("X-Proxy-Error-Type: UnknownError"u8);
-				break;
-			}
-		}
-
-		writer.Write(HttpNewLine);
-		writer.Write("Connection: close"u8);
-		writer.Write(HttpHeaderEnd);
-
-		await writer.FlushAsync(cancellationToken);
-	}
-
-	private static async ValueTask SendConnectSuccessAsync(PipeWriter writer, CancellationToken cancellationToken = default)
-	{
-		writer.Write("HTTP/1.1 200 Connection Established"u8);
-		writer.Write(HttpHeaderEnd);
-		await writer.FlushAsync(cancellationToken);
 	}
 
 	private static async ValueTask CopyChunkedRequestAsync(PipeReader reader, PipeWriter target, CancellationToken cancellationToken)
@@ -459,42 +375,5 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 		target.Write(buffer.Slice(0, totalLen));
 		buffer = buffer.Slice(totalLen);
 		return true;
-	}
-
-	private static long ParseChunkSize(ReadOnlySequence<byte> chunkSizeLine)
-	{
-		SequenceReader<byte> reader = new(chunkSizeLine);
-		long length = 0;
-		int digitCount = 0;
-
-		while (reader.TryRead(out byte c))
-		{
-			if (c is (byte)';')
-			{
-				break;// Stop at chunk extension
-			}
-
-			int digit = c switch
-			{
-				>= (byte)'0' and <= (byte)'9' => c - '0',
-				>= (byte)'a' and <= (byte)'f' => c - 'a' + 10,
-				>= (byte)'A' and <= (byte)'F' => c - 'A' + 10,
-				_ => -1,
-			};
-
-			if (digit < 0)
-			{
-				return -1;// Invalid character in chunk-size (RFC 9112 §7.1: chunk-size = 1*HEXDIG)
-			}
-
-			if (++digitCount > 16)
-			{
-				return -1;// Overflow: chunk size exceeds long.MaxValue (16 hex digits)
-			}
-
-			length = (length << 4) | (uint)digit;
-		}
-
-		return digitCount > 0 ? length : -1;
 	}
 }

@@ -93,12 +93,11 @@ public static partial class HttpUtils
 			try
 			{
 				headerBytes.CopyTo(buffer);
-				ReadOnlySpan<byte> span = buffer;
 
 				// Status line
-				int statusLineEnd = span.IndexOf(HttpNewLine);
-				ReadOnlySpan<byte> statusLine = statusLineEnd < 0 ? span : span.Slice(0, statusLineEnd);
-				ReadOnlySpan<byte> headerSection = statusLineEnd < 0 ? [] : span.Slice(statusLineEnd + 2);
+				int statusLineEnd = buffer.IndexOf(HttpNewLine);
+				ReadOnlySpan<byte> statusLine = statusLineEnd < 0 ? buffer : buffer.Slice(0, statusLineEnd);
+				ReadOnlySpan<byte> headerSection = statusLineEnd < 0 ? [] : buffer.Slice(statusLineEnd + 2);
 
 				// RFC 9112 §4: status-line must start with "HTTP/"
 				if (!statusLine.StartsWith("HTTP/"u8))
@@ -271,159 +270,76 @@ public static partial class HttpUtils
 				}
 			}
 		}
-	}
 
-	/// <summary>
-	/// Given an absolute URI like "http://host/path?q=1", returns the relative part "/path?q=1".
-	/// If no path is found after the authority, returns "/".
-	/// </summary>
-	private static ReadOnlySpan<byte> ExtractRelativePath(ReadOnlySpan<byte> absoluteUri)
-	{
-		// Origin-form starts with "/" — already relative, return as-is.
-		if (absoluteUri.Length > 0 && absoluteUri[0] is (byte)'/')
+		internal async ValueTask SendErrorAsync(ConnectionErrorResult error, CancellationToken cancellationToken = default)
 		{
-			return absoluteUri;
-		}
-
-		// Find "://" to locate scheme end in absolute-form URI.
-		// If no scheme is found (e.g. bare hostname), return as-is — let the upstream handle it.
-		int schemeEnd = absoluteUri.IndexOf("://"u8);
-
-		if (schemeEnd < 0)
-		{
-			return absoluteUri;
-		}
-
-		ReadOnlySpan<byte> afterScheme = absoluteUri.Slice(schemeEnd + 3);
-
-		// Find first '/' or '?' after authority (RFC 3986: path-empty + query is valid)
-		int pos = afterScheme.IndexOfAny((byte)'/', (byte)'?');
-
-		if (pos < 0)
-		{
-			return "/"u8;
-		}
-
-		// "/path..." or "?query" (caller prepends "/" when result starts with '?')
-		return afterScheme.Slice(pos);
-	}
-
-	/// <summary>
-	/// RFC 9112 §6.3 rule 5: invalid or conflicting Content-Length without
-	/// Transfer-Encoding is an unrecoverable framing error for a proxy.
-	/// </summary>
-	private static bool HasResponseFramingError(ReadOnlySpan<byte> headerSection)
-	{
-		bool hasTransferEncoding = false;
-		bool validContentLength = true;
-		long? contentLength = null;
-
-		ReadOnlySpan<byte> remaining = headerSection;
-
-		while (!remaining.IsEmpty)
-		{
-			int lineEnd = remaining.IndexOf(HttpNewLine);
-			ReadOnlySpan<byte> line = lineEnd < 0 ? remaining : remaining.Slice(0, lineEnd);
-			remaining = lineEnd < 0 ? [] : remaining.Slice(lineEnd + 2);
-
-			if (line.IsEmpty)
+			switch (error)
 			{
-				continue;
+				case ConnectionErrorResult.AuthenticationError:
+				{
+					output.Write("HTTP/1.1 407 Proxy Authentication Required"u8);
+					output.Write(HttpNewLine);
+					output.Write("Proxy-Authenticate: Basic realm=\"proxy\""u8);
+					break;
+				}
+				case ConnectionErrorResult.HostUnreachable:
+				{
+					output.Write("HTTP/1.1 502 Bad Gateway"u8);
+					output.Write(HttpNewLine);
+					output.Write("X-Proxy-Error-Type: HostUnreachable"u8);
+					break;
+				}
+				case ConnectionErrorResult.ConnectionRefused:
+				{
+					output.Write("HTTP/1.1 502 Bad Gateway"u8);
+					output.Write(HttpNewLine);
+					output.Write("X-Proxy-Error-Type: ConnectionRefused"u8);
+					break;
+				}
+				case ConnectionErrorResult.ConnectionReset:
+				{
+					output.Write("HTTP/1.1 502 Bad Gateway"u8);
+					output.Write(HttpNewLine);
+					output.Write("X-Proxy-Error-Type: ConnectionReset"u8);
+					break;
+				}
+				case ConnectionErrorResult.InvalidResponse:
+				{
+					output.Write("HTTP/1.1 502 Bad Gateway"u8);
+					output.Write(HttpNewLine);
+					output.Write("X-Proxy-Error-Type: InvalidResponse"u8);
+					break;
+				}
+				case ConnectionErrorResult.InvalidRequest:
+				{
+					output.Write("HTTP/1.1 500 Internal Server Error"u8);
+					output.Write(HttpNewLine);
+					output.Write("X-Proxy-Error-Type: InvalidRequest"u8);
+					break;
+				}
+				case ConnectionErrorResult.UnknownError:
+				default:
+				{
+					output.Write("HTTP/1.1 500 Internal Server Error"u8);
+					output.Write(HttpNewLine);
+					output.Write("X-Proxy-Error-Type: UnknownError"u8);
+					break;
+				}
 			}
 
-			int colon = line.IndexOf((byte)':');
+			output.Write(HttpNewLine);
+			output.Write("Connection: close"u8);
+			output.Write(HttpHeaderEnd);
 
-			if (colon <= 0)
-			{
-				continue;
-			}
-
-			ReadOnlySpan<byte> name = line.Slice(0, colon).TrimEnd((byte)' ');
-			ReadOnlySpan<byte> value = line.Slice(colon + 1).Trim((byte)' ');
-
-			if (Ascii.EqualsIgnoreCase(name, "Transfer-Encoding"u8))
-			{
-				hasTransferEncoding = true;
-			}
-			else if (validContentLength && Ascii.EqualsIgnoreCase(name, "Content-Length"u8))
-			{
-				validContentLength = TryAccumulateContentLength(value, ref contentLength);
-			}
+			await output.FlushAsync(cancellationToken);
 		}
 
-		// TE present → CL is ignored per §6.3 rule 3 (not a framing error).
-		// No TE + invalid CL → unrecoverable framing error (§6.3 rule 5).
-		return !hasTransferEncoding && !validContentLength;
-	}
-
-	/// <summary>
-	/// Returns true if <paramref name="name"/> is a hop-by-hop header that should be removed
-	/// before forwarding (RFC 9110 §7.6.1). Proxy-Authenticate and Proxy-Authorization are also
-	/// removed to prevent credential leakage. Comparison is case-insensitive, ASCII-only.
-	/// </summary>
-	private static bool IsHopByHopHeader(ReadOnlySpan<byte> name)
-	{
-		return Ascii.EqualsIgnoreCase(name, "CONNECTION"u8)
-				|| Ascii.EqualsIgnoreCase(name, "TRANSFER-ENCODING"u8)
-				|| Ascii.EqualsIgnoreCase(name, "PROXY-AUTHORIZATION"u8)
-				|| Ascii.EqualsIgnoreCase(name, "KEEP-ALIVE"u8)
-				|| Ascii.EqualsIgnoreCase(name, "PROXY-AUTHENTICATE"u8)
-				|| Ascii.EqualsIgnoreCase(name, "Proxy-Connection"u8)
-				|| Ascii.EqualsIgnoreCase(name, "TE"u8)
-				|| Ascii.EqualsIgnoreCase(name, "UPGRADE"u8);
-	}
-
-	/// <summary>
-	/// Returns true if <paramref name="name"/> appears as a comma-separated token
-	/// inside the Connection header <paramref name="connectionValue"/>.
-	/// </summary>
-	private static bool IsConnectionNominated(ReadOnlySpan<byte> connectionValue, ReadOnlySpan<byte> name)
-	{
-		while (!connectionValue.IsEmpty)
+		internal async ValueTask SendConnectSuccessAsync(CancellationToken cancellationToken = default)
 		{
-			int comma = connectionValue.IndexOf((byte)',');
-			ReadOnlySpan<byte> token = comma < 0 ? connectionValue : connectionValue.Slice(0, comma);
-			token = token.Trim((byte)' ');
-
-			if (Ascii.EqualsIgnoreCase(token, name))
-			{
-				return true;
-			}
-
-			connectionValue = comma < 0 ? [] : connectionValue.Slice(comma + 1);
+			output.Write("HTTP/1.1 200 Connection Established"u8);
+			output.Write(HttpHeaderEnd);
+			await output.FlushAsync(cancellationToken);
 		}
-
-		return false;
 	}
 
-	/// <summary>
-	/// Appends a header value to a growable buffer, joining with ", " for multi-line headers.
-	/// Falls back to <see cref="ArrayPool{T}"/> when the buffer overflows.
-	/// </summary>
-	private static void AppendHeaderValue(ref Span<byte> buf, ref byte[]? rented, ref int len, ReadOnlySpan<byte> value)
-	{
-		int needed = len + 2 + value.Length;
-
-		if (needed > buf.Length)
-		{
-			byte[] grown = ArrayPool<byte>.Shared.Rent(needed);
-			buf.Slice(0, len).CopyTo(grown);
-
-			if (rented is not null)
-			{
-				ArrayPool<byte>.Shared.Return(rented);
-			}
-
-			buf = rented = grown;
-		}
-
-		if (len > 0)
-		{
-			buf[len++] = (byte)',';
-			buf[len++] = (byte)' ';
-		}
-
-		value.CopyTo(buf.Slice(len));
-		len += value.Length;
-	}
 }
