@@ -129,7 +129,7 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 					}
 					else
 					{
-						WriteFilteredRequest(rented.AsSpan(0, headerLen), connection.Output);
+						connection.Output.WriteFilteredRequest(rented.AsSpan(0, headerLen));
 						await connection.Output.FlushAsync(cancellationToken);
 
 						// ContentLength: null=chunked, 0=no body, >0=fixed
@@ -203,8 +203,8 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 					}
 
 					// WriteFilteredResponse copies to contiguous buffer internally, safe before AdvanceTo.
-					// Returns false on response framing errors (RFC 7230 §3.3.3 → 502).
-					if (!WriteFilteredResponse(responseHeaderBytes, output))
+					// Returns false on response framing errors (RFC 9112 §6.3 → 502).
+					if (!output.WriteFilteredResponse(responseHeaderBytes))
 					{
 						return false;
 					}
@@ -425,7 +425,7 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 			throw new InvalidDataException("Invalid chunk size: not a valid hexadecimal number.");
 		}
 
-		if (chunkSize == 0)
+		if (chunkSize is 0)
 		{
 			// Terminating chunk: "0[;ext]\r\n" followed by optional trailers and a final "\r\n".
 			// Scan for the empty line that ends the trailer section.
@@ -434,7 +434,7 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 
 			while (trailerReader.TryReadTo(out ReadOnlySequence<byte> trailerLine, HttpNewLine))
 			{
-				if (trailerLine.Length == 0)
+				if (trailerLine.Length is 0)
 				{
 					// Empty line = end of trailers
 					long total = lineConsumed + trailerReader.Consumed;
@@ -469,7 +469,7 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 
 		while (reader.TryRead(out byte c))
 		{
-			if (c == (byte)';')
+			if (c is (byte)';')
 			{
 				break;// Stop at chunk extension
 			}
@@ -484,7 +484,7 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 
 			if (digit < 0)
 			{
-				return -1;// Invalid character in chunk-size (RFC 7230 §4.1: chunk-size = 1*HEXDIG)
+				return -1;// Invalid character in chunk-size (RFC 9112 §7.1: chunk-size = 1*HEXDIG)
 			}
 
 			if (++digitCount > 16)

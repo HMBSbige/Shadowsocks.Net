@@ -188,7 +188,7 @@ public class HttpTest
 	public async Task HttpContentLengthAndChunkedConflictAsync(CancellationToken cancellationToken)
 	{
 		byte[] payload = "Hello, chunked world!"u8.ToArray();
-		// Send a POST with BOTH Content-Length and Transfer-Encoding: chunked (RFC 7230 §3.3.3: chunked wins)
+		// Send a POST with BOTH Content-Length and Transfer-Encoding: chunked (RFC 9112 §6.3: chunked wins)
 		string requestHeaders = $"POST http://localhost:{F.MockHttp.Port}/echo HTTP/1.1\r\n"
 								+ $"Host: localhost:{F.MockHttp.Port}\r\n"
 								+ "Content-Length: 999\r\n"
@@ -216,7 +216,7 @@ public class HttpTest
 	[Test]
 	public async Task HttpSplitTransferEncodingHeaderPreservedAsync(CancellationToken cancellationToken)
 	{
-		// RFC 7230 §3.2.2: multiple header lines with the same name are equivalent to
+		// RFC 9110 §5.3: multiple header lines with the same name are equivalent to
 		// a single comma-separated line. "TE: gzip" + "TE: chunked" == "TE: gzip, chunked".
 		byte[] payload = "Hello, chunked world!"u8.ToArray();
 		string requestHeaders = $"POST http://localhost:{F.MockHttp.Port}/echo-te HTTP/1.1\r\n"
@@ -233,7 +233,7 @@ public class HttpTest
 	[Test]
 	public async Task HttpMultiConnectionHeaderStripsNominatedAsync(CancellationToken cancellationToken)
 	{
-		// RFC 7230 §6.1: Connection is a comma-separated list. Multiple Connection
+		// RFC 9110 §7.6.1: Connection is a comma-separated list. Multiple Connection
 		// header lines should be combined; all nominated headers must be stripped.
 		string request = $"GET http://localhost:{F.MockHttp.Port}/echo-headers HTTP/1.1\r\n"
 						+ $"Host: localhost:{F.MockHttp.Port}\r\n"
@@ -269,7 +269,7 @@ public class HttpTest
 		// We send exactly 1 byte of chunk data + \r\n so the framing stays aligned for the
 		// buggy parser, then a valid terminating chunk. Using /status/204 (ignores body) so
 		// the origin doesn't also choke on the forwarded "1G" and mask the proxy's leniency.
-		// A correct parser should reject "1G" since chunk-size = 1*HEXDIG (RFC 7230 §4.1).
+		// A correct parser should reject "1G" since chunk-size = 1*HEXDIG (RFC 9112 §7.1).
 		byte[] firstPayload = "Hello"u8.ToArray();
 
 		using TcpClient tcp = new();
@@ -375,7 +375,7 @@ public class HttpTest
 	[Test]
 	public async Task HttpTransferEncodingNotEndingWithChunkedAsync(CancellationToken cancellationToken)
 	{
-		// RFC 7230 §3.3.1: For requests, chunked MUST be the final transfer coding.
+		// RFC 9112 §6.1: For requests, chunked MUST be the final transfer coding.
 		// "chunked, gzip" has gzip as the last token — proxy must reject.
 		byte[] payload = "Hello"u8.ToArray();
 		string request = $"POST http://localhost:{F.MockHttp.Port}/status/204 HTTP/1.1\r\n"
@@ -393,7 +393,7 @@ public class HttpTest
 	[Test]
 	public async Task HttpConflictingContentLengthAsync(CancellationToken cancellationToken)
 	{
-		// RFC 7230 §3.3.3: conflicting Content-Length values MUST be rejected.
+		// RFC 9112 §6.3: conflicting Content-Length values MUST be rejected.
 		string request = $"POST http://localhost:{F.MockHttp.Port}/echo HTTP/1.1\r\n"
 						+ $"Host: localhost:{F.MockHttp.Port}\r\n"
 						+ "Content-Length: 5\r\n"
@@ -507,20 +507,20 @@ public class HttpTest
 			"User-Agent: curl/7.55.1\r\n"u8.ToArray(),
 			"\r\n"u8.ToArray()
 		);
-		await Assert.That(HttpUtils.IsHttpHeader(sequence0)).IsTrue();
+		await Assert.That(sequence0.IsHttpHeader()).IsTrue();
 
 		ReadOnlySequence<byte> sequence1 = TestUtils.GetMultiSegmentSequence(
 			"GET / HTTP/1.1"u8.ToArray(),
 			"\r\nHost: ip.sb\r\n"u8.ToArray(),
 			"User-Agent: curl/7.55.1\r\n"u8.ToArray()
 		);
-		await Assert.That(HttpUtils.IsHttpHeader(sequence1)).IsFalse();
+		await Assert.That(sequence1.IsHttpHeader()).IsFalse();
 
 		ReadOnlySequence<byte> sequence2 = TestUtils.GetMultiSegmentSequence(
 			"\r\n"u8.ToArray(),
 			"\r\n"u8.ToArray()
 		);
-		await Assert.That(HttpUtils.IsHttpHeader(sequence2)).IsFalse();
+		await Assert.That(sequence2.IsHttpHeader()).IsFalse();
 
 		ReadOnlySequence<byte> sequence3 = TestUtils.GetMultiSegmentSequence(
 			"GET HTTP/1.1"u8.ToArray(),
@@ -528,7 +528,15 @@ public class HttpTest
 			"User-Agent: curl/7.55.1\r\n"u8.ToArray(),
 			"\r\n"u8.ToArray()
 		);
-		await Assert.That(HttpUtils.IsHttpHeader(sequence3)).IsFalse();
+		await Assert.That(sequence3.IsHttpHeader()).IsFalse();
+
+		// Two spaces but version doesn't start with "HTTP/"
+		ReadOnlySequence<byte> sequence4 = TestUtils.GetMultiSegmentSequence(
+			"FOO BAR BAZ"u8.ToArray(),
+			"\r\nHost: ip.sb\r\n"u8.ToArray(),
+			"\r\n"u8.ToArray()
+		);
+		await Assert.That(sequence4.IsHttpHeader()).IsFalse();
 	}
 
 	[Test]
@@ -600,7 +608,7 @@ public class HttpTest
 	public async Task Connect_UsesRequestTarget_NotHostHeader(CancellationToken cancellationToken)
 	{
 		// CONNECT request-target is the real HTTPS server; Host header points to unreachable port.
-		// Per RFC 7231 §4.3.6, the proxy MUST use request-target, not Host.
+		// Per RFC 9110 §9.3.6, the proxy MUST use request-target, not Host.
 		using TcpClient tcp = new();
 		NetworkStream ns = await ConnectToProxyAsync(tcp, cancellationToken);
 		await ns.WriteAsync(Encoding.UTF8.GetBytes(

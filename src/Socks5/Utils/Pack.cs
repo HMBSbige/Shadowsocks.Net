@@ -36,7 +36,7 @@ public static class Pack
 				throw new ArgumentException(@"buffer is too small", nameof(destination));
 			}
 
-			AddressType type = length == 4 ? AddressType.IPv4 : AddressType.IPv6;
+			AddressType type = length is 4 ? AddressType.IPv4 : AddressType.IPv6;
 			destination[0] = Convert.ToByte(type);
 
 			outLength = 1 + length;
