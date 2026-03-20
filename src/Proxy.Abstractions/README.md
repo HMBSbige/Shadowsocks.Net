@@ -43,7 +43,7 @@ A duplex pipe backed by a connection. Provides `PipeReader` / `PipeWriter` for I
 ### `ProxyDestination`
 
 ```csharp
-public readonly record struct ProxyDestination(string Host, ushort Port);
+public readonly record struct ProxyDestination(ReadOnlyMemory<byte> Host, ushort Port);
 ```
 
-Represents a target address. `Host` can be a domain name (`"example.com"`) or an IP address string (`"1.2.3.4"`, `"::1"`).
+Represents a target address as raw bytes. `Host` contains the UTF-8/ASCII bytes of a domain name (`"example.com"`) or an IP address (`"1.2.3.4"`, `"::1"`). The caller must ensure the backing memory remains valid for the lifetime of this value.

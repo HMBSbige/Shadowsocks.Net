@@ -26,31 +26,31 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 	private readonly ILogger<HttpForwarder> _logger = logger ?? NullLogger<HttpForwarder>.Instance;
 
 	[LoggerMessage(Level = LogLevel.Trace, Message = "Client headers received: \n{Headers}")]
-	private static partial void LogClientHeadersReceived(ILogger logger, string headers);
+	private partial void LogClientHeadersReceived(string headers);
 
 	[LoggerMessage(Level = LogLevel.Debug, Message = "New request: Connect={IsConnect}, Host={Hostname}, Port={Port}, ContentLength={ContentLength}")]
-	private static partial void LogParsedRequest(ILogger logger, bool isConnect, string hostname, ushort port, long? contentLength);
+	private partial void LogParsedRequest(bool isConnect, string hostname, ushort port, long? contentLength);
 
 	[LoggerMessage(Level = LogLevel.Debug, Message = "Waiting for up to {ContentLength} bytes from client")]
-	private static partial void LogWaitingForClientBytes(ILogger logger, long contentLength);
+	private partial void LogWaitingForClientBytes(long contentLength);
 
 	[LoggerMessage(Level = LogLevel.Debug, Message = "client sent {ClientSentLength} bytes to server")]
-	private static partial void LogClientSentBytes(ILogger logger, long clientSentLength);
+	private partial void LogClientSentBytes(long clientSentLength);
 
 	[LoggerMessage(Level = LogLevel.Trace, Message = "server headers received: \n{Headers}")]
-	private static partial void LogServerHeadersReceived(ILogger logger, string headers);
+	private partial void LogServerHeadersReceived(string headers);
 
 	[LoggerMessage(Level = LogLevel.Debug, Message = "server sent {ServerSentLength} bytes to client")]
-	private static partial void LogServerSentBytes(ILogger logger, long serverSentLength);
+	private partial void LogServerSentBytes(long serverSentLength);
 
 	[LoggerMessage(Level = LogLevel.Warning, Message = "Failed to parse HTTP request")]
-	private static partial void LogInvalidRequest(ILogger logger);
+	private partial void LogInvalidRequest();
 
 	[LoggerMessage(Level = LogLevel.Warning, Message = "Connection to {Hostname}:{Port} failed ({SocketError})")]
-	private static partial void LogConnectionFailed(ILogger logger, string hostname, ushort port, SocketError socketError);
+	private partial void LogConnectionFailed(string hostname, ushort port, SocketError socketError);
 
 	[LoggerMessage(Level = LogLevel.Error, Message = "Unexpected error forwarding HTTP request")]
-	private static partial void LogUnexpectedError(ILogger logger, Exception exception);
+	private partial void LogUnexpectedError(Exception exception);
 
 	#endregion
 
@@ -74,12 +74,13 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 
 				if (_logger.IsEnabled(LogLevel.Trace))
 				{
-					LogClientHeadersReceived(_logger, Encoding.Latin1.GetString(headerSpan));
+					string header = Encoding.ASCII.GetString(headerSpan);
+					LogClientHeadersReceived(header);
 				}
 
 				if (!TryParseHeaders(headerBytes, out HttpHeaders httpHeaders))
 				{
-					LogInvalidRequest(_logger);
+					LogInvalidRequest();
 					await SendErrorAsync(clientPipe.Output, ConnectionErrorResult.InvalidRequest, cancellationToken);
 					return;
 				}
@@ -91,24 +92,21 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 					return;
 				}
 
-				string? hostname = null;
-
 				if (_logger.IsEnabled(LogLevel.Debug))
 				{
-					hostname = Encoding.Latin1.GetString(httpHeaders.Hostname.Span);
-					LogParsedRequest(_logger, httpHeaders.IsConnect, hostname, httpHeaders.Port, httpHeaders.ContentLength);
+					string hostname = Encoding.ASCII.GetString(httpHeaders.Hostname.Span);
+					LogParsedRequest(httpHeaders.IsConnect, hostname, httpHeaders.Port, httpHeaders.ContentLength);
 				}
 
 				IConnection connection;
+
 				try
 				{
-					hostname ??= Encoding.Latin1.GetString(httpHeaders.Hostname.Span);
-					connection = await outbound.ConnectAsync(new ProxyDestination(hostname, httpHeaders.Port), cancellationToken);
+					connection = await outbound.ConnectAsync(new ProxyDestination(httpHeaders.Hostname, httpHeaders.Port), cancellationToken);
 				}
 				catch (SocketException ex)
 				{
-					hostname ??= Encoding.Latin1.GetString(httpHeaders.Hostname.Span);
-					LogConnectionFailed(_logger, hostname, httpHeaders.Port, ex.SocketErrorCode);
+					LogConnectionFailed(Encoding.ASCII.GetString(httpHeaders.Hostname.Span), httpHeaders.Port, ex.SocketErrorCode);
 
 					ConnectionErrorResult errorResult = ex.SocketErrorCode switch
 					{
@@ -141,15 +139,15 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 						}
 						else if (httpHeaders.ContentLength > 0)
 						{
-							LogWaitingForClientBytes(_logger, httpHeaders.ContentLength.Value);
+							LogWaitingForClientBytes(httpHeaders.ContentLength.Value);
 
 							long readLength = await clientPipe.Input.CopyToAsync(connection.Output, httpHeaders.ContentLength.Value, cancellationToken);
 
-							LogClientSentBytes(_logger, readLength);
+							LogClientSentBytes(readLength);
 
 							if (readLength < httpHeaders.ContentLength.Value)
 							{
-								return; // Client sent fewer bytes than Content-Length — abort
+								return;// Client sent fewer bytes than Content-Length — abort
 							}
 						}
 
@@ -167,10 +165,17 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 		}
 		catch (Exception ex)
 		{
-			LogUnexpectedError(_logger, ex);
+			LogUnexpectedError(ex);
+
 			try
-			{ await SendErrorAsync(clientPipe.Output, ConnectionErrorResult.UnknownError, cancellationToken); }
-			catch { /* Don't mask the original exception */ }
+			{
+				await SendErrorAsync(clientPipe.Output, ConnectionErrorResult.UnknownError, cancellationToken);
+			}
+			catch
+			{
+				/* Don't mask the original exception */
+			}
+
 			throw;
 		}
 	}
@@ -193,7 +198,8 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 				{
 					if (_logger.IsEnabled(LogLevel.Trace))
 					{
-						LogServerHeadersReceived(_logger, Encoding.Latin1.GetString(responseHeaderBytes));
+						string header = Encoding.ASCII.GetString(responseHeaderBytes);
+						LogServerHeadersReceived(header);
 					}
 
 					// WriteFilteredResponse copies to contiguous buffer internally, safe before AdvanceTo.
@@ -227,7 +233,7 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 
 		if (!headersDone)
 		{
-			return false; // Upstream closed before sending complete headers → 502
+			return false;// Upstream closed before sending complete headers → 502
 		}
 
 		// Copy remaining body to client until server closes the connection.
@@ -235,7 +241,7 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 		// closes the connection after the full response regardless of framing
 		// (Content-Length, chunked, or close-delimited).
 		long readLength = await reader.CopyToAsync(output, long.MaxValue, cancellationToken);
-		LogServerSentBytes(_logger, readLength);
+		LogServerSentBytes(readLength);
 		return true;
 	}
 
@@ -411,7 +417,7 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 			return false;
 		}
 
-		long lineConsumed = seqReader.Consumed; // includes \r\n
+		long lineConsumed = seqReader.Consumed;// includes \r\n
 		long chunkSize = ParseChunkSize(chunkSizeLine);
 
 		if (chunkSize < 0)
@@ -439,7 +445,7 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 				}
 			}
 
-			return false; // Need more data for trailers
+			return false;// Need more data for trailers
 		}
 
 		// Non-zero chunk: chunk-size line (\r\n included) + data + \r\n
@@ -465,7 +471,7 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 		{
 			if (c == (byte)';')
 			{
-				break; // Stop at chunk extension
+				break;// Stop at chunk extension
 			}
 
 			int digit = c switch
@@ -478,12 +484,12 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 
 			if (digit < 0)
 			{
-				return -1; // Invalid character in chunk-size (RFC 7230 §4.1: chunk-size = 1*HEXDIG)
+				return -1;// Invalid character in chunk-size (RFC 7230 §4.1: chunk-size = 1*HEXDIG)
 			}
 
 			if (++digitCount > 16)
 			{
-				return -1; // Overflow: chunk size exceeds long.MaxValue (16 hex digits)
+				return -1;// Overflow: chunk size exceeds long.MaxValue (16 hex digits)
 			}
 
 			length = (length << 4) | (uint)digit;
@@ -491,5 +497,4 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 
 		return digitCount > 0 ? length : -1;
 	}
-
 }

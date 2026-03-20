@@ -1,7 +1,9 @@
 using Pipelines.Extensions;
 using Proxy.Abstractions;
 using System.IO.Pipelines;
+using System.Net;
 using System.Net.Sockets;
+using System.Text;
 
 namespace UnitTest.TestBase;
 
@@ -16,7 +18,15 @@ public sealed class DirectOutbound : IOutbound
 		Socket socket = new(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
 		try
 		{
-			await socket.ConnectAsync(destination.Host, destination.Port, cancellationToken);
+			if (IPAddress.TryParse(destination.Host.Span, out IPAddress? ip))
+			{
+				await socket.ConnectAsync(ip, destination.Port, cancellationToken);
+			}
+			else
+			{
+				await socket.ConnectAsync(Encoding.ASCII.GetString(destination.Host.Span), destination.Port, cancellationToken);
+			}
+
 			return new SocketConnection(socket);
 		}
 		catch

@@ -2,7 +2,7 @@ namespace Proxy.Abstractions;
 
 /// <summary>
 /// Represents a target address for proxy connections.
-/// <see cref="Host"/> can be a domain name (e.g. "example.com") or an IP address string (e.g. "1.2.3.4", "::1").
-/// <see cref="Port"/> must be a resolved concrete port (no sentinel 0).
+/// <see cref="Host"/> contains the raw bytes of a domain name (e.g. "example.com") or an IP address (e.g. "1.2.3.4", "::1").
+/// The caller must ensure the backing memory remains valid for the lifetime of this value.
 /// </summary>
-public readonly record struct ProxyDestination(string Host, ushort Port);
+public readonly record struct ProxyDestination(ReadOnlyMemory<byte> Host, ushort Port);
