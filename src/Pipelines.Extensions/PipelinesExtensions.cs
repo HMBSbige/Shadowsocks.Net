@@ -27,7 +27,7 @@ public static class PipelinesExtensions
 		{
 			while (true)
 			{
-				ReadResult result = await reader.ReadAsync(cancellationToken);
+				ReadResult result = await reader.ReadAndCheckIsCanceledAsync(cancellationToken);
 				ReadOnlySequence<byte> buffer = result.Buffer;
 
 				try
@@ -74,6 +74,7 @@ public static class PipelinesExtensions
 			{
 				int minimumSize = (int)Math.Min(maxBytes, bufferSize);
 				ReadResult result = await reader.ReadAtLeastAsync(minimumSize, cancellationToken);
+				result.ThrowIfCanceled(cancellationToken);
 
 				ReadOnlySequence<byte> buffer = result.Buffer.Length <= maxBytes
 					? result.Buffer
@@ -82,7 +83,7 @@ public static class PipelinesExtensions
 				try
 				{
 					target.Write(buffer);
-					FlushResult flushResult = await target.FlushAsync(cancellationToken);
+					FlushResult flushResult = await target.FlushAndCheckIsCanceledAsync(cancellationToken);
 
 					totalCopied += buffer.Length;
 					maxBytes -= buffer.Length;
@@ -165,7 +166,7 @@ public static class PipelinesExtensions
 			CancellationToken cancellationToken = default)
 		{
 			writer.Write(maxBufferSize, copyTo);
-			return await writer.FlushAsync(cancellationToken);
+			return await writer.FlushAndCheckIsCanceledAsync(cancellationToken);
 		}
 
 		/// <summary>

@@ -211,12 +211,8 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 
 					await output.FlushAsync(cancellationToken);
 
-					buffer = buffer.Slice(consumed);
-
-					if (!buffer.IsEmpty)
-					{
-						reader.CancelPendingRead();
-					}
+					// Leftover body bytes remain unexamined so the next ReadAsync returns them immediately.
+					buffer = buffer.Slice(consumed, 0);
 
 					headersDone = true;
 				}
@@ -265,13 +261,8 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 					byte[] rented = ArrayPool<byte>.Shared.Rent(len);
 					headerBuffer.CopyTo(rented);
 
-					// Slice buffer to remaining data; finally will AdvanceTo this position
-					buffer = buffer.Slice(consumed);
-
-					if (!buffer.IsEmpty)
-					{
-						reader.CancelPendingRead();
-					}
+					// Leftover bytes remain unexamined so the caller's CopyToAsync sees them.
+					buffer = buffer.Slice(consumed, 0);
 
 					return (rented, len);
 				}

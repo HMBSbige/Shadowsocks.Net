@@ -672,6 +672,34 @@ public class HttpTest
 		await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.BadGateway);
 	}
 
+	[Test]
+	public async Task ResponseFraming_HeadersAndBodyInSingleWriteAsync(CancellationToken cancellationToken)
+	{
+		string body = await F.HttpClient.GetStringAsync($"http://localhost:{F.MockHttp.Port}/framing/single-write", cancellationToken);
+		await Assert.That(body).IsEqualTo("hello");
+	}
+
+	[Test]
+	public async Task ResponseFraming_HeadersAndBodyInSeparateWritesAsync(CancellationToken cancellationToken)
+	{
+		string body = await F.HttpClient.GetStringAsync($"http://localhost:{F.MockHttp.Port}/framing/separate-writes", cancellationToken);
+		await Assert.That(body).IsEqualTo("hello");
+	}
+
+	[Test]
+	public async Task ResponseFraming_SplitMidHeaderThenBodyAsync(CancellationToken cancellationToken)
+	{
+		string body = await F.HttpClient.GetStringAsync($"http://localhost:{F.MockHttp.Port}/framing/split-mid-header", cancellationToken);
+		await Assert.That(body).IsEqualTo("hello");
+	}
+
+	[Test]
+	public async Task ResponseFraming_SplitMidBodyAsync(CancellationToken cancellationToken)
+	{
+		string body = await F.HttpClient.GetStringAsync($"http://localhost:{F.MockHttp.Port}/framing/split-mid-body", cancellationToken);
+		await Assert.That(body).IsEqualTo("hello");
+	}
+
 	#region helpers
 
 	private static async Task AcceptLoopAsync(TcpListener listener, IInbound inbound, IOutbound outbound, CancellationToken cancellationToken)

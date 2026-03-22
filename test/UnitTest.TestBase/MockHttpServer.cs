@@ -160,6 +160,34 @@ public sealed class MockHttpServer : IDisposable
 			await stream.WriteAsync("XYZZY totally not HTTP\r\n\r\n"u8.ToArray());
 			await stream.FlushAsync();
 		}
+		else if (path is "/framing/single-write")
+		{
+			await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello"u8.ToArray());
+			await stream.FlushAsync();
+		}
+		else if (path is "/framing/separate-writes")
+		{
+			await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\n"u8.ToArray());
+			await stream.FlushAsync();
+			await stream.WriteAsync("hello"u8.ToArray());
+			await stream.FlushAsync();
+		}
+		else if (path is "/framing/split-mid-header")
+		{
+			await stream.WriteAsync("HTTP/1.1 200 OK\r\nCont"u8.ToArray());
+			await stream.FlushAsync();
+			await Task.Delay(50);
+			await stream.WriteAsync("ent-Length: 5\r\nConnection: close\r\n\r\nhello"u8.ToArray());
+			await stream.FlushAsync();
+		}
+		else if (path is "/framing/split-mid-body")
+		{
+			await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhel"u8.ToArray());
+			await stream.FlushAsync();
+			await Task.Delay(50);
+			await stream.WriteAsync("lo"u8.ToArray());
+			await stream.FlushAsync();
+		}
 		else if (path.StartsWith("/?"))
 		{
 			// Echo full request line — used by path-less query-string tests
@@ -190,19 +218,19 @@ public sealed class MockHttpServer : IDisposable
 
 		if (body is not null)
 		{
-			byte[] bytes = Encoding.UTF8.GetBytes(body);
-			sb.Append($"Content-Length: {bytes.Length}\r\n");
+			int byteCount = Encoding.UTF8.GetByteCount(body);
+			sb.Append($"Content-Length: {byteCount}\r\n");
 			sb.Append("Content-Type: application/json\r\n");
 		}
 
 		sb.Append("Connection: close\r\n\r\n");
-		await stream.WriteAsync(Encoding.UTF8.GetBytes(sb.ToString()));
 
 		if (body is not null)
 		{
-			await stream.WriteAsync(Encoding.UTF8.GetBytes(body));
+			sb.Append(body);
 		}
 
+		await stream.WriteAsync(Encoding.UTF8.GetBytes(sb.ToString()));
 		await stream.FlushAsync();
 	}
 
