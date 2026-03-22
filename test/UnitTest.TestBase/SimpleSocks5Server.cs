@@ -124,7 +124,7 @@ public sealed class SimpleSocks5Server(IPEndPoint bindEndPoint, UsernamePassword
 	{
 		try
 		{
-			await source.CopyToAsync(destination, long.MaxValue, cancellationToken);
+			await source.CopyToAsync(destination, cancellationToken);
 		}
 		finally
 		{

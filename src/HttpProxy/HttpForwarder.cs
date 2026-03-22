@@ -40,14 +40,11 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 	[LoggerMessage(Level = LogLevel.Trace, Message = "server headers received: \n{Headers}")]
 	private partial void LogServerHeadersReceived(string headers);
 
-	[LoggerMessage(Level = LogLevel.Debug, Message = "server sent {ServerSentLength} bytes to client")]
-	private partial void LogServerSentBytes(long serverSentLength);
-
 	[LoggerMessage(Level = LogLevel.Warning, Message = "Failed to parse HTTP request")]
 	private partial void LogInvalidRequest();
 
-	[LoggerMessage(Level = LogLevel.Warning, Message = "Connection to {Hostname}:{Port} failed ({SocketError})")]
-	private partial void LogConnectionFailed(string hostname, ushort port, SocketError socketError);
+	[LoggerMessage(Level = LogLevel.Warning, Message = "Connection to {Hostname}:{Port} failed")]
+	private partial void LogConnectionFailed(string hostname, ushort port, Exception exception);
 
 	[LoggerMessage(Level = LogLevel.Error, Message = "Unexpected error forwarding HTTP request")]
 	private partial void LogUnexpectedError(Exception exception);
@@ -104,17 +101,20 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 				{
 					connection = await outbound.ConnectAsync(new ProxyDestination(httpHeaders.Hostname, httpHeaders.Port), cancellationToken);
 				}
-				catch (SocketException ex)
+				catch (Exception ex)
 				{
-					LogConnectionFailed(Encoding.ASCII.GetString(httpHeaders.Hostname.Span), httpHeaders.Port, ex.SocketErrorCode);
+					string hostname = Encoding.ASCII.GetString(httpHeaders.Hostname.Span);
+					LogConnectionFailed(hostname, httpHeaders.Port, ex);
 
-					ConnectionErrorResult errorResult = ex.SocketErrorCode switch
-					{
-						SocketError.HostNotFound or SocketError.HostUnreachable => ConnectionErrorResult.HostUnreachable,
-						SocketError.ConnectionRefused => ConnectionErrorResult.ConnectionRefused,
-						SocketError.ConnectionReset => ConnectionErrorResult.ConnectionReset,
-						_ => ConnectionErrorResult.UnknownError,
-					};
+					ConnectionErrorResult errorResult = ex is SocketException socketEx
+						? socketEx.SocketErrorCode switch
+						{
+							SocketError.HostNotFound or SocketError.HostUnreachable => ConnectionErrorResult.HostUnreachable,
+							SocketError.ConnectionRefused => ConnectionErrorResult.ConnectionRefused,
+							SocketError.ConnectionReset => ConnectionErrorResult.ConnectionReset,
+							_ => ConnectionErrorResult.UnknownError,
+						}
+						: ConnectionErrorResult.UnknownError;
 
 					await clientPipe.Output.SendErrorAsync(errorResult, cancellationToken);
 					return;
@@ -141,7 +141,7 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 						{
 							LogWaitingForClientBytes(httpHeaders.ContentLength.Value);
 
-							long readLength = await clientPipe.Input.CopyToAsync(connection.Output, httpHeaders.ContentLength.Value, cancellationToken);
+							long readLength = await clientPipe.Input.CopyToAsync(connection.Output, httpHeaders.ContentLength.Value, cancellationToken: cancellationToken);
 
 							LogClientSentBytes(readLength);
 
@@ -240,8 +240,7 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 		// Since we force Connection: close in the outgoing request, the server
 		// closes the connection after the full response regardless of framing
 		// (Content-Length, chunked, or close-delimited).
-		long readLength = await reader.CopyToAsync(output, long.MaxValue, cancellationToken);
-		LogServerSentBytes(readLength);
+		await reader.CopyToAsync(output, cancellationToken);
 		return true;
 	}
 
@@ -300,7 +299,7 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 
 			try
 			{
-				while (TryForwardChunk(ref buffer, target, out bool isLast))
+				while (TryForwardChunk(ref buffer, out bool isLast))
 				{
 					if (isLast)
 					{
@@ -321,59 +320,60 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 				reader.AdvanceTo(buffer.Start, buffer.End);
 			}
 		}
-	}
 
-	private static bool TryForwardChunk(ref ReadOnlySequence<byte> buffer, PipeWriter target, out bool isLast)
-	{
-		isLast = false;
-		SequenceReader<byte> seqReader = new(buffer);
+		return;
 
-		if (!seqReader.TryReadTo(out ReadOnlySequence<byte> chunkSizeLine, HttpNewLine))
+		bool TryForwardChunk(ref ReadOnlySequence<byte> buffer, out bool isLast)
 		{
-			return false;
-		}
+			isLast = false;
+			SequenceReader<byte> seqReader = new(buffer);
 
-		long lineConsumed = seqReader.Consumed;// includes \r\n
-		long chunkSize = ParseChunkSize(chunkSizeLine);
-
-		if (chunkSize < 0)
-		{
-			throw new InvalidDataException("Invalid chunk size: not a valid hexadecimal number.");
-		}
-
-		if (chunkSize is 0)
-		{
-			// Terminating chunk: "0[;ext]\r\n" followed by optional trailers and a final "\r\n".
-			// Scan for the empty line that ends the trailer section.
-			ReadOnlySequence<byte> afterLine = buffer.Slice(lineConsumed);
-			SequenceReader<byte> trailerReader = new(afterLine);
-
-			while (trailerReader.TryReadTo(out ReadOnlySequence<byte> trailerLine, HttpNewLine))
+			if (!seqReader.TryReadTo(out ReadOnlySequence<byte> chunkSizeLine, HttpNewLine))
 			{
-				if (trailerLine.Length is 0)
-				{
-					// Empty line = end of trailers
-					long total = lineConsumed + trailerReader.Consumed;
-					target.Write(buffer.Slice(0, total));
-					buffer = buffer.Slice(total);
-					isLast = true;
-					return true;
-				}
+				return false;
 			}
 
-			return false;// Need more data for trailers
+			long lineConsumed = seqReader.Consumed;// includes \r\n
+
+			if (!TryParseChunkSize(chunkSizeLine, out long chunkSize))
+			{
+				throw new InvalidDataException("Invalid chunk size: not a valid hexadecimal number.");
+			}
+
+			if (chunkSize is 0)
+			{
+				// Terminating chunk: "0[;ext]\r\n" followed by optional trailers and a final "\r\n".
+				// Scan for the empty line that ends the trailer section.
+				ReadOnlySequence<byte> afterLine = buffer.Slice(lineConsumed);
+				SequenceReader<byte> trailerReader = new(afterLine);
+
+				while (trailerReader.TryReadTo(out ReadOnlySequence<byte> trailerLine, HttpNewLine))
+				{
+					if (trailerLine.Length is 0)
+					{
+						// Empty line = end of trailers
+						long total = lineConsumed + trailerReader.Consumed;
+						target.Write(buffer.Slice(0, total));
+						buffer = buffer.Slice(total);
+						isLast = true;
+						return true;
+					}
+				}
+
+				return false;// Need more data for trailers
+			}
+
+			// Non-zero chunk: chunk-size line (\r\n included) + data + \r\n
+			long totalLen = lineConsumed + chunkSize + 2;
+
+			if (buffer.Length < totalLen)
+			{
+				return false;
+			}
+
+			target.Write(buffer.Slice(0, totalLen));
+			buffer = buffer.Slice(totalLen);
+			return true;
 		}
-
-		// Non-zero chunk: chunk-size line (\r\n included) + data + \r\n
-		long totalLen = lineConsumed + chunkSize + 2;
-
-		if (buffer.Length < totalLen)
-		{
-			return false;
-		}
-
-		target.Write(buffer.Slice(0, totalLen));
-		buffer = buffer.Slice(totalLen);
-		return true;
 	}
 }

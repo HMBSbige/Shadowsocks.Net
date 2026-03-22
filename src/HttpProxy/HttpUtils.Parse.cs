@@ -432,7 +432,7 @@ public static partial class HttpUtils
 		return false;
 	}
 
-	internal static long ParseChunkSize(ReadOnlySequence<byte> chunkSizeLine)
+	internal static bool TryParseChunkSize(ReadOnlySequence<byte> chunkSizeLine, out long chunkSize)
 	{
 		scoped ReadOnlySpan<byte> span;
 
@@ -450,11 +450,11 @@ public static partial class HttpUtils
 		int semi = span.IndexOf((byte)';');
 		ReadOnlySpan<byte> hex = semi >= 0 ? span.Slice(0, semi) : span;
 
-		if (!Utf8Parser.TryParse(hex, out long size, out int consumed, 'X') || consumed != hex.Length)
+		if (!Utf8Parser.TryParse(hex, out chunkSize, out int consumed, 'X') || consumed != hex.Length)
 		{
-			return -1;
+			return false;
 		}
 
-		return size;
+		return true;
 	}
 }

@@ -52,41 +52,42 @@ public static class PipelinesExtensions
 		}
 
 		/// <summary>
-		/// Copies exactly <paramref name="size"/> bytes from the <see cref="PipeReader"/> to the <paramref name="target"/>.
+		/// Copies up to <paramref name="maxBytes"/> bytes from the <see cref="PipeReader"/> to the <paramref name="target"/>.
 		/// </summary>
 		/// <param name="target">The destination pipe writer.</param>
-		/// <param name="size">The number of bytes to copy.</param>
+		/// <param name="maxBytes">The maximum number of bytes to copy.</param>
+		/// <param name="bufferSize">The size of the buffer to use for reading. Defaults to 81920 bytes (80 KB).</param>
 		/// <param name="cancellationToken">The cancellation token.</param>
-		/// <returns>The total number of bytes actually copied.</returns>
+		/// <returns>The actual number of bytes copied, which may be less than <paramref name="maxBytes"/> if the reader completes early.</returns>
 		public async ValueTask<long> CopyToAsync(
 			PipeWriter target,
-			long size,
+			long maxBytes,
+			int bufferSize = 81920,
 			CancellationToken cancellationToken = default)
 		{
-			ArgumentOutOfRangeException.ThrowIfNegative(size);
+			ArgumentOutOfRangeException.ThrowIfNegative(maxBytes);
+			ArgumentOutOfRangeException.ThrowIfNegativeOrZero(bufferSize);
 
-			long readSize = 0L;
+			long totalCopied = 0L;
 
-			while (true)
+			while (maxBytes > 0)
 			{
-				ReadResult result = await reader.ReadAsync(cancellationToken);
-				ReadOnlySequence<byte> buffer = result.Buffer;
+				int minimumSize = (int)Math.Min(maxBytes, bufferSize);
+				ReadResult result = await reader.ReadAtLeastAsync(minimumSize, cancellationToken);
 
-				if (buffer.Length > size)
-				{
-					buffer = buffer.Slice(0, size);
-				}
+				ReadOnlySequence<byte> buffer = result.Buffer.Length <= maxBytes
+					? result.Buffer
+					: result.Buffer.Slice(0, maxBytes);
 
 				try
 				{
 					target.Write(buffer);
 					FlushResult flushResult = await target.FlushAsync(cancellationToken);
-					flushResult.ThrowIfCanceled(cancellationToken);
 
-					readSize += buffer.Length;
-					size -= buffer.Length;
+					totalCopied += buffer.Length;
+					maxBytes -= buffer.Length;
 
-					if (flushResult.IsCompleted || size <= 0 || result.IsCompleted)
+					if (flushResult.IsCompleted || result.IsCompleted)
 					{
 						break;
 					}
@@ -97,7 +98,7 @@ public static class PipelinesExtensions
 				}
 			}
 
-			return readSize;
+			return totalCopied;
 		}
 
 		/// <summary>
