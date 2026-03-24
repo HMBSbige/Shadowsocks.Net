@@ -37,7 +37,7 @@ public class HttpTest
 
 		_cts = new CancellationTokenSource();
 
-		HttpForwarder forwarder = new();
+		HttpInbound forwarder = new();
 		DirectOutbound outbound = new();
 
 		TcpListener listener = new(IPAddress.Loopback, 0);
@@ -45,7 +45,7 @@ public class HttpTest
 		_ = AcceptLoopAsync(listener, forwarder, outbound, _cts.Token);
 
 		// Auth proxy with credentials
-		HttpForwarder authForwarder = new(new HttpProxyCredential("user", "pass"));
+		HttpInbound authForwarder = new(new HttpProxyCredential("user", "pass"));
 		TcpListener authListener = new(IPAddress.Loopback, 0);
 		authListener.Start();
 		_ = AcceptLoopAsync(authListener, authForwarder, outbound, _cts.Token);
@@ -793,7 +793,7 @@ public class HttpTest
 
 	private static async Task<HttpResponseMessage> SendViaFailingProxyAsync(SocketError error, CancellationToken cancellationToken)
 	{
-		HttpForwarder forwarder = new();
+		HttpInbound forwarder = new();
 		FailingOutbound outbound = new(error);
 		TcpListener listener = new(IPAddress.Loopback, 0);
 		listener.Start();

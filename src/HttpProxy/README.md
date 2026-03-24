@@ -12,12 +12,12 @@ An [`IInbound`](../Proxy.Abstractions/README.md) implementation that speaks the 
 
 ## Main Types
 
-### `HttpForwarder`
+### `HttpInbound`
 
 ```csharp
-public partial class HttpForwarder : IInbound
+public partial class HttpInbound : IInbound
 {
-    public HttpForwarder(HttpProxyCredential? credential = null, ILogger<HttpForwarder>? logger = null);
+    public HttpInbound(HttpProxyCredential? credential = null, ILogger<HttpInbound>? logger = null);
     public ValueTask HandleAsync(IDuplexPipe clientPipe, IOutbound outbound, CancellationToken cancellationToken = default);
 }
 ```
@@ -32,7 +32,7 @@ For `CONNECT` requests, sends `200 Connection Established` and then links the tw
 public sealed record HttpProxyCredential(string UserName, string Password);
 ```
 
-Credentials for HTTP proxy authentication (Basic scheme). When supplied to `HttpForwarder`, clients must present matching `Proxy-Authorization` headers or receive `407 Proxy Authentication Required`.
+Credentials for HTTP proxy authentication (Basic scheme). When supplied to `HttpInbound`, clients must present matching `Proxy-Authorization` headers or receive `407 Proxy Authentication Required`.
 
 ### `HttpUtils`
 

@@ -15,7 +15,7 @@ namespace HttpProxy;
 /// </summary>
 /// <param name="credential">Optional proxy credentials. When set, clients must present matching Basic credentials.</param>
 /// <param name="logger">Optional logger instance.</param>
-public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogger<HttpForwarder>? logger = null) : IInbound
+public partial class HttpInbound(HttpProxyCredential? credential = null, ILogger<HttpInbound>? logger = null) : IInbound
 {
 	private readonly byte[]? _expectedAuthBytes = credential is not null
 		? Encoding.ASCII.GetBytes("Basic " + Convert.ToBase64String(Encoding.UTF8.GetBytes($"{credential.UserName}:{credential.Password}")))
@@ -23,7 +23,7 @@ public partial class HttpForwarder(HttpProxyCredential? credential = null, ILogg
 
 	#region logging
 
-	private readonly ILogger<HttpForwarder> _logger = logger ?? NullLogger<HttpForwarder>.Instance;
+	private readonly ILogger<HttpInbound> _logger = logger ?? NullLogger<HttpInbound>.Instance;
 
 	[LoggerMessage(Level = LogLevel.Trace, Message = "Client headers received: \n{Headers}")]
 	private partial void LogClientHeadersReceived(string headers);
