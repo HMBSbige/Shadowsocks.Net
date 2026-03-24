@@ -10,7 +10,7 @@ namespace UnitTest.TestBase;
 /// <summary>
 /// Connects directly to the target host via TCP.
 /// </summary>
-public sealed class DirectOutbound : IOutbound
+public sealed class DirectOutbound : IStreamOutbound
 {
 	/// <inheritdoc />
 	public async ValueTask<IConnection> ConnectAsync(ProxyDestination destination, CancellationToken cancellationToken)

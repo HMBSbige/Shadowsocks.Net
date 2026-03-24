@@ -46,6 +46,9 @@ public partial class HttpInbound(HttpProxyCredential? credential = null, ILogger
 	[LoggerMessage(Level = LogLevel.Warning, Message = "Connection to {Hostname}:{Port} failed")]
 	private partial void LogConnectionFailed(string hostname, ushort port, Exception exception);
 
+	[LoggerMessage(Level = LogLevel.Error, Message = "Outbound type {OutboundType} does not implement IStreamOutbound")]
+	private partial void LogUnsupportedOutbound(string outboundType);
+
 	[LoggerMessage(Level = LogLevel.Error, Message = "Unexpected error forwarding HTTP request")]
 	private partial void LogUnexpectedError(Exception exception);
 
@@ -95,11 +98,19 @@ public partial class HttpInbound(HttpProxyCredential? credential = null, ILogger
 					LogParsedRequest(httpHeaders.IsConnect, hostname, httpHeaders.Port, httpHeaders.ContentLength);
 				}
 
+				if (outbound is not IStreamOutbound streamOutbound)
+				{
+					Type outboundType = outbound.GetType();
+					LogUnsupportedOutbound(outboundType.FullName ?? outboundType.Name);
+					await clientPipe.Output.SendErrorAsync(ConnectionErrorResult.UnknownError, cancellationToken);
+					return;
+				}
+
 				IConnection connection;
 
 				try
 				{
-					connection = await outbound.ConnectAsync(new ProxyDestination(httpHeaders.Hostname, httpHeaders.Port), cancellationToken);
+					connection = await streamOutbound.ConnectAsync(new ProxyDestination(httpHeaders.Hostname, httpHeaders.Port), cancellationToken);
 				}
 				catch (Exception ex)
 				{

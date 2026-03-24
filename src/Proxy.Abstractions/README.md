@@ -24,13 +24,33 @@ Handles an inbound client connection at the protocol level. An implementation pa
 ### `IOutbound`
 
 ```csharp
-public interface IOutbound
+public interface IOutbound;
+```
+
+Base marker type for all outbound implementations. Concrete capabilities are exposed via `IStreamOutbound` and `IPacketOutbound`.
+These names describe the I/O shape, not a specific transport protocol: stream outbounds provide an ordered bidirectional byte stream, while packet outbounds preserve per-message boundaries.
+
+### `IStreamOutbound`
+
+```csharp
+public interface IStreamOutbound : IOutbound
 {
     ValueTask<IConnection> ConnectAsync(ProxyDestination destination, CancellationToken cancellationToken = default);
 }
 ```
 
-Creates outbound connections to a `ProxyDestination`. By swapping implementations, the same `IInbound` can connect directly via TCP, or tunnel through another proxy (SOCKS5, HTTP proxy, etc.).
+Creates stream-oriented outbound connections. Typical examples include direct TCP connections, tunneled byte streams, or any other transport that behaves like an ordered bidirectional stream.
+
+### `IPacketOutbound`
+
+```csharp
+public interface IPacketOutbound : IOutbound
+{
+    ValueTask<IPacketConnection> CreatePacketConnectionAsync(ProxyDestination destination, CancellationToken cancellationToken = default);
+}
+```
+
+Creates packet-oriented outbound connections. Typical examples include UDP or any other transport that preserves message boundaries.
 
 ### `IConnection`
 
@@ -47,3 +67,27 @@ public readonly record struct ProxyDestination(ReadOnlyMemory<byte> Host, ushort
 ```
 
 Represents a target address as raw bytes. `Host` contains the UTF-8/ASCII bytes of a domain name (`"example.com"`) or an IP address (`"1.2.3.4"`, `"::1"`). The caller must ensure the backing memory remains valid for the lifetime of this value.
+
+### `IPacketConnection`
+
+```csharp
+public interface IPacketConnection : IAsyncDisposable
+{
+    ValueTask<int> SendToAsync(ReadOnlyMemory<byte> data, ProxyDestination destination, CancellationToken cancellationToken = default);
+    ValueTask<PacketReceiveResult> ReceiveFromAsync(Memory<byte> buffer, CancellationToken cancellationToken = default);
+}
+```
+
+A packet-oriented connection with per-message addressing. `SendToAsync` sends data to the specified destination. `ReceiveFromAsync` receives one packet and returns the number of bytes received along with the remote destination.
+
+### `PacketReceiveResult`
+
+```csharp
+public readonly struct PacketReceiveResult
+{
+    public int BytesReceived { get; init; }
+    public ProxyDestination RemoteDestination { get; init; }
+}
+```
+
+Result of a packet receive operation, including the number of bytes received and the remote endpoint.

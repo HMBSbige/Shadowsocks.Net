@@ -1,8 +1,6 @@
 using HttpProxy;
-using Pipelines.Extensions;
 using Proxy.Abstractions;
 using System.Buffers;
-using System.IO.Pipelines;
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -42,13 +40,13 @@ public class HttpTest
 
 		TcpListener listener = new(IPAddress.Loopback, 0);
 		listener.Start();
-		_ = AcceptLoopAsync(listener, forwarder, outbound, _cts.Token);
+		_ = TestAcceptLoop.RunAsync(listener, forwarder, outbound, _cts.Token);
 
 		// Auth proxy with credentials
 		HttpInbound authForwarder = new(new HttpProxyCredential("user", "pass"));
 		TcpListener authListener = new(IPAddress.Loopback, 0);
 		authListener.Start();
-		_ = AcceptLoopAsync(authListener, authForwarder, outbound, _cts.Token);
+		_ = TestAcceptLoop.RunAsync(authListener, authForwarder, outbound, _cts.Token);
 
 		ushort port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
 		SocketsHttpHandler handler = new()
@@ -499,6 +497,14 @@ public class HttpTest
 	}
 
 	[Test]
+	public async Task UnsupportedOutboundCapability_Returns500Async(CancellationToken cancellationToken)
+	{
+		using HttpResponseMessage response = await SendViaPacketOnlyProxyAsync(cancellationToken);
+		await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.InternalServerError);
+		await Assert.That(response.Headers.GetValues("X-Proxy-Error-Type").First()).IsEqualTo("UnknownError");
+	}
+
+	[Test]
 	public async Task IsHttpHeaderTest(CancellationToken cancellationToken)
 	{
 		ReadOnlySequence<byte> sequence0 = TestUtils.GetMultiSegmentSequence(
@@ -702,35 +708,6 @@ public class HttpTest
 
 	#region helpers
 
-	private static async Task AcceptLoopAsync(TcpListener listener, IInbound inbound, IOutbound outbound, CancellationToken cancellationToken)
-	{
-		try
-		{
-			while (!cancellationToken.IsCancellationRequested)
-			{
-				Socket socket = await listener.AcceptSocketAsync(cancellationToken);
-				socket.NoDelay = true;
-				_ = HandleAsync(socket, inbound, outbound, cancellationToken);
-			}
-		}
-		catch (OperationCanceledException) { }
-
-		return;
-
-		static async Task HandleAsync(Socket socket, IInbound inbound, IOutbound outbound, CancellationToken cancellationToken)
-		{
-			try
-			{
-				IDuplexPipe pipe = socket.AsDuplexPipe();
-				await inbound.HandleAsync(pipe, outbound, cancellationToken);
-			}
-			finally
-			{
-				socket.FullClose();
-			}
-		}
-	}
-
 	private static async Task<string> ReadResponseAsync(NetworkStream ns, CancellationToken cancellationToken, int bufferSize = 8192)
 	{
 		byte[] buf = new byte[bufferSize];
@@ -783,11 +760,19 @@ public class HttpTest
 		return await ReadResponseAsync(ns, cancellationToken);
 	}
 
-	private sealed class FailingOutbound(SocketError error) : IOutbound
+	private sealed class FailingOutbound(SocketError error) : IStreamOutbound
 	{
 		public ValueTask<IConnection> ConnectAsync(ProxyDestination destination, CancellationToken cancellationToken)
 		{
 			throw new SocketException((int)error);
+		}
+	}
+
+	private sealed class PacketOnlyOutbound : IPacketOutbound
+	{
+		public ValueTask<IPacketConnection> CreatePacketConnectionAsync(ProxyDestination destination, CancellationToken cancellationToken)
+		{
+			throw new InvalidOperationException("HttpInbound should reject non-stream outbounds before attempting to create a packet connection.");
 		}
 	}
 
@@ -798,7 +783,33 @@ public class HttpTest
 		TcpListener listener = new(IPAddress.Loopback, 0);
 		listener.Start();
 		using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-		_ = AcceptLoopAsync(listener, forwarder, outbound, cts.Token);
+		_ = TestAcceptLoop.RunAsync(listener, forwarder, outbound, cts.Token);
+
+		try
+		{
+			ushort port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
+			using HttpClient client = new(new SocketsHttpHandler
+			{
+				UseProxy = true,
+				Proxy = new WebProxy(IPAddress.Loopback.ToString(), port)
+			});
+			return await client.GetAsync("http://localhost:1/test", cancellationToken);
+		}
+		finally
+		{
+			await cts.CancelAsync();
+			listener.Stop();
+		}
+	}
+
+	private static async Task<HttpResponseMessage> SendViaPacketOnlyProxyAsync(CancellationToken cancellationToken)
+	{
+		HttpInbound forwarder = new();
+		PacketOnlyOutbound outbound = new();
+		TcpListener listener = new(IPAddress.Loopback, 0);
+		listener.Start();
+		using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+		_ = TestAcceptLoop.RunAsync(listener, forwarder, outbound, cts.Token);
 
 		try
 		{
