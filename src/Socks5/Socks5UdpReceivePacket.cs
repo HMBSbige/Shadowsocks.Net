@@ -1,19 +1,15 @@
-using Socks5.Enums;
-using System.Net;
-
-namespace Socks5.Models;
+namespace Socks5;
 
 // +----+------+------+----------+----------+----------+
 // |RSV | FRAG | ATYP | DST.ADDR | DST.PORT |   DATA   |
 // +----+------+------+----------+----------+----------+
 // | 2  |  1   |  1   | Variable |    2     | Variable |
 // +----+------+------+----------+----------+----------+
-public struct Socks5UdpReceivePacket
+internal struct Socks5UdpReceivePacket
 {
 	public byte Fragment;
 	public AddressType Type;
-	public IPAddress? Address;
-	public string? Domain;
+	public HostField Host;
 	public ushort Port;
 	public ReadOnlyMemory<byte> Data;
 }

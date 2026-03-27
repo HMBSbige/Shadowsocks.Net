@@ -1,6 +1,6 @@
 using System.Net;
 
-namespace Socks5.Models;
+namespace Socks5;
 
 public record Socks5CreateOption
 {

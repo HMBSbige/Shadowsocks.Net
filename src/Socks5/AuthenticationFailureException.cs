@@ -1,4 +1,4 @@
-namespace Socks5.Exceptions;
+namespace Socks5;
 
 public class AuthenticationFailureException(string message, byte statusCode) : Exception(message)
 {

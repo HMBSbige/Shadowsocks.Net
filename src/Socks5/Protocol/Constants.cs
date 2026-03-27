@@ -1,4 +1,4 @@
-namespace Socks5;
+namespace Socks5.Protocol;
 
 internal static class Constants
 {
@@ -13,5 +13,6 @@ internal static class Constants
 	public const int MaxCommandLength = 1 + 1 + 1 + MaxAddressPortLength;
 	public const int MaxUsernamePasswordAuthLength = 1 + 1 + byte.MaxValue + 1 + byte.MaxValue;
 	public const int MaxHandshakeClientMethodLength = 1 + 1 + byte.MaxValue;
+	public const int MaxIpTextLength = 45; // max formatted IPv6 text, e.g. "ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255"
 	public const int MaxUdpHandshakeHeaderLength = 2 + 1 + MaxAddressPortLength;
 }

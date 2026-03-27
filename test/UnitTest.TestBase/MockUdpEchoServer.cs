@@ -8,10 +8,17 @@ namespace UnitTest.TestBase;
 /// </summary>
 public sealed class MockUdpEchoServer : IDisposable
 {
-	private readonly UdpClient _listener = new(new IPEndPoint(IPAddress.Loopback, 0));
+	private readonly UdpClient _listener;
 	private readonly CancellationTokenSource _cts = new();
 
 	public int Port => ((IPEndPoint)_listener.Client.LocalEndPoint!).Port;
+
+	public MockUdpEchoServer()
+	{
+		_listener = new UdpClient(AddressFamily.InterNetworkV6);
+		_listener.Client.DualMode = true;
+		_listener.Client.Bind(new IPEndPoint(IPAddress.IPv6Any, 0));
+	}
 
 	public void Start()
 	{

@@ -1,6 +1,5 @@
-using Socks5.Enums;
 
-namespace Socks5.Exceptions;
+namespace Socks5;
 
 public class MethodUnsupportedException(string message, Method serverReplyMethod) : Exception(message)
 {

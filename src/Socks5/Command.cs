@@ -1,6 +1,6 @@
-namespace Socks5.Enums;
+namespace Socks5;
 
-public enum Command : byte
+internal enum Command : byte
 {
 	Connect = 0x01,
 	Bind = 0x02,

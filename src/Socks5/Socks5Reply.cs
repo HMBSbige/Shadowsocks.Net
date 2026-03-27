@@ -1,4 +1,4 @@
-namespace Socks5.Enums;
+namespace Socks5;
 
 public enum Socks5Reply : byte
 {

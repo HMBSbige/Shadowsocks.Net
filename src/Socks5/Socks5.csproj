@@ -9,7 +9,16 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="UnitTest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Pipelines.Extensions\Pipelines.Extensions.csproj" />
+    <ProjectReference Include="..\Proxy.Abstractions\Proxy.Abstractions.csproj" />
   </ItemGroup>
 
 </Project>

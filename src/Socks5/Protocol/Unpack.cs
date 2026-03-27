@@ -1,19 +1,14 @@
-using Socks5.Enums;
-using Socks5.Exceptions;
-using Socks5.Models;
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Text;
 
-namespace Socks5.Utils;
+namespace Socks5.Protocol;
 
-public static class Unpack
+internal static class Unpack
 {
-	public static bool ReadResponseMethod(
-		ref ReadOnlySequence<byte> buffer,
-		out Method method)
+	public static bool ReadResponseMethod(ref ReadOnlySequence<byte> buffer, out Method method)
 	{
 		// +----+--------+
 		// |VER | METHOD |
@@ -31,6 +26,7 @@ public static class Unpack
 		SequenceReader<byte> reader = new(buffer);
 
 		reader.TryRead(out byte b0);
+
 		if (b0 is not Constants.ProtocolVersion)
 		{
 			throw new Socks5ProtocolErrorException($@"Server version is not 0x05: 0x{b0:X2}.", Socks5Reply.GeneralFailure);
@@ -38,7 +34,8 @@ public static class Unpack
 
 		reader.TryRead(out byte b1);
 		method = (Method)b1;
-		if (!Enum.IsDefined(typeof(Method), method))
+
+		if (!Enum.IsDefined(method))
 		{
 			throw new Socks5ProtocolErrorException($@"Server sent an unknown method: 0x{b1:X2}.", Socks5Reply.ConnectionNotAllowed);
 		}
@@ -63,12 +60,14 @@ public static class Unpack
 		SequenceReader<byte> reader = new(buffer);
 
 		reader.TryRead(out byte b0);
+
 		if (b0 is not Constants.AuthVersion)
 		{
 			throw new Socks5ProtocolErrorException($@"Authentication version is not 0x01: 0x{b0:X2}.", Socks5Reply.ConnectionNotAllowed);
 		}
 
 		reader.TryRead(out byte status);
+
 		if (status is not 0x00)
 		{
 			throw new AuthenticationFailureException($@"Authentication failed: {status}.", status);
@@ -78,33 +77,37 @@ public static class Unpack
 		return true;
 	}
 
-	public static int DestinationAddress(
-		AddressType type, ReadOnlySpan<byte> bytes,
-		out IPAddress? address, out string? domain)
+	public static int DestinationAddress(AddressType type, ReadOnlySpan<byte> bytes, Span<byte> hostBuffer, out int hostBytesWritten)
 	{
-		address = null;
-		domain = null;
 		int offset;
 
 		switch (type)
 		{
 			case AddressType.IPv4:
-			{
-				offset = Constants.IPv4AddressBytesLength;
-				address = new IPAddress(bytes[..offset]);
-				break;
-			}
 			case AddressType.IPv6:
 			{
-				offset = Constants.IPv6AddressBytesLength;
-				address = new IPAddress(bytes[..offset]);
+				offset = type is AddressType.IPv4 ? Constants.IPv4AddressBytesLength : Constants.IPv6AddressBytesLength;
+				if (bytes.Length < offset)
+				{
+					throw new Socks5ProtocolErrorException($@"Truncated {type} address: expected {offset} bytes, got {bytes.Length}.", Socks5Reply.GeneralFailure);
+				}
+				FormatIPAddress(bytes.Slice(0, offset), hostBuffer, out hostBytesWritten);
 				break;
 			}
 			case AddressType.Domain:
 			{
+				if (bytes.Length < 1)
+				{
+					throw new Socks5ProtocolErrorException("Truncated domain address: missing length byte.", Socks5Reply.GeneralFailure);
+				}
 				offset = bytes[0];
-				domain = Encoding.UTF8.GetString(bytes.Slice(1, offset));
-				++offset;
+				if (bytes.Length < 1 + offset)
+				{
+					throw new Socks5ProtocolErrorException($@"Truncated domain address: expected {offset} bytes, got {bytes.Length - 1}.", Socks5Reply.GeneralFailure);
+				}
+				bytes.Slice(1, offset).CopyTo(hostBuffer);
+				hostBytesWritten = offset;
+				++offset; // skip length byte
 				break;
 			}
 			default:
@@ -125,7 +128,10 @@ public static class Unpack
 		// +----+------+------+----------+----------+----------+
 
 		ReadOnlySpan<byte> span = buffer.Span;
-		ArgumentOutOfRangeException.ThrowIfLessThan(buffer.Length, 7, nameof(buffer));
+		if (buffer.Length < 4)
+		{
+			throw new Socks5ProtocolErrorException($@"UDP packet too short: {buffer.Length} bytes, minimum 4.", Socks5Reply.GeneralFailure);
+		}
 
 		Socks5UdpReceivePacket res = new();
 
@@ -137,38 +143,36 @@ public static class Unpack
 		res.Fragment = span[2];
 
 		res.Type = (AddressType)span[3];
+
 		if (!Enum.IsDefined(res.Type))
 		{
-			throw new ArgumentOutOfRangeException(nameof(res.Type));
+			throw new Socks5ProtocolErrorException($@"Unknown address type: 0x{span[3]:X2}.", Socks5Reply.AddressTypeNotSupported);
 		}
 
 		int offset = 4;
-		offset += DestinationAddress(res.Type, span[offset..], out res.Address, out res.Domain);
+		offset += DestinationAddress(res.Type, span.Slice(offset), res.Host.WriteBuffer, out res.Host.Length);
 
-		res.Port = BinaryPrimitives.ReadUInt16BigEndian(span[offset..]);
-		res.Data = buffer[(offset + 2)..];
+		if (buffer.Length < offset + 2)
+		{
+			throw new Socks5ProtocolErrorException($@"UDP packet truncated before port: need {offset + 2} bytes, got {buffer.Length}.", Socks5Reply.GeneralFailure);
+		}
+		res.Port = BinaryPrimitives.ReadUInt16BigEndian(span.Slice(offset));
+		res.Data = buffer.Slice(offset + 2);
 
 		return res;
 	}
 
-	public static bool ReadDestinationAddress(
-		ref this SequenceReader<byte> reader,
-		AddressType type,
-		out IPAddress? address, out string? domain)
+	public static bool ReadDestinationAddress(ref SequenceReader<byte> reader, AddressType type, scoped Span<byte> hostBuffer, out int hostBytesWritten)
 	{
-		address = null;
-		domain = null;
+		hostBytesWritten = 0;
 
-		int length = Constants.IPv6AddressBytesLength;
 		switch (type)
 		{
 			case AddressType.IPv4:
-			{
-				length = Constants.IPv4AddressBytesLength;
-				goto case AddressType.IPv6;
-			}
 			case AddressType.IPv6:
 			{
+				int length = type is AddressType.IPv4 ? Constants.IPv4AddressBytesLength : Constants.IPv6AddressBytesLength;
+
 				if (reader.Remaining < length)
 				{
 					return false;
@@ -176,7 +180,7 @@ public static class Unpack
 
 				Span<byte> temp = stackalloc byte[length];
 				reader.UnreadSequence.Slice(0, length).CopyTo(temp);
-				address = new IPAddress(temp);
+				FormatIPAddress(temp, hostBuffer, out hostBytesWritten);
 
 				reader.Advance(length);
 				return true;
@@ -190,10 +194,12 @@ public static class Unpack
 
 				if (reader.Remaining < domainLength)
 				{
+					reader.Rewind(1);
 					return false;
 				}
 
-				domain = Encoding.UTF8.GetString(reader.UnreadSequence.Slice(0, domainLength));
+				reader.UnreadSequence.Slice(0, domainLength).CopyTo(hostBuffer);
+				hostBytesWritten = domainLength;
 
 				reader.Advance(domainLength);
 				return true;
@@ -222,6 +228,7 @@ public static class Unpack
 		}
 
 		reader.TryRead(out byte b0);
+
 		if (b0 is not Constants.ProtocolVersion)
 		{
 			throw new Socks5ProtocolErrorException($@"Server version is not 0x05: 0x{b0:X2}.", Socks5Reply.GeneralFailure);
@@ -229,12 +236,14 @@ public static class Unpack
 
 		reader.TryRead(out byte b1);
 		Socks5Reply reply = (Socks5Reply)b1;
+
 		if (reply is not Socks5Reply.Succeeded)
 		{
 			throw new Socks5ProtocolErrorException($@"Protocol failed, server reply: {reply}.", reply);
 		}
 
 		reader.TryRead(out byte b2);
+
 		if (b2 is not Constants.Rsv)
 		{
 			throw new Socks5ProtocolErrorException($@"Protocol failed, RESERVED is not 0x00: 0x{b2:X2}.", Socks5Reply.GeneralFailure);
@@ -243,7 +252,7 @@ public static class Unpack
 		reader.TryRead(out byte b3);
 		bound.Type = (AddressType)b3;
 
-		if (!reader.ReadDestinationAddress(bound.Type, out bound.Address, out bound.Domain))
+		if (!ReadDestinationAddress(ref reader, bound.Type, bound.Host.WriteBuffer, out bound.Host.Length))
 		{
 			return false;
 		}
@@ -259,7 +268,7 @@ public static class Unpack
 		return true;
 	}
 
-	public static bool ReadClientHandshake(ref ReadOnlySequence<byte> buffer, ref HashSet<Method> methods)
+	public static bool ReadClientHandshake(ref ReadOnlySequence<byte> buffer, Span<Method> methods, out int methodCount)
 	{
 		// +----+----------+----------+
 		// |VER | NMETHODS | METHODS  |
@@ -267,7 +276,10 @@ public static class Unpack
 		// | 1  |    1     | 1 to 255 |
 		// +----+----------+----------+
 
+		methodCount = 0;
+
 		SequenceReader<byte> reader = new(buffer);
+
 		if (!reader.TryRead(out byte ver))
 		{
 			return false;
@@ -291,7 +303,12 @@ public static class Unpack
 		for (int i = 0; i < num; ++i)
 		{
 			reader.TryRead(out byte b);
-			methods.Add((Method)b);
+			Method m = (Method)b;
+
+			if (methodCount < methods.Length && !methods.Slice(0, methodCount).Contains(m))
+			{
+				methods[methodCount++] = m;
+			}
 		}
 
 		buffer = buffer.Slice(reader.Consumed);
@@ -307,6 +324,7 @@ public static class Unpack
 		// +----+------+----------+------+----------+
 
 		SequenceReader<byte> reader = new(buffer);
+
 		if (!reader.TryRead(out byte ver))
 		{
 			return false;
@@ -350,5 +368,15 @@ public static class Unpack
 		};
 		buffer = buffer.Slice(reader.Consumed);
 		return true;
+	}
+
+	private static void FormatIPAddress(ReadOnlySpan<byte> address, Span<byte> destination, out int bytesWritten)
+	{
+		if (!new IPAddress(address).TryFormat(destination, out bytesWritten))
+		{
+			throw new Socks5ProtocolErrorException(
+				"Failed to format IP address into host buffer.",
+				Socks5Reply.GeneralFailure);
+		}
 	}
 }
