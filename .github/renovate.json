@@ -14,5 +14,11 @@
   ],
   "labels": [
     "Automatic"
+  ],
+  "packageRules": [
+    {
+      "matchPackageNames": ["TUnit"],
+      "schedule": ["* 0-3 * * 1"]
+    }
   ]
 }
