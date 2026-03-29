@@ -12,7 +12,7 @@ using System.Text;
 namespace Socks5;
 
 public sealed partial class Socks5Inbound(
-	UsernamePassword? credential = null,
+	UserPassAuth? credential = null,
 	ILogger<Socks5Inbound>? logger = null,
 	IPAddress? udpRelayBindAddress = null) : IInbound
 {
@@ -87,7 +87,7 @@ public sealed partial class Socks5Inbound(
 		}
 	}
 
-	private static async ValueTask<(Command command, ServerBound target)> AcceptClientAsync(IDuplexPipe pipe, UsernamePassword? credential, CancellationToken cancellationToken)
+	private static async ValueTask<(Command command, ServerBound target)> AcceptClientAsync(IDuplexPipe pipe, UserPassAuth? credential, CancellationToken cancellationToken)
 	{
 		// Cannot use Span<Method> here — local function TryReadClientHandshake captures
 		// 'methods' and 'methodCount', and Span cannot be captured by closures.
@@ -102,7 +102,7 @@ public sealed partial class Socks5Inbound(
 		}
 
 		// Select method
-		Method desired = credential is not null && !string.IsNullOrEmpty(credential.UserName)
+		Method desired = credential?.UserName.Length > 0
 			? Method.UsernamePassword
 			: Method.NoAuthentication;
 
@@ -143,9 +143,9 @@ public sealed partial class Socks5Inbound(
 		}
 	}
 
-	private static async ValueTask<bool> UsernamePasswordAuthAsync(IDuplexPipe pipe, UsernamePassword? credential, CancellationToken cancellationToken)
+	private static async ValueTask<bool> UsernamePasswordAuthAsync(IDuplexPipe pipe, UserPassAuth? credential, CancellationToken cancellationToken)
 	{
-		UsernamePassword? clientCredential = null;
+		UserPassAuth? clientCredential = null;
 		await pipe.Input.ReadAsync(TryReadClientAuth, cancellationToken);
 
 		bool isAuth = clientCredential == credential;

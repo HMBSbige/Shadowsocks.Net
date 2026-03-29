@@ -2,7 +2,6 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.Diagnostics.CodeAnalysis;
 using System.Net;
-using System.Text;
 
 namespace Socks5.Protocol;
 
@@ -315,7 +314,7 @@ internal static class Unpack
 		return true;
 	}
 
-	public static bool ReadClientAuth(ref ReadOnlySequence<byte> buffer, [NotNullWhen(true)] ref UsernamePassword? clientCredential)
+	public static bool ReadClientAuth(ref ReadOnlySequence<byte> buffer, [NotNullWhen(true)] ref UserPassAuth? clientCredential)
 	{
 		// +----+------+----------+------+----------+
 		// |VER | ULEN |  UNAME   | PLEN |  PASSWD  |
@@ -345,7 +344,7 @@ internal static class Unpack
 			return false;
 		}
 
-		string username = Encoding.UTF8.GetString(reader.UnreadSequence.Slice(0, uLen));
+		byte[] username = reader.UnreadSequence.Slice(0, uLen).ToArray();
 		reader.Advance(uLen);
 
 		if (!reader.TryRead(out byte pLen))
@@ -358,10 +357,10 @@ internal static class Unpack
 			return false;
 		}
 
-		string password = Encoding.UTF8.GetString(reader.UnreadSequence.Slice(0, pLen));
+		byte[] password = reader.UnreadSequence.Slice(0, pLen).ToArray();
 		reader.Advance(pLen);
 
-		clientCredential = new UsernamePassword
+		clientCredential = new UserPassAuth
 		{
 			UserName = username,
 			Password = password

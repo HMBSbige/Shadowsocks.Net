@@ -6,5 +6,5 @@ public record Socks5CreateOption
 {
 	public IPAddress? Address { get; set; }
 	public ushort Port { get; set; }
-	public UsernamePassword? UsernamePassword { get; set; }
+	public UserPassAuth? UserPassAuth { get; set; }
 }

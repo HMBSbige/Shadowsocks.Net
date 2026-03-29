@@ -96,39 +96,41 @@ public class Socks5PackTest
 	public async Task UsernamePasswordAuth_Normal(CancellationToken cancellationToken)
 	{
 		byte[] buffer = new byte[Constants.MaxUsernamePasswordAuthLength];
-		UsernamePassword cred = new() { UserName = "user", Password = "pass" };
+		UserPassAuth cred = new() { UserName = "user"u8.ToArray(), Password = "pass"u8.ToArray() };
 		int len = Pack.UsernamePasswordAuth(cred, buffer);
 
 		await Assert.That(len).IsEqualTo(11); // 1 + 1 + 4 + 1 + 4
 		await Assert.That(buffer[0]).IsEqualTo(Constants.AuthVersion);
 		await Assert.That(buffer[1]).IsEqualTo((byte)4);
-		await Assert.That(Encoding.UTF8.GetString(buffer.AsSpan().Slice(2, 4))).IsEqualTo("user");
+		await Assert.That(buffer.AsSpan().Slice(2, 4).SequenceEqual("user"u8)).IsTrue();
 		await Assert.That(buffer[6]).IsEqualTo((byte)4);
-		await Assert.That(Encoding.UTF8.GetString(buffer.AsSpan().Slice(7, 4))).IsEqualTo("pass");
+		await Assert.That(buffer.AsSpan().Slice(7, 4).SequenceEqual("pass"u8)).IsTrue();
 	}
 
 	[Test]
 	public async Task UsernamePasswordAuth_Unicode(CancellationToken cancellationToken)
 	{
 		byte[] buffer = new byte[Constants.MaxUsernamePasswordAuthLength];
-		UsernamePassword cred = new() { UserName = "用户", Password = "密码" };
+		byte[] userBytes = "用户"u8.ToArray();
+		byte[] passBytes = "密码"u8.ToArray();
+		UserPassAuth cred = new() { UserName = userBytes, Password = passBytes };
 		int len = Pack.UsernamePasswordAuth(cred, buffer);
 
-		int uLen = Encoding.UTF8.GetByteCount("用户");
-		int pLen = Encoding.UTF8.GetByteCount("密码");
+		int uLen = userBytes.Length;
+		int pLen = passBytes.Length;
 		await Assert.That(len).IsEqualTo(1 + 1 + uLen + 1 + pLen);
 		await Assert.That(buffer[0]).IsEqualTo(Constants.AuthVersion);
 		await Assert.That(buffer[1]).IsEqualTo((byte)uLen);
-		await Assert.That(Encoding.UTF8.GetString(buffer.AsSpan().Slice(2, uLen))).IsEqualTo("用户");
+		await Assert.That(buffer.AsSpan().Slice(2, uLen).SequenceEqual(userBytes)).IsTrue();
 		await Assert.That(buffer[2 + uLen]).IsEqualTo((byte)pLen);
-		await Assert.That(Encoding.UTF8.GetString(buffer.AsSpan().Slice(3 + uLen, pLen))).IsEqualTo("密码");
+		await Assert.That(buffer.AsSpan().Slice(3 + uLen, pLen).SequenceEqual(passBytes)).IsTrue();
 	}
 
 	[Test]
 	public async Task UsernamePasswordAuth_UsernameTooLong(CancellationToken cancellationToken)
 	{
 		byte[] buffer = new byte[1024];
-		UsernamePassword cred = new() { UserName = new string('a', 256), Password = "p" };
+		UserPassAuth cred = new() { UserName = new byte[256], Password = "p"u8.ToArray() };
 
 		await Assert.That(() => Pack.UsernamePasswordAuth(cred, buffer)).Throws<ArgumentException>();
 	}
@@ -137,7 +139,7 @@ public class Socks5PackTest
 	public async Task UsernamePasswordAuth_PasswordTooLong(CancellationToken cancellationToken)
 	{
 		byte[] buffer = new byte[1024];
-		UsernamePassword cred = new() { UserName = "u", Password = new string('a', 256) };
+		UserPassAuth cred = new() { UserName = "u"u8.ToArray(), Password = new byte[256] };
 
 		await Assert.That(() => Pack.UsernamePasswordAuth(cred, buffer)).Throws<ArgumentException>();
 	}

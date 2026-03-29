@@ -25,7 +25,7 @@ public class Socks5UnpackTest
 	}
 
 	[Test]
-	public async Task ReadResponseMethod_UsernamePassword(CancellationToken cancellationToken)
+	public async Task ReadResponseMethod_UserPassAuth(CancellationToken cancellationToken)
 	{
 		byte[] data = [Constants.ProtocolVersion, (byte)Method.UsernamePassword];
 		ReadOnlySequence<byte> seq = new(data);
@@ -473,7 +473,7 @@ public class Socks5UnpackTest
 	[Test]
 	public async Task ReadClientHandshake_DuplicateDedup(CancellationToken cancellationToken)
 	{
-		// VER=05, NMETHODS=3, METHODS=[NoAuth, UsernamePassword, NoAuth]
+		// VER=05, NMETHODS=3, METHODS=[NoAuth, UserPassAuth, NoAuth]
 		byte[] data = [Constants.ProtocolVersion, 0x03, 0x00, 0x02, 0x00];
 		ReadOnlySequence<byte> seq = new(data);
 		Method[] parsed = new Method[8];
@@ -517,33 +517,38 @@ public class Socks5UnpackTest
 	public async Task ReadClientAuth_Normal(CancellationToken cancellationToken)
 	{
 		byte[] buffer = new byte[Constants.MaxUsernamePasswordAuthLength];
-		UsernamePassword cred = new() { UserName = "user", Password = "pass" };
+		UserPassAuth cred = new() { UserName = "user"u8.ToArray(), Password = "pass"u8.ToArray() };
 		int len = Pack.UsernamePasswordAuth(cred, buffer);
 
 		ReadOnlySequence<byte> seq = new(buffer.AsMemory(0, len));
-		UsernamePassword? parsed = null;
+		UserPassAuth? parsed = null;
 		bool result = Unpack.ReadClientAuth(ref seq, ref parsed);
 
 		await Assert.That(result).IsTrue();
 		await Assert.That(parsed).IsNotNull();
-		await Assert.That(parsed!.UserName).IsEqualTo("user");
-		await Assert.That(parsed.Password).IsEqualTo("pass");
+		UserPassAuth p = parsed.GetValueOrDefault();
+		await Assert.That(p.UserName.Span.SequenceEqual("user"u8)).IsTrue();
+		await Assert.That(p.Password.Span.SequenceEqual("pass"u8)).IsTrue();
 	}
 
 	[Test]
 	public async Task ReadClientAuth_Unicode(CancellationToken cancellationToken)
 	{
 		byte[] buffer = new byte[Constants.MaxUsernamePasswordAuthLength];
-		UsernamePassword cred = new() { UserName = "用户", Password = "密码" };
+		byte[] userBytes = "用户"u8.ToArray();
+		byte[] passBytes = "密码"u8.ToArray();
+		UserPassAuth cred = new() { UserName = userBytes, Password = passBytes };
 		int len = Pack.UsernamePasswordAuth(cred, buffer);
 
 		ReadOnlySequence<byte> seq = new(buffer.AsMemory(0, len));
-		UsernamePassword? parsed = null;
+		UserPassAuth? parsed = null;
 		bool result = Unpack.ReadClientAuth(ref seq, ref parsed);
 
 		await Assert.That(result).IsTrue();
-		await Assert.That(parsed!.UserName).IsEqualTo("用户");
-		await Assert.That(parsed.Password).IsEqualTo("密码");
+		await Assert.That(parsed).IsNotNull();
+		UserPassAuth p = parsed.GetValueOrDefault();
+		await Assert.That(p.UserName.Span.SequenceEqual(userBytes)).IsTrue();
+		await Assert.That(p.Password.Span.SequenceEqual(passBytes)).IsTrue();
 	}
 
 	[Test]
@@ -554,7 +559,7 @@ public class Socks5UnpackTest
 		Socks5ProtocolErrorException? ex = await Assert.That(() =>
 		{
 			ReadOnlySequence<byte> local = new(data);
-			UsernamePassword? p = null;
+			UserPassAuth? p = null;
 			Unpack.ReadClientAuth(ref local, ref p);
 		}).Throws<Socks5ProtocolErrorException>();
 
@@ -566,7 +571,7 @@ public class Socks5UnpackTest
 	{
 		byte[] data = [Constants.AuthVersion, 0x04, (byte)'u']; // says ulen=4, only 1 byte
 		ReadOnlySequence<byte> seq = new(data);
-		UsernamePassword? parsed = null;
+		UserPassAuth? parsed = null;
 
 		bool result = Unpack.ReadClientAuth(ref seq, ref parsed);
 
@@ -660,11 +665,11 @@ public class Socks5UnpackTest
 	public async Task RoundTrip_UsernamePasswordAuth(CancellationToken cancellationToken)
 	{
 		byte[] packBuf = new byte[Constants.MaxUsernamePasswordAuthLength];
-		UsernamePassword original = new() { UserName = "hello", Password = "world" };
+		UserPassAuth original = new() { UserName = "hello"u8.ToArray(), Password = "world"u8.ToArray() };
 		int packLen = Pack.UsernamePasswordAuth(original, packBuf);
 
 		ReadOnlySequence<byte> seq = new(packBuf.AsMemory(0, packLen));
-		UsernamePassword? parsed = null;
+		UserPassAuth? parsed = null;
 		Unpack.ReadClientAuth(ref seq, ref parsed);
 
 		await Assert.That(parsed).IsEqualTo(original);

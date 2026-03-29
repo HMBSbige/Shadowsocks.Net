@@ -38,10 +38,10 @@ public class Socks5OutboundTest
 		ushort proxyPort = (ushort)((IPEndPoint)proxyListener.LocalEndpoint).Port;
 
 		// Auth proxy via Socks5Inbound
-		UsernamePassword cred = new()
+		UserPassAuth cred = new()
 		{
-			UserName = @"114514！",
-			Password = @"1919810￥"
+			UserName = @"114514！"u8.ToArray(),
+			Password = @"1919810￥"u8.ToArray()
 		};
 		Socks5Inbound authInbound = new(cred);
 		TcpListener authProxyListener = new(IPAddress.Loopback, 0);
@@ -95,10 +95,10 @@ public class Socks5OutboundTest
 		{
 			Address = IPAddress.Loopback,
 			Port = F.AuthProxyPort,
-			UsernamePassword = new UsernamePassword
+			UserPassAuth = new UserPassAuth
 			{
-				UserName = @"114514！",
-				Password = @"1919810￥"
+				UserName = @"114514！"u8.ToArray(),
+				Password = @"1919810￥"u8.ToArray()
 			}
 		};
 		await Assert.That(await Socks5TestUtils.Socks5ConnectAsync(
@@ -113,10 +113,10 @@ public class Socks5OutboundTest
 		{
 			Address = IPAddress.Loopback,
 			Port = F.AuthProxyPort,
-			UsernamePassword = new UsernamePassword
+			UserPassAuth = new UserPassAuth
 			{
-				UserName = @"114514！",
-				Password = @"1919810￥"
+				UserName = @"114514！"u8.ToArray(),
+				Password = @"1919810￥"u8.ToArray()
 			}
 		};
 
@@ -158,7 +158,7 @@ public class Socks5OutboundTest
 		{
 			Address = IPAddress.Loopback,
 			Port = F.AuthProxyPort,
-			UsernamePassword = new UsernamePassword { UserName = @"114514！", Password = "wrong" }
+			UserPassAuth = new UserPassAuth { UserName = @"114514！"u8.ToArray(), Password = "wrong"u8.ToArray() }
 		};
 
 		AuthenticationFailureException? authEx = await Assert.That(async () =>

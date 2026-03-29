@@ -34,10 +34,10 @@ public class Socks5InboundTest
 		_ = TestAcceptLoop.RunAsync(proxyListener, forwarder, outbound, cts.Token);
 		ushort proxyPort = (ushort)((IPEndPoint)proxyListener.LocalEndpoint).Port;
 
-		UsernamePassword cred = new()
+		UserPassAuth cred = new()
 		{
-			UserName = "user",
-			Password = "pass"
+			UserName = "user"u8.ToArray(),
+			Password = "pass"u8.ToArray()
 		};
 		Socks5Inbound authForwarder = new(cred);
 		TcpListener authProxyListener = new(IPAddress.Loopback, 0);

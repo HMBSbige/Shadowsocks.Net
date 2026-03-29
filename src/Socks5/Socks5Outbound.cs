@@ -113,15 +113,15 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 
 	private async ValueTask HandshakeWithAuthAsync(IDuplexPipe pipe, CancellationToken cancellationToken)
 	{
-		Method[] clientMethods = option.UsernamePassword is not null ? MethodsWithAuth : MethodsNoAuth;
+		Method[] clientMethods = option.UserPassAuth is not null ? MethodsWithAuth : MethodsNoAuth;
 
 		Method replyMethod = await HandshakeMethodAsync(pipe, clientMethods, cancellationToken);
 		switch (replyMethod)
 		{
 			case Method.NoAuthentication:
 				return;
-			case Method.UsernamePassword when option.UsernamePassword is not null:
-				await AuthAsync(pipe, option.UsernamePassword, cancellationToken);
+			case Method.UsernamePassword when option.UserPassAuth is { } credential:
+				await AuthAsync(pipe, credential, cancellationToken);
 				break;
 			default:
 				throw new MethodUnsupportedException($@"Error method: {replyMethod}", replyMethod);
@@ -158,7 +158,7 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 		}
 	}
 
-	private static async ValueTask AuthAsync(IDuplexPipe pipe, UsernamePassword credential, CancellationToken cancellationToken)
+	private static async ValueTask AuthAsync(IDuplexPipe pipe, UserPassAuth credential, CancellationToken cancellationToken)
 	{
 		await pipe.Output.WriteAsync(Constants.MaxUsernamePasswordAuthLength, PackUsernamePassword, cancellationToken);
 

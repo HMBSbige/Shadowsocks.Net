@@ -103,7 +103,7 @@ internal static class Pack
 	/// <summary>
 	/// Packs a username/password authentication sub-negotiation request (RFC 1929).
 	/// </summary>
-	public static int UsernamePasswordAuth(UsernamePassword credential, Span<byte> buffer)
+	public static int UsernamePasswordAuth(UserPassAuth credential, Span<byte> buffer)
 	{
 		// +----+------+----------+------+----------+
 		// |VER | ULEN |  UNAME   | PLEN |  PASSWD  |
@@ -114,25 +114,27 @@ internal static class Pack
 		buffer[0] = Constants.AuthVersion;
 		int offset = 1;
 
-		int usernameLength = Encoding.UTF8.GetBytes(credential.UserName, buffer.Slice(offset + 1));
+		ReadOnlySpan<byte> username = credential.UserName.Span;
 
-		if (usernameLength > byte.MaxValue)
+		if (username.Length > byte.MaxValue)
 		{
 			throw new ArgumentException($"{nameof(credential.UserName)} too long.", nameof(credential));
 		}
 
-		buffer[offset++] = (byte)usernameLength;
-		offset += usernameLength;
+		buffer[offset++] = (byte)username.Length;
+		username.CopyTo(buffer.Slice(offset));
+		offset += username.Length;
 
-		int passwordLength = Encoding.UTF8.GetBytes(credential.Password, buffer.Slice(offset + 1));
+		ReadOnlySpan<byte> password = credential.Password.Span;
 
-		if (passwordLength > byte.MaxValue)
+		if (password.Length > byte.MaxValue)
 		{
 			throw new ArgumentException($"{nameof(credential.Password)} too long.", nameof(credential));
 		}
 
-		buffer[offset++] = (byte)passwordLength;
-		offset += passwordLength;
+		buffer[offset++] = (byte)password.Length;
+		password.CopyTo(buffer.Slice(offset));
+		offset += password.Length;
 
 		return offset;
 	}
