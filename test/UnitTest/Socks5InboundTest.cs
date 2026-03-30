@@ -100,7 +100,7 @@ public class Socks5InboundTest
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
 		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
-		Task handleTask = inbound.HandleAsync(context ?? LoopbackContext(), pipe, spy, cancellationToken).AsTask();
+		ValueTask handleTask = inbound.HandleAsync(context ?? LoopbackContext(), pipe, spy, cancellationToken);
 
 		await NoAuthHandshakeAsync(clientToServer.Writer, serverToClient.Reader, cancellationToken);
 
@@ -118,8 +118,11 @@ public class Socks5InboundTest
 		Random.Shared.NextBytes(payload);
 		byte[] pkt = new byte[Constants.MaxUdpHandshakeHeaderLength + payload.Length];
 		int pktLen = Pack.Udp(pkt, "127.0.0.1"u8, 9999, payload);
-		await senderSocket.SendToAsync(pkt.AsMemory(0, pktLen), SocketFlags.None,
-			new IPEndPoint(IPAddress.Loopback, bound.Port), cancellationToken);
+		await senderSocket.SendToAsync
+		(
+			pkt.AsMemory(0, pktLen), SocketFlags.None,
+			new IPEndPoint(IPAddress.Loopback, bound.Port), cancellationToken
+		);
 
 		// Return promptly when forwarded; fall back to 50 ms for drop tests.
 		await Task.WhenAny(spy.PacketConnection.FirstSendCompleted, Task.Delay(50, cancellationToken));
@@ -138,15 +141,53 @@ public class Socks5InboundTest
 	}
 
 	[Test]
+	[DisplayName("Method negotiation: desired method beyond 8th position is still accepted")]
+	public async Task MethodNegotiation_DesiredMethodBeyondEighth_StillAccepted(CancellationToken cancellationToken)
+	{
+		Socks5Inbound inbound = new();
+
+		Pipe clientToServer = new();
+		Pipe serverToClient = new();
+		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		ValueTask handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken);
+
+		// 9 unique methods — NoAuthentication is last, beyond the old buffer[8] limit
+		Method[] methods =
+		[
+			(Method)3, (Method)4, (Method)5, (Method)6,
+			(Method)7, (Method)8, (Method)9, (Method)10,
+			Method.NoAuthentication
+		];
+		byte[] handshake = new byte[2 + methods.Length];
+		int hsLen = Pack.Handshake(methods, handshake);
+		await clientToServer.Writer.WriteAsync(handshake.AsMemory(0, hsLen), cancellationToken);
+
+		ReadResult result = await serverToClient.Reader.ReadAsync(cancellationToken);
+		byte[] response = result.Buffer.ToArray();
+		serverToClient.Reader.AdvanceTo(result.Buffer.End);
+
+		await Assert.That(response[0]).IsEqualTo(Constants.ProtocolVersion);
+		await Assert.That(response[1]).IsEqualTo((byte)Method.NoAuthentication);
+
+		await clientToServer.Writer.CompleteAsync();
+		await handleTask;
+		await serverToClient.Writer.CompleteAsync();
+	}
+
+	[Test]
 	public async Task NoAcceptableMethod_ClosesWithoutFurtherReply(CancellationToken cancellationToken)
 	{
-		UserPassAuth cred = new() { UserName = "u"u8.ToArray(), Password = "p"u8.ToArray() };
+		UserPassAuth cred = new()
+		{
+			UserName = "u"u8.ToArray(),
+			Password = "p"u8.ToArray()
+		};
 		Socks5Inbound inbound = new(cred);
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
 		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
-		Task handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken).AsTask();
+		ValueTask handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken);
 
 		// Client offers only NoAuthentication — server needs UsernamePassword
 		byte[] handshake = new byte[3];
@@ -175,7 +216,7 @@ public class Socks5InboundTest
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
 		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
-		Task handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken).AsTask();
+		ValueTask handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken);
 
 		await NoAuthHandshakeAsync(clientToServer.Writer, serverToClient.Reader, cancellationToken);
 
@@ -257,7 +298,7 @@ public class Socks5InboundTest
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
 		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
-		Task handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken).AsTask();
+		ValueTask handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken);
 
 		await NoAuthHandshakeAsync(clientToServer.Writer, serverToClient.Reader, cancellationToken);
 
@@ -287,11 +328,15 @@ public class Socks5InboundTest
 		using MockUdpEchoServer echo = new();
 		echo.Start();
 
-		await Assert.That(await Socks5TestUtils.Socks5UdpAssociateAsync(
-			option,
-			targetHost: IPAddress.Loopback.ToString(),
-			targetPort: (ushort)echo.Port,
-			cancellationToken: cancellationToken
-		)).IsTrue();
+		await Assert.That
+		(
+			await Socks5TestUtils.Socks5UdpAssociateAsync
+			(
+				option,
+				targetHost: IPAddress.Loopback.ToString(),
+				targetPort: (ushort)echo.Port,
+				cancellationToken: cancellationToken
+			)
+		).IsTrue();
 	}
 }

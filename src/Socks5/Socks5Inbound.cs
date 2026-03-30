@@ -111,7 +111,7 @@ public sealed partial class Socks5Inbound(
 	{
 		// Cannot use Span<Method> here — local function TryReadClientHandshake captures
 		// 'methods' and 'methodCount', and Span cannot be captured by closures.
-		Method[] methods = new Method[8];
+		Method[] methods = new Method[byte.MaxValue];
 		int methodCount = 0;
 
 		await pipe.Input.ReadAsync(TryReadClientHandshake, cancellationToken);
