@@ -317,6 +317,75 @@ public class Socks5InboundTest
 	}
 
 	[Test]
+	[DisplayName("UDP ASSOCIATE: default bind replies with TCP local address, not wildcard (RFC 1928 §4)")]
+	public async Task UdpAssociate_DefaultBind_RepliesWithTcpLocalAddress(CancellationToken cancellationToken)
+	{
+		Socks5Inbound inbound = new();
+
+		Pipe clientToServer = new();
+		Pipe serverToClient = new();
+		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		ValueTask handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken);
+
+		await NoAuthHandshakeAsync(clientToServer.Writer, serverToClient.Reader, cancellationToken);
+
+		byte[] cmd = new byte[Constants.MaxCommandLength];
+		int cmdLen = Pack.ClientCommand(Command.UdpAssociate, "0.0.0.0"u8.ToArray(), 0, cmd);
+		await clientToServer.Writer.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
+
+		ReadResult replyResult = await serverToClient.Reader.ReadAsync(cancellationToken);
+		ReadOnlySequence<byte> seq = replyResult.Buffer;
+		bool parsed = Unpack.ReadServerReplyCommand(ref seq, out ServerBound bound);
+		serverToClient.Reader.AdvanceTo(replyResult.Buffer.End);
+
+		await Assert.That(parsed).IsTrue();
+		await Assert.That(bound.Host.Span.SequenceEqual("127.0.0.1"u8)).IsTrue();
+
+		await clientToServer.Writer.CompleteAsync();
+		await handleTask;
+	}
+
+	[Test]
+	[DisplayName("UDP ASSOCIATE: wildcard listener replies with concrete BND.ADDR (integration)")]
+	public async Task UdpAssociate_WildcardListener_RepliesWithConcreteAddress(CancellationToken cancellationToken)
+	{
+		Socks5Inbound inbound = new();
+		DirectOutbound outbound = new();
+
+		using TcpListener listener = new(IPAddress.Any, 0);
+		listener.Start();
+		ushort port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
+
+		using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+		_ = TestAcceptLoop.RunAsync(listener, inbound, outbound, cts.Token);
+
+		using TcpClient client = new();
+		await client.ConnectAsync(IPAddress.Loopback, port, cancellationToken);
+		NetworkStream stream = client.GetStream();
+
+		// Method negotiation
+		await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, cancellationToken);
+		byte[] methodReply = new byte[2];
+		await stream.ReadExactlyAsync(methodReply, cancellationToken);
+
+		// UDP ASSOCIATE command
+		byte[] cmd = new byte[Constants.MaxCommandLength];
+		int cmdLen = Pack.ClientCommand(Command.UdpAssociate, "0.0.0.0"u8, 0, cmd);
+		await stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
+
+		// Read reply — BND.ADDR must be concrete, not wildcard
+		byte[] replyBuf = new byte[Constants.MaxCommandLength];
+		int read = await stream.ReadAsync(replyBuf, cancellationToken);
+		ReadOnlySequence<byte> seq = new(replyBuf.AsMemory(0, read));
+		bool parsed = Unpack.ReadServerReplyCommand(ref seq, out ServerBound bound);
+
+		await Assert.That(parsed).IsTrue();
+		await Assert.That(bound.Host.Span.SequenceEqual("127.0.0.1"u8)).IsTrue();
+
+		await cts.CancelAsync();
+	}
+
+	[Test]
 	public async Task UdpAssociateNoAuth(CancellationToken cancellationToken)
 	{
 		Socks5CreateOption option = new()

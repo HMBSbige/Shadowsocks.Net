@@ -11,7 +11,7 @@ public class IsClientHeaderTest
 		byte[] data = [0x05, 0x01, 0x00]; // VER=05, NMETHODS=1, METHOD=00
 		ReadOnlySequence<byte> seq = new(data);
 
-		await Assert.That(Socks5Inbound.IsClientHeader(seq)).IsTrue();
+		await Assert.That(seq.IsSocks5Header()).IsTrue();
 	}
 
 	[Test]
@@ -20,7 +20,7 @@ public class IsClientHeaderTest
 		byte[] data = [0x04, 0x01, 0x00];
 		ReadOnlySequence<byte> seq = new(data);
 
-		await Assert.That(Socks5Inbound.IsClientHeader(seq)).IsFalse();
+		await Assert.That(seq.IsSocks5Header()).IsFalse();
 	}
 
 	[Test]
@@ -28,6 +28,6 @@ public class IsClientHeaderTest
 	{
 		ReadOnlySequence<byte> seq = ReadOnlySequence<byte>.Empty;
 
-		await Assert.That(Socks5Inbound.IsClientHeader(seq)).IsFalse();
+		await Assert.That(seq.IsSocks5Header()).IsFalse();
 	}
 }

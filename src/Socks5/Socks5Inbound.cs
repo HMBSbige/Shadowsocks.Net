@@ -32,33 +32,6 @@ public sealed partial class Socks5Inbound(
 	[LoggerMessage(Level = LogLevel.Error, Message = "Unexpected error handling SOCKS5 request")]
 	private partial void LogUnexpectedError(Exception exception);
 
-	public static bool IsClientHeader(ReadOnlySequence<byte> buffer)
-	{
-		SequenceReader<byte> reader = new(buffer);
-
-		if (!reader.TryRead(out byte ver))
-		{
-			return false;
-		}
-
-		if (ver is not Constants.ProtocolVersion)
-		{
-			return false;
-		}
-
-		if (!reader.TryRead(out byte num) || num is 0)
-		{
-			return false;
-		}
-
-		if (reader.Remaining < num)
-		{
-			return false;
-		}
-
-		return true;
-	}
-
 	public async ValueTask HandleAsync(InboundContext context, IDuplexPipe clientPipe, IOutbound outbound, CancellationToken cancellationToken = default)
 	{
 		try
@@ -88,7 +61,7 @@ public sealed partial class Socks5Inbound(
 					(int addrOff, _) = SockAddrSlice(expectedSa.Family);
 					clientAddr.TryWriteBytes(expectedSa.Buffer.Span.Slice(addrOff), out _);
 
-					await HandleUdpRelayAsync(clientPipe, packet, expectedSa, cancellationToken);
+					await HandleUdpRelayAsync(clientPipe, packet, expectedSa, context.LocalAddress, cancellationToken);
 					break;
 				}
 				default:
@@ -331,17 +304,25 @@ public sealed partial class Socks5Inbound(
 		IDuplexPipe clientPipe,
 		IPacketOutbound outbound,
 		SocketAddress expectedUdpSource,
+		IPAddress tcpLocalAddress,
 		CancellationToken cancellationToken)
 	{
 		await using IPacketConnection packetConnection = await outbound.CreatePacketConnectionAsync(cancellationToken);
 
-		using Socket relaySocket = new(_udpRelayBindAddress.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
-		relaySocket.Bind(new IPEndPoint(_udpRelayBindAddress, 0));
+		// RFC 1928 §4: BND.ADDR/BND.PORT tells the client where to send UDP datagrams.
+		// A wildcard address (0.0.0.0 / ::) is unusable as a destination, so fall back
+		// to the TCP control connection's local address — an address the client can reach.
+		IPAddress bindAddress = _udpRelayBindAddress.Equals(IPAddress.Any) || _udpRelayBindAddress.Equals(IPAddress.IPv6Any)
+			? tcpLocalAddress
+			: _udpRelayBindAddress;
+
+		using Socket relaySocket = new(bindAddress.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
+		relaySocket.Bind(new IPEndPoint(bindAddress, 0));
 
 		IPEndPoint localEndPoint = (IPEndPoint)relaySocket.LocalEndPoint!;
 
 		ServerBound replyBound = default;
-		replyBound.Type = _udpRelayBindAddress.AddressFamily is AddressFamily.InterNetworkV6 ? AddressType.IPv6 : AddressType.IPv4;
+		replyBound.Type = bindAddress.AddressFamily is AddressFamily.InterNetworkV6 ? AddressType.IPv6 : AddressType.IPv4;
 		localEndPoint.Address.TryFormat(replyBound.Host.WriteBuffer, out replyBound.Host.Length);
 		replyBound.Port = (ushort)localEndPoint.Port;
 
