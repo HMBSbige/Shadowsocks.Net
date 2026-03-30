@@ -139,20 +139,17 @@ public sealed partial class Socks5Inbound(
 
 		await pipe.Output.WriteAsync(2, PackMethod, cancellationToken);
 
+		if (method is Method.NoAcceptable)
+		{
+			throw new Socks5ProtocolErrorException("No acceptable authentication method (RFC 1928 §3).", Socks5Reply.ConnectionNotAllowed);
+		}
+
 		if (method is Method.UsernamePassword && !await UsernamePasswordAuthAsync(pipe, credential, cancellationToken))
 		{
 			throw new Socks5ProtocolErrorException(@"SOCKS5 auth username password error.", Socks5Reply.ConnectionNotAllowed);
 		}
 
-		Command command = default;
-		ServerBound target = default;
-
-		if (method is not Method.NoAcceptable)
-		{
-			(command, target) = await ReadTargetAsync(pipe, cancellationToken);
-		}
-
-		return (command, target);
+		return await ReadTargetAsync(pipe, cancellationToken);
 
 		ParseResult TryReadClientHandshake(ref ReadOnlySequence<byte> buffer)
 		{

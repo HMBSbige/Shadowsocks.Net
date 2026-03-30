@@ -138,6 +138,36 @@ public class Socks5InboundTest
 	}
 
 	[Test]
+	public async Task NoAcceptableMethod_ClosesWithoutFurtherReply(CancellationToken cancellationToken)
+	{
+		UserPassAuth cred = new() { UserName = "u"u8.ToArray(), Password = "p"u8.ToArray() };
+		Socks5Inbound inbound = new(cred);
+
+		Pipe clientToServer = new();
+		Pipe serverToClient = new();
+		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		Task handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken).AsTask();
+
+		// Client offers only NoAuthentication — server needs UsernamePassword
+		byte[] handshake = new byte[3];
+		int hsLen = Pack.Handshake([Method.NoAuthentication], handshake);
+		await clientToServer.Writer.WriteAsync(handshake.AsMemory(0, hsLen), cancellationToken);
+
+		await handleTask;
+		await clientToServer.Writer.CompleteAsync();
+		await serverToClient.Writer.CompleteAsync();
+
+		ReadResult result = await serverToClient.Reader.ReadAsync(cancellationToken);
+		byte[] allServerData = result.Buffer.ToArray();
+		serverToClient.Reader.AdvanceTo(result.Buffer.End);
+
+		// RFC 1928 §3: after METHOD=0xFF, server MUST close — no further reply
+		await Assert.That(allServerData).Count().IsEqualTo(2);
+		await Assert.That(allServerData[0]).IsEqualTo(Constants.ProtocolVersion);
+		await Assert.That(allServerData[1]).IsEqualTo((byte)Method.NoAcceptable);
+	}
+
+	[Test]
 	public async Task UnsupportedCommand_Bind(CancellationToken cancellationToken)
 	{
 		Socks5Inbound inbound = new();
