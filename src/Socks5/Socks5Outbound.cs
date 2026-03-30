@@ -29,15 +29,8 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 		}
 	}
 
-	/// <remarks>
-	/// SOCKS5 UDP ASSOCIATE does not specify the remote target during setup;
-	/// destinations are specified per-packet via <see cref="IPacketConnection.SendToAsync"/>.
-	/// The <paramref name="destination"/> parameter is defined by the <see cref="IPacketOutbound"/>
-	/// interface but is unused in this implementation.
-	/// </remarks>
-	public async ValueTask<IPacketConnection> CreatePacketConnectionAsync(ProxyDestination destination, CancellationToken cancellationToken = default)
+	public async ValueTask<IPacketConnection> CreatePacketConnectionAsync(CancellationToken cancellationToken = default)
 	{
-		_ = destination;
 		(Socket controlSocket, IDuplexPipe pipe) = await HandshakeAsync(cancellationToken);
 		try
 		{

@@ -4,6 +4,7 @@ using Pipelines.Extensions;
 using Proxy.Abstractions;
 using Socks5.Protocol;
 using System.Buffers;
+using System.Buffers.Binary;
 using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
@@ -34,6 +35,7 @@ public sealed partial class Socks5Inbound(
 	public static bool IsClientHeader(ReadOnlySequence<byte> buffer)
 	{
 		SequenceReader<byte> reader = new(buffer);
+
 		if (!reader.TryRead(out byte ver))
 		{
 			return false;
@@ -57,7 +59,7 @@ public sealed partial class Socks5Inbound(
 		return true;
 	}
 
-	public async ValueTask HandleAsync(IDuplexPipe clientPipe, IOutbound outbound, CancellationToken cancellationToken = default)
+	public async ValueTask HandleAsync(InboundContext context, IDuplexPipe clientPipe, IOutbound outbound, CancellationToken cancellationToken = default)
 	{
 		try
 		{
@@ -69,8 +71,26 @@ public sealed partial class Socks5Inbound(
 					await HandleConnectAsync(clientPipe, stream, target, cancellationToken);
 					break;
 				case Command.UdpAssociate when outbound is IPacketOutbound packet:
-					await HandleUdpRelayAsync(clientPipe, packet, target, cancellationToken);
+				{
+					// RFC 1928 §7 MUST: filter by the TCP client's IP address.
+					// DST.PORT (MAY) is kept as an additional port filter; zero means "any".
+					SocketAddress expectedSa = new(_udpRelayBindAddress.AddressFamily);
+					BinaryPrimitives.WriteUInt16BigEndian(expectedSa.Buffer.Span.Slice(2), target.Port);
+
+					IPAddress clientAddr = context.ClientAddress;
+
+					if (clientAddr.AddressFamily != expectedSa.Family)
+					{
+						await SendReplyAsync(clientPipe.Output, Socks5Reply.AddressTypeNotSupported, ServerBound.Unspecified, cancellationToken);
+						break;
+					}
+
+					(int addrOff, _) = SockAddrSlice(expectedSa.Family);
+					clientAddr.TryWriteBytes(expectedSa.Buffer.Span.Slice(addrOff), out _);
+
+					await HandleUdpRelayAsync(clientPipe, packet, expectedSa, cancellationToken);
 					break;
+				}
 				default:
 					await SendReplyAsync(clientPipe.Output, Socks5Reply.CommandNotSupported, ServerBound.Unspecified, cancellationToken);
 					break;
@@ -107,6 +127,7 @@ public sealed partial class Socks5Inbound(
 			: Method.NoAuthentication;
 
 		Method method = Method.NoAcceptable;
+
 		for (int i = 0; i < methodCount; i++)
 		{
 			if (methods[i] == desired)
@@ -125,6 +146,7 @@ public sealed partial class Socks5Inbound(
 
 		Command command = default;
 		ServerBound target = default;
+
 		if (method is not Method.NoAcceptable)
 		{
 			(command, target) = await ReadTargetAsync(pipe, cancellationToken);
@@ -180,6 +202,7 @@ public sealed partial class Socks5Inbound(
 			{
 				return ParseResult.NeedsMoreData;
 			}
+
 			if (ver is not Constants.ProtocolVersion)
 			{
 				throw new Socks5ProtocolErrorException($@"client version is not 0x05: 0x{ver:X2}.", Socks5Reply.GeneralFailure);
@@ -189,7 +212,9 @@ public sealed partial class Socks5Inbound(
 			{
 				return ParseResult.NeedsMoreData;
 			}
+
 			command = (Command)cmd;
+
 			if (!Enum.IsDefined(command))
 			{
 				throw new Socks5ProtocolErrorException($@"client sent an unknown command: {command}.", Socks5Reply.CommandNotSupported);
@@ -199,6 +224,7 @@ public sealed partial class Socks5Inbound(
 			{
 				return ParseResult.NeedsMoreData;
 			}
+
 			if (rsv is not Constants.Rsv)
 			{
 				throw new Socks5ProtocolErrorException($@"Protocol failed, RESERVED is not 0x00: 0x{rsv:X2}.", Socks5Reply.GeneralFailure);
@@ -208,6 +234,7 @@ public sealed partial class Socks5Inbound(
 			{
 				return ParseResult.NeedsMoreData;
 			}
+
 			target.Type = (AddressType)type;
 
 			if (!Unpack.ReadDestinationAddress(ref reader, target.Type, target.Host.WriteBuffer, out target.Host.Length))
@@ -219,6 +246,7 @@ public sealed partial class Socks5Inbound(
 			{
 				return ParseResult.NeedsMoreData;
 			}
+
 			target.Port = (ushort)port;
 
 			buffer = buffer.Slice(reader.Consumed);
@@ -251,9 +279,11 @@ public sealed partial class Socks5Inbound(
 		CancellationToken cancellationToken)
 	{
 		ProxyDestination destination = RentDestination(in target, out byte[] hostBuffer);
+
 		try
 		{
 			string? host = null;
+
 			if (_logger.IsEnabled(LogLevel.Debug))
 			{
 				host = Encoding.ASCII.GetString(destination.Host.Span);
@@ -261,6 +291,7 @@ public sealed partial class Socks5Inbound(
 			}
 
 			IConnection connection;
+
 			try
 			{
 				connection = await outbound.ConnectAsync(destination, cancellationToken);
@@ -302,55 +333,52 @@ public sealed partial class Socks5Inbound(
 	private async ValueTask HandleUdpRelayAsync(
 		IDuplexPipe clientPipe,
 		IPacketOutbound outbound,
-		ServerBound target,
+		SocketAddress expectedUdpSource,
 		CancellationToken cancellationToken)
 	{
-		ProxyDestination destination = RentDestination(in target, out byte[] hostBuffer);
+		await using IPacketConnection packetConnection = await outbound.CreatePacketConnectionAsync(cancellationToken);
+
+		using Socket relaySocket = new(_udpRelayBindAddress.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
+		relaySocket.Bind(new IPEndPoint(_udpRelayBindAddress, 0));
+
+		IPEndPoint localEndPoint = (IPEndPoint)relaySocket.LocalEndPoint!;
+
+		ServerBound replyBound = default;
+		replyBound.Type = _udpRelayBindAddress.AddressFamily is AddressFamily.InterNetworkV6 ? AddressType.IPv6 : AddressType.IPv4;
+		localEndPoint.Address.TryFormat(replyBound.Host.WriteBuffer, out replyBound.Host.Length);
+		replyBound.Port = (ushort)localEndPoint.Port;
+
+		LogUdpRelay(localEndPoint.Port);
+
+		await SendReplyAsync(clientPipe.Output, Socks5Reply.Succeeded, replyBound, cancellationToken);
+
+		using CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+		TaskCompletionSource<SocketAddress> clientSaTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+		Task clientToRemote = RelayClientToRemoteAsync(relaySocket, packetConnection, clientSaTcs, expectedUdpSource, linkedCts.Token);
+		Task remoteToClient = RelayRemoteToClientAsync(relaySocket, packetConnection, clientSaTcs, linkedCts.Token);
+		Task controlMonitor = MonitorControlChannelAsync(clientPipe.Input, linkedCts);
+
+		await Task.WhenAny(controlMonitor, Task.WhenAll(clientToRemote, remoteToClient));
+		await linkedCts.CancelAsync();
+
 		try
 		{
-			await using IPacketConnection packetConnection = await outbound.CreatePacketConnectionAsync(destination, cancellationToken);
-
-			using Socket relaySocket = new(_udpRelayBindAddress.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
-			relaySocket.Bind(new IPEndPoint(_udpRelayBindAddress, 0));
-
-			IPEndPoint localEndPoint = (IPEndPoint)relaySocket.LocalEndPoint!;
-
-			ServerBound replyBound = default;
-			replyBound.Type = _udpRelayBindAddress.AddressFamily is AddressFamily.InterNetworkV6 ? AddressType.IPv6 : AddressType.IPv4;
-			localEndPoint.Address.TryFormat(replyBound.Host.WriteBuffer, out replyBound.Host.Length);
-			replyBound.Port = (ushort)localEndPoint.Port;
-
-			if (_logger.IsEnabled(LogLevel.Debug))
-			{
-				LogUdpRelay(localEndPoint.Port);
-			}
-
-			await SendReplyAsync(clientPipe.Output, Socks5Reply.Succeeded, replyBound, cancellationToken);
-
-			using CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-			TaskCompletionSource<EndPoint> clientEndPointTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-			Task clientToRemote = RelayClientToRemoteAsync(relaySocket, packetConnection, clientEndPointTcs, linkedCts.Token);
-			Task remoteToClient = RelayRemoteToClientAsync(relaySocket, packetConnection, clientEndPointTcs, linkedCts.Token);
-			Task controlMonitor = MonitorControlChannelAsync(clientPipe.Input, linkedCts);
-
-			await Task.WhenAny(controlMonitor, Task.WhenAll(clientToRemote, remoteToClient));
-			await linkedCts.CancelAsync();
-
-			try
-			{ await clientToRemote; }
-			catch (OperationCanceledException) { }
-			try
-			{ await remoteToClient; }
-			catch (OperationCanceledException) { }
-			try
-			{ await controlMonitor; }
-			catch (OperationCanceledException) { }
+			await clientToRemote;
 		}
-		finally
+		catch (OperationCanceledException) { }
+
+		try
 		{
-			ArrayPool<byte>.Shared.Return(hostBuffer);
+			await remoteToClient;
 		}
+		catch (OperationCanceledException) { }
+
+		try
+		{
+			await controlMonitor;
+		}
+		catch (OperationCanceledException) { }
 	}
 
 	private static async Task MonitorControlChannelAsync(PipeReader input, CancellationTokenSource linkedCts)
@@ -367,27 +395,70 @@ public sealed partial class Socks5Inbound(
 		}
 	}
 
+	/// <summary>
+	/// sockaddr layout: port at bytes [2..4], address at IPv4 [4..8] / IPv6 [8..24].
+	/// </summary>
+	private static (int Offset, int Length) SockAddrSlice(AddressFamily family)
+	{
+		return family is AddressFamily.InterNetworkV6 ? (8, 16) : (4, 4);
+	}
+
+	/// <summary>
+	/// RFC 1928 §7: returns true if the sender does NOT match the expected source filter.
+	/// Zero address/port bytes mean "any" and always pass.
+	/// </summary>
+	private static bool IsFilteredOut(SocketAddress expected, SocketAddress sender)
+	{
+		Span<byte> eBuf = expected.Buffer.Span;
+		Span<byte> sBuf = sender.Buffer.Span;
+
+		// Port (big-endian, offset 2): non-zero means must match.
+		if ((eBuf[2] | eBuf[3]) is not 0 && (eBuf[2] != sBuf[2] || eBuf[3] != sBuf[3]))
+		{
+			return true;
+		}
+
+		(int addrOffset, int addrLen) = SockAddrSlice(expected.Family);
+		Span<byte> eAddr = eBuf.Slice(addrOffset, addrLen);
+
+		return eAddr.ContainsAnyExcept((byte)0) && !eAddr.SequenceEqual(sBuf.Slice(addrOffset, addrLen));
+	}
+
 	private static async Task RelayClientToRemoteAsync(
 		Socket relaySocket,
 		IPacketConnection packetConnection,
-		TaskCompletionSource<EndPoint> clientEndPointTcs,
+		TaskCompletionSource<SocketAddress> clientSaTcs,
+		SocketAddress expectedUdpSource,
 		CancellationToken cancellationToken)
 	{
 		byte[] buffer = ArrayPool<byte>.Shared.Rent(0x10000);
+
 		try
 		{
-			IPAddress anyAddress = relaySocket.AddressFamily is AddressFamily.InterNetworkV6 ? IPAddress.IPv6Any : IPAddress.Any;
+			SocketAddress senderSa = new(relaySocket.AddressFamily);
+
 			while (!cancellationToken.IsCancellationRequested)
 			{
-				SocketReceiveFromResult recvResult = await relaySocket.ReceiveFromAsync(
+				int received = await relaySocket.ReceiveFromAsync(
 					buffer.AsMemory(),
 					SocketFlags.None,
-					new IPEndPoint(anyAddress, 0),
+					senderSa,
 					cancellationToken);
 
-				clientEndPointTcs.TrySetResult(recvResult.RemoteEndPoint);
+				if (IsFilteredOut(expectedUdpSource, senderSa))
+				{
+					continue;
+				}
 
-				Socks5UdpReceivePacket packet = Unpack.Udp(buffer.AsMemory(0, recvResult.ReceivedBytes));
+				// Copy on first accepted packet — senderSa is mutated by the next ReceiveFromAsync.
+				if (!clientSaTcs.Task.IsCompleted)
+				{
+					SocketAddress snapshot = new(senderSa.Family);
+					senderSa.Buffer.CopyTo(snapshot.Buffer);
+					clientSaTcs.TrySetResult(snapshot);
+				}
+
+				Socks5UdpReceivePacket packet = Unpack.Udp(buffer.AsMemory(0, received));
 
 				if (packet.Fragment is not 0x00)
 				{
@@ -410,13 +481,14 @@ public sealed partial class Socks5Inbound(
 	private static async Task RelayRemoteToClientAsync(
 		Socket relaySocket,
 		IPacketConnection packetConnection,
-		TaskCompletionSource<EndPoint> clientEndPointTcs,
+		TaskCompletionSource<SocketAddress> clientSaTcs,
 		CancellationToken cancellationToken)
 	{
-		EndPoint clientEndPoint = await clientEndPointTcs.Task.WaitAsync(cancellationToken);
+		SocketAddress clientSa = await clientSaTcs.Task.WaitAsync(cancellationToken);
 
 		byte[] receiveBuffer = ArrayPool<byte>.Shared.Rent(0x10000);
 		byte[] sendBuffer = ArrayPool<byte>.Shared.Rent(Constants.MaxUdpHandshakeHeaderLength + 0x10000);
+
 		try
 		{
 			while (!cancellationToken.IsCancellationRequested)
@@ -434,7 +506,7 @@ public sealed partial class Socks5Inbound(
 				await relaySocket.SendToAsync(
 					sendBuffer.AsMemory(0, packedLength),
 					SocketFlags.None,
-					clientEndPoint,
+					clientSa,
 					cancellationToken);
 			}
 		}

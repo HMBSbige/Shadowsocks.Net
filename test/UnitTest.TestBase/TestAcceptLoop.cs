@@ -1,6 +1,7 @@
 using Pipelines.Extensions;
 using Proxy.Abstractions;
 using System.IO.Pipelines;
+using System.Net;
 using System.Net.Sockets;
 
 namespace UnitTest.TestBase;
@@ -26,8 +27,17 @@ public static class TestAcceptLoop
 		{
 			try
 			{
+				IPEndPoint remote = (IPEndPoint)socket.RemoteEndPoint!;
+				IPEndPoint local = (IPEndPoint)socket.LocalEndPoint!;
+				InboundContext context = new()
+				{
+					ClientAddress = remote.Address,
+					ClientPort = (ushort)remote.Port,
+					LocalAddress = local.Address,
+					LocalPort = (ushort)local.Port,
+				};
 				IDuplexPipe pipe = socket.AsDuplexPipe();
-				await inbound.HandleAsync(pipe, outbound, cancellationToken);
+				await inbound.HandleAsync(context, pipe, outbound, cancellationToken);
 			}
 			finally
 			{

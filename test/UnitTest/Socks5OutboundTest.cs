@@ -49,9 +49,9 @@ public class Socks5OutboundTest
 		_ = TestAcceptLoop.RunAsync(authProxyListener, authInbound, outbound, cts.Token);
 		ushort authProxyPort = (ushort)((IPEndPoint)authProxyListener.LocalEndpoint).Port;
 
-		// IPv6-relay proxy via Socks5Inbound (TCP control stays IPv4, UDP relay on IPv6)
+		// IPv6-relay proxy via Socks5Inbound (both TCP control and UDP relay on IPv6)
 		Socks5Inbound ipv6RelayInbound = new(udpRelayBindAddress: IPAddress.IPv6Loopback);
-		TcpListener ipv6RelayProxyListener = new(IPAddress.Loopback, 0);
+		TcpListener ipv6RelayProxyListener = new(IPAddress.IPv6Loopback, 0);
 		ipv6RelayProxyListener.Start();
 		_ = TestAcceptLoop.RunAsync(ipv6RelayProxyListener, ipv6RelayInbound, outbound, cts.Token);
 		ushort ipv6RelayProxyPort = (ushort)((IPEndPoint)ipv6RelayProxyListener.LocalEndpoint).Port;
@@ -136,7 +136,7 @@ public class Socks5OutboundTest
 	{
 		Socks5CreateOption option = new()
 		{
-			Address = IPAddress.Loopback,
+			Address = IPAddress.IPv6Loopback,
 			Port = F.IPv6RelayProxyPort,
 		};
 

@@ -2,7 +2,6 @@ using Pipelines.Extensions;
 using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
-using System.Security.Cryptography;
 
 namespace UnitTest;
 
@@ -13,7 +12,8 @@ public class PipelinesTest
 	{
 		const long length = 1024 * 1024;
 		const long bufferSize = 4096;
-		byte[] buffer = RandomNumberGenerator.GetBytes((int)bufferSize);
+		byte[] buffer = new byte[(int)bufferSize];
+		Random.Shared.NextBytes(buffer);
 
 		TcpListener server = TcpListener.Create(default);
 		server.Start();

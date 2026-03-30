@@ -3,7 +3,6 @@ using Pipelines.Extensions;
 using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
-using System.Security.Cryptography;
 
 namespace Benchmark;
 
@@ -23,7 +22,7 @@ public class PipelinesBenchmark
 	{
 		_server.Start();
 		_serverPort = ((IPEndPoint)_server.LocalEndpoint).Port;
-		RandomNumberGenerator.Fill(_buffer);
+		Random.Shared.NextBytes(_buffer);
 	}
 
 	[GlobalCleanup]

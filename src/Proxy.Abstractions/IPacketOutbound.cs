@@ -6,7 +6,8 @@ namespace Proxy.Abstractions;
 public interface IPacketOutbound : IOutbound
 {
 	/// <summary>
-	/// Creates a packet connection associated with the specified <paramref name="destination"/>.
+	/// Creates a packet connection. Per-message destinations are specified via
+	/// <see cref="IPacketConnection.SendToAsync"/>.
 	/// </summary>
-	ValueTask<IPacketConnection> CreatePacketConnectionAsync(ProxyDestination destination, CancellationToken cancellationToken = default);
+	ValueTask<IPacketConnection> CreatePacketConnectionAsync(CancellationToken cancellationToken = default);
 }

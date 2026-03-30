@@ -58,10 +58,11 @@ public partial class HttpInbound(HttpProxyCredential? credential = null, ILogger
 	/// Reads an HTTP request from <paramref name="clientPipe"/>, connects to the target via
 	/// <paramref name="outbound"/>, and relays the traffic.
 	/// </summary>
+	/// <param name="context">Per-connection metadata supplied by the accept loop.</param>
 	/// <param name="clientPipe">The client-side duplex pipe.</param>
 	/// <param name="outbound">The outbound connector used to reach the target host.</param>
 	/// <param name="cancellationToken">A token to cancel the operation.</param>
-	public async ValueTask HandleAsync(IDuplexPipe clientPipe, IOutbound outbound, CancellationToken cancellationToken = default)
+	public async ValueTask HandleAsync(InboundContext context, IDuplexPipe clientPipe, IOutbound outbound, CancellationToken cancellationToken = default)
 	{
 		try
 		{

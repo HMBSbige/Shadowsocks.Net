@@ -1,6 +1,5 @@
 using Pipelines.Extensions;
 using System.Buffers;
-using System.Security.Cryptography;
 using UnitTest.TestBase;
 
 namespace UnitTest;
@@ -15,11 +14,11 @@ public class ReadOnlySequenceStreamTest
 	static ReadOnlySequenceStreamTest()
 	{
 		byte[] x = new byte[114];
-		RandomNumberGenerator.Fill(x);
+		Random.Shared.NextBytes(x);
 		SingleSegmentSequence = new ReadOnlySequence<byte>(x);
 
 		byte[] m = new byte[114];
-		RandomNumberGenerator.Fill(m);
+		Random.Shared.NextBytes(m);
 		MultiSegmentSequence = TestUtils.GetMultiSegmentSequence(m, 15, 100);
 	}
 
@@ -139,7 +138,7 @@ public class ReadOnlySequenceStreamTest
 
 		Stream singleStream = SingleSegmentSequence.AsStream();
 		Stream multiStream = MultiSegmentSequence.AsStream();
-		int n = RandomNumberGenerator.GetInt32(2, 100);
+		int n = Random.Shared.Next(2, 100);
 
 		await Assert.That(singleStream.Position).IsEqualTo(0);
 		++singleStream.Position;

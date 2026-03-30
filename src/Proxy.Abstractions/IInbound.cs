@@ -12,5 +12,5 @@ public interface IInbound
 	/// Reads a request from <paramref name="clientPipe"/>, connects to the target via
 	/// <paramref name="outbound"/>, and relays the traffic.
 	/// </summary>
-	ValueTask HandleAsync(IDuplexPipe clientPipe, IOutbound outbound, CancellationToken cancellationToken = default);
+	ValueTask HandleAsync(InboundContext context, IDuplexPipe clientPipe, IOutbound outbound, CancellationToken cancellationToken = default);
 }

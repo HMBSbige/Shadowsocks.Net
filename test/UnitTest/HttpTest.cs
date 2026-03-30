@@ -770,7 +770,7 @@ public class HttpTest
 
 	private sealed class PacketOnlyOutbound : IPacketOutbound
 	{
-		public ValueTask<IPacketConnection> CreatePacketConnectionAsync(ProxyDestination destination, CancellationToken cancellationToken)
+		public ValueTask<IPacketConnection> CreatePacketConnectionAsync(CancellationToken cancellationToken)
 		{
 			throw new InvalidOperationException("HttpInbound should reject non-stream outbounds before attempting to create a packet connection.");
 		}

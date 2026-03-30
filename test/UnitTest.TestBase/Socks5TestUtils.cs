@@ -4,7 +4,6 @@ using Socks5;
 using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
 using System.IO.Pipelines;
-using System.Security.Cryptography;
 using System.Text;
 
 namespace UnitTest.TestBase;
@@ -88,10 +87,10 @@ public static class Socks5TestUtils
 		Socks5Outbound outbound = new(option);
 		ProxyDestination destination = new(Encoding.ASCII.GetBytes(targetHost), targetPort);
 
-		await using IPacketConnection packetConnection = await outbound.CreatePacketConnectionAsync(destination, cancellationToken);
+		await using IPacketConnection packetConnection = await outbound.CreatePacketConnectionAsync(cancellationToken);
 
 		byte[] payload = new byte[64];
-		RandomNumberGenerator.Fill(payload);
+		Random.Shared.NextBytes(payload);
 
 		await packetConnection.SendToAsync(payload, destination, cancellationToken);
 

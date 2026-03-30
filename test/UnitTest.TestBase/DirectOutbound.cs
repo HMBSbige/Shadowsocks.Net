@@ -38,7 +38,7 @@ public sealed class DirectOutbound : IStreamOutbound, IPacketOutbound
 	}
 
 	/// <inheritdoc />
-	public ValueTask<IPacketConnection> CreatePacketConnectionAsync(ProxyDestination destination, CancellationToken cancellationToken)
+	public ValueTask<IPacketConnection> CreatePacketConnectionAsync(CancellationToken cancellationToken)
 	{
 		return ValueTask.FromResult<IPacketConnection>(new DirectPacketConnection());
 	}

@@ -1,5 +1,9 @@
+using Pipelines.Extensions;
+using Proxy.Abstractions;
 using Socks5;
+using Socks5.Protocol;
 using System.Buffers;
+using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
 using UnitTest.TestBase;
@@ -62,60 +66,183 @@ public class Socks5InboundTest
 		f.Cts.Dispose();
 	}
 
+	private static async Task NoAuthHandshakeAsync(PipeWriter toServer, PipeReader fromServer, CancellationToken cancellationToken)
+	{
+		await toServer.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, cancellationToken);
+		ReadResult result = await fromServer.ReadAsync(cancellationToken);
+		fromServer.AdvanceTo(result.Buffer.End);
+	}
+
+	private static InboundContext LoopbackContext(ushort localPort = 0)
+	{
+		return new InboundContext
+		{
+			ClientAddress = IPAddress.Loopback,
+			ClientPort = 0,
+			LocalAddress = IPAddress.Loopback,
+			LocalPort = localPort,
+		};
+	}
+
+	/// <summary>
+	/// Sends one UDP datagram through the relay and returns how many were forwarded.
+	/// Caller provides a pre-bound <paramref name="senderSocket"/> so port-aware tests
+	/// can control the sender's endpoint.
+	/// </summary>
+	private static async Task<int> SendUdpAndCountForwardsAsync(
+		byte[] dstAddr, ushort dstPort,
+		Socket senderSocket, CancellationToken cancellationToken,
+		InboundContext? context = null)
+	{
+		SpyPacketOutbound spy = new();
+		Socks5Inbound inbound = new();
+
+		Pipe clientToServer = new();
+		Pipe serverToClient = new();
+		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		Task handleTask = inbound.HandleAsync(context ?? LoopbackContext(), pipe, spy, cancellationToken).AsTask();
+
+		await NoAuthHandshakeAsync(clientToServer.Writer, serverToClient.Reader, cancellationToken);
+
+		byte[] cmd = new byte[Constants.MaxCommandLength];
+		int cmdLen = Pack.ClientCommand(Command.UdpAssociate, dstAddr, dstPort, cmd);
+		await clientToServer.Writer.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
+
+		ReadResult replyResult = await serverToClient.Reader.ReadAsync(cancellationToken);
+		ReadOnlySequence<byte> seq = replyResult.Buffer;
+		bool parsed = Unpack.ReadServerReplyCommand(ref seq, out ServerBound bound);
+		serverToClient.Reader.AdvanceTo(replyResult.Buffer.End);
+		await Assert.That(parsed).IsTrue();
+
+		byte[] payload = new byte[64];
+		Random.Shared.NextBytes(payload);
+		byte[] pkt = new byte[Constants.MaxUdpHandshakeHeaderLength + payload.Length];
+		int pktLen = Pack.Udp(pkt, "127.0.0.1"u8, 9999, payload);
+		await senderSocket.SendToAsync(pkt.AsMemory(0, pktLen), SocketFlags.None,
+			new IPEndPoint(IPAddress.Loopback, bound.Port), cancellationToken);
+
+		// Return promptly when forwarded; fall back to 50 ms for drop tests.
+		await Task.WhenAny(spy.PacketConnection.FirstSendCompleted, Task.Delay(50, cancellationToken));
+
+		await clientToServer.Writer.CompleteAsync();
+		await handleTask;
+
+		return spy.PacketConnection.SendToCallCount;
+	}
+
+	private static Socket CreateBoundUdpSocket(ushort port = 0)
+	{
+		Socket s = new(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+		s.Bind(new IPEndPoint(IPAddress.Loopback, port));
+		return s;
+	}
+
 	[Test]
 	public async Task UnsupportedCommand_Bind(CancellationToken cancellationToken)
 	{
-		// Raw TCP client: handshake then send BIND command
-		using Socket socket = new(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-		socket.NoDelay = true;
-		await socket.ConnectAsync(IPAddress.Loopback, F.ProxyPort, cancellationToken);
+		Socks5Inbound inbound = new();
 
-		// Client handshake: VER=05, NMETHODS=1, METHODS=[00]
-		await socket.SendAsync(new byte[] { 0x05, 0x01, 0x00 }, SocketFlags.None, cancellationToken);
+		Pipe clientToServer = new();
+		Pipe serverToClient = new();
+		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		Task handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken).AsTask();
 
-		// Read server method selection
-		byte[] methodReply = new byte[2];
-		await socket.ReceiveAsync(methodReply, SocketFlags.None, cancellationToken);
-		await Assert.That(methodReply[0]).IsEqualTo((byte)0x05);
-		await Assert.That(methodReply[1]).IsEqualTo((byte)0x00); // NoAuth
+		await NoAuthHandshakeAsync(clientToServer.Writer, serverToClient.Reader, cancellationToken);
 
-		// Send BIND command: VER=05, CMD=02(BIND), RSV=00, ATYP=01(IPv4), ADDR=127.0.0.1, PORT=80
-		byte[] bindCmd = [0x05, 0x02, 0x00, 0x01, 0x7F, 0x00, 0x00, 0x01, 0x00, 0x50];
-		await socket.SendAsync(bindCmd, SocketFlags.None, cancellationToken);
+		// Send BIND command
+		byte[] cmd = new byte[Constants.MaxCommandLength];
+		int cmdLen = Pack.ClientCommand(Command.Bind, "127.0.0.1"u8, 80, cmd);
+		await clientToServer.Writer.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
 
-		// Read server reply
-		byte[] reply = new byte[32];
-		int read = await socket.ReceiveAsync(reply, SocketFlags.None, cancellationToken);
+		ReadResult replyResult = await serverToClient.Reader.ReadAsync(cancellationToken);
+		byte[] reply = replyResult.Buffer.ToArray();
+		serverToClient.Reader.AdvanceTo(replyResult.Buffer.End);
 
-		await Assert.That(read).IsGreaterThanOrEqualTo(3);
-		await Assert.That(reply[0]).IsEqualTo((byte)0x05); // VER
+		await handleTask;
+
+		await Assert.That(reply[0]).IsEqualTo(Constants.ProtocolVersion);
 		await Assert.That(reply[1]).IsEqualTo((byte)Socks5Reply.CommandNotSupported);
 	}
 
 	[Test]
-	public async Task IsClientHeader_ValidHeader(CancellationToken cancellationToken)
+	[DisplayName("UDP relay: DST=0.0.0.0:0 forwards from client IP with any port")]
+	public async Task UdpRelay_ZeroAddr_ZeroPort_ForwardsFromClientIp(CancellationToken cancellationToken)
 	{
-		byte[] data = [0x05, 0x01, 0x00]; // VER=05, NMETHODS=1, METHOD=00
-		ReadOnlySequence<byte> seq = new(data);
-
-		await Assert.That(Socks5Inbound.IsClientHeader(seq)).IsTrue();
+		using Socket udp = CreateBoundUdpSocket();
+		int count = await SendUdpAndCountForwardsAsync("0.0.0.0"u8.ToArray(), 0, udp, cancellationToken);
+		await Assert.That(count).IsEqualTo(1);
 	}
 
 	[Test]
-	public async Task IsClientHeader_WrongVersion(CancellationToken cancellationToken)
+	[DisplayName("UDP relay: DST=127.0.0.1:0 accepts matching address")]
+	public async Task UdpRelay_MatchingAddr_ZeroPort_Forwards(CancellationToken cancellationToken)
 	{
-		byte[] data = [0x04, 0x01, 0x00];
-		ReadOnlySequence<byte> seq = new(data);
-
-		await Assert.That(Socks5Inbound.IsClientHeader(seq)).IsFalse();
+		using Socket udp = CreateBoundUdpSocket();
+		int count = await SendUdpAndCountForwardsAsync("127.0.0.1"u8.ToArray(), 0, udp, cancellationToken);
+		await Assert.That(count).IsEqualTo(1);
 	}
 
 	[Test]
-	public async Task IsClientHeader_Empty(CancellationToken cancellationToken)
+	[DisplayName("UDP relay: drops packets from non-client IP (RFC 1928 §7 MUST)")]
+	public async Task UdpRelay_NonClientAddr_Drops(CancellationToken cancellationToken)
 	{
-		ReadOnlySequence<byte> seq = ReadOnlySequence<byte>.Empty;
+		using Socket udp = CreateBoundUdpSocket();
+		InboundContext nonLoopbackContext = new()
+		{
+			ClientAddress = IPAddress.Parse("192.0.2.1"),
+			ClientPort = 0,
+			LocalAddress = IPAddress.Loopback,
+			LocalPort = 0,
+		};
+		int count = await SendUdpAndCountForwardsAsync("0.0.0.0"u8.ToArray(), 0, udp, cancellationToken, nonLoopbackContext);
+		await Assert.That(count).IsEqualTo(0);
+	}
 
-		await Assert.That(Socks5Inbound.IsClientHeader(seq)).IsFalse();
+	[Test]
+	[DisplayName("UDP relay: DST=127.0.0.1:P accepts matching address+port")]
+	public async Task UdpRelay_MatchingAddr_MatchingPort_Forwards(CancellationToken cancellationToken)
+	{
+		using Socket udp = CreateBoundUdpSocket();
+		ushort senderPort = (ushort)((IPEndPoint)udp.LocalEndPoint!).Port;
+		int count = await SendUdpAndCountForwardsAsync("127.0.0.1"u8.ToArray(), senderPort, udp, cancellationToken);
+		await Assert.That(count).IsEqualTo(1);
+	}
+
+	[Test]
+	[DisplayName("UDP relay: DST=127.0.0.1:P+1 drops non-matching port")]
+	public async Task UdpRelay_MatchingAddr_NonMatchingPort_Drops(CancellationToken cancellationToken)
+	{
+		using Socket udp = CreateBoundUdpSocket();
+		ushort senderPort = (ushort)((IPEndPoint)udp.LocalEndPoint!).Port;
+		int count = await SendUdpAndCountForwardsAsync("127.0.0.1"u8.ToArray(), (ushort)(senderPort + 1), udp, cancellationToken);
+		await Assert.That(count).IsEqualTo(0);
+	}
+
+	[Test]
+	[DisplayName("UDP relay: cross-family (IPv4 client + IPv6 relay) rejects with AddressTypeNotSupported")]
+	public async Task UdpRelay_CrossFamily_Rejects(CancellationToken cancellationToken)
+	{
+		Socks5Inbound inbound = new(udpRelayBindAddress: IPAddress.IPv6Loopback);
+
+		Pipe clientToServer = new();
+		Pipe serverToClient = new();
+		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		Task handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken).AsTask();
+
+		await NoAuthHandshakeAsync(clientToServer.Writer, serverToClient.Reader, cancellationToken);
+
+		byte[] cmd = new byte[Constants.MaxCommandLength];
+		int cmdLen = Pack.ClientCommand(Command.UdpAssociate, "0.0.0.0"u8.ToArray(), 0, cmd);
+		await clientToServer.Writer.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
+
+		ReadResult replyResult = await serverToClient.Reader.ReadAsync(cancellationToken);
+		byte[] reply = replyResult.Buffer.ToArray();
+		serverToClient.Reader.AdvanceTo(replyResult.Buffer.End);
+
+		await handleTask;
+
+		await Assert.That(reply[0]).IsEqualTo(Constants.ProtocolVersion);
+		await Assert.That(reply[1]).IsEqualTo((byte)Socks5Reply.AddressTypeNotSupported);
 	}
 
 	[Test]

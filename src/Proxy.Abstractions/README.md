@@ -15,11 +15,11 @@ Provides abstractions for building proxy pipelines with [`System.IO.Pipelines`](
 ```csharp
 public interface IInbound
 {
-    ValueTask HandleAsync(IDuplexPipe clientPipe, IOutbound outbound, CancellationToken cancellationToken = default);
+    ValueTask HandleAsync(InboundContext context, IDuplexPipe clientPipe, IOutbound outbound, CancellationToken cancellationToken = default);
 }
 ```
 
-Handles an inbound client connection at the protocol level. An implementation parses the proxy protocol from `clientPipe` (e.g. HTTP `CONNECT`, SOCKS5 handshake), extracts the target destination, connects via `outbound`, and relays traffic bidirectionally.
+Handles an inbound client connection at the protocol level. An implementation parses the proxy protocol from `clientPipe` (e.g. HTTP `CONNECT`, SOCKS5 handshake), extracts the target destination, connects via `outbound`, and relays traffic bidirectionally. `InboundContext` carries per-connection metadata (client/local endpoints) supplied by the accept loop.
 
 ### `IOutbound`
 
@@ -46,11 +46,11 @@ Creates stream-oriented outbound connections. Typical examples include direct TC
 ```csharp
 public interface IPacketOutbound : IOutbound
 {
-    ValueTask<IPacketConnection> CreatePacketConnectionAsync(ProxyDestination destination, CancellationToken cancellationToken = default);
+    ValueTask<IPacketConnection> CreatePacketConnectionAsync(CancellationToken cancellationToken = default);
 }
 ```
 
-Creates packet-oriented outbound connections. Typical examples include UDP or any other transport that preserves message boundaries.
+Creates packet-oriented outbound connections. Per-message destinations are specified via `IPacketConnection.SendToAsync`. Typical examples include UDP or any other transport that preserves message boundaries.
 
 ### `IConnection`
 
