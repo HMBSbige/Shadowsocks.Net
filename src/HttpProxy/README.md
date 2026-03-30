@@ -1,6 +1,6 @@
 # HttpProxy
 
-An [`IInbound`](../Proxy.Abstractions/README.md) implementation that speaks the HTTP proxy protocol, supporting both `CONNECT` tunneling and plain HTTP forwarding.
+An [`IStreamInbound`](../Proxy.Abstractions/README.md) implementation that speaks the HTTP proxy protocol, supporting both `CONNECT` tunneling and plain HTTP forwarding.
 
 ## Key Features
 
@@ -15,10 +15,10 @@ An [`IInbound`](../Proxy.Abstractions/README.md) implementation that speaks the 
 ### `HttpInbound`
 
 ```csharp
-public partial class HttpInbound : IInbound
+public partial class HttpInbound : IStreamInbound
 {
     public HttpInbound(HttpProxyCredential? credential = null, ILogger<HttpInbound>? logger = null);
-    public ValueTask HandleAsync(IDuplexPipe clientPipe, IOutbound outbound, CancellationToken cancellationToken = default);
+    public ValueTask HandleAsync(InboundContext context, IDuplexPipe clientPipe, IOutbound outbound, CancellationToken cancellationToken = default);
 }
 ```
 
@@ -45,4 +45,4 @@ public static partial class HttpUtils
 }
 ```
 
-Low-level HTTP header parsing and rewriting utilities operating directly on byte spans. `IsHttpHeader` is an extension method on `ReadOnlySequence<byte>` that checks whether the buffer starts with a valid HTTP request line.
+Low-level HTTP header parsing and rewriting utilities operating directly on byte spans. `IsHttpHeader` is an extension method on `ReadOnlySequence<byte>` that checks whether the buffer contains a complete HTTP header block (terminated by `\r\n\r\n`) with a valid request line.

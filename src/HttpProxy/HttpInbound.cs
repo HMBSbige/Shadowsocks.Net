@@ -15,7 +15,7 @@ namespace HttpProxy;
 /// </summary>
 /// <param name="credential">Optional proxy credentials. When set, clients must present matching Basic credentials.</param>
 /// <param name="logger">Optional logger instance.</param>
-public partial class HttpInbound(HttpProxyCredential? credential = null, ILogger<HttpInbound>? logger = null) : IInbound
+public partial class HttpInbound(HttpProxyCredential? credential = null, ILogger<HttpInbound>? logger = null) : IStreamInbound
 {
 	private readonly byte[]? _expectedAuthBytes = credential is not null
 		? Encoding.ASCII.GetBytes("Basic " + Convert.ToBase64String(Encoding.UTF8.GetBytes($"{credential.UserName}:{credential.Password}")))

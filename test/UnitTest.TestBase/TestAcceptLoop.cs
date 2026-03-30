@@ -8,7 +8,7 @@ namespace UnitTest.TestBase;
 
 public static class TestAcceptLoop
 {
-	public static async Task RunAsync(TcpListener listener, IInbound inbound, IOutbound outbound, CancellationToken cancellationToken)
+	public static async Task RunAsync(TcpListener listener, IStreamInbound inbound, IOutbound outbound, CancellationToken cancellationToken)
 	{
 		try
 		{
@@ -23,7 +23,7 @@ public static class TestAcceptLoop
 
 		return;
 
-		static async Task HandleAsync(Socket socket, IInbound inbound, IOutbound outbound, CancellationToken cancellationToken)
+		static async Task HandleAsync(Socket socket, IStreamInbound inbound, IOutbound outbound, CancellationToken cancellationToken)
 		{
 			try
 			{

@@ -7,10 +7,10 @@ namespace Proxy.Abstractions;
 /// </summary>
 public sealed class InboundContext
 {
-	/// <summary>Client (remote) IP address of the accepted TCP connection.</summary>
+	/// <summary>Client (remote) IP address of the accepted connection.</summary>
 	public required IPAddress ClientAddress { get; init; }
 
-	/// <summary>Client (remote) port of the accepted TCP connection.</summary>
+	/// <summary>Client (remote) port of the accepted connection.</summary>
 	public required ushort ClientPort { get; init; }
 
 	/// <summary>Local IP address on which the connection was accepted.</summary>

@@ -10,7 +10,7 @@ public static partial class HttpUtils
 	extension(PipeWriter output)
 	{
 		/// <summary>
-		/// Single-pass: rewrites request line (absolute URI → relative path), filters hop-by-hop headers,
+		/// Rewrites request line (absolute URI → relative path), filters hop-by-hop headers,
 		/// appends Connection: close, writes directly to PipeWriter.
 		/// <paramref name="headerBytes"/> must NOT include the trailing \r\n\r\n.
 		/// </summary>

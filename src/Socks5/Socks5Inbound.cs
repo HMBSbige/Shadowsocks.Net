@@ -15,7 +15,7 @@ namespace Socks5;
 public sealed partial class Socks5Inbound(
 	UserPassAuth? credential = null,
 	ILogger<Socks5Inbound>? logger = null,
-	IPAddress? udpRelayBindAddress = null) : IInbound
+	IPAddress? udpRelayBindAddress = null) : IStreamInbound
 {
 	private readonly ILogger<Socks5Inbound> _logger = logger ?? NullLogger<Socks5Inbound>.Instance;
 	private readonly IPAddress _udpRelayBindAddress = udpRelayBindAddress ?? IPAddress.Any;

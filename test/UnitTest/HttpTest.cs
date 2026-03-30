@@ -18,7 +18,9 @@ public class HttpTest
 		TcpListener ProxyListener,
 		TcpListener AuthProxyListener,
 		HttpClient HttpClient,
-		HttpClient AuthHttpClient);
+		HttpClient AuthHttpClient,
+		HttpClient NoCredAuthHttpClient,
+		HttpClient WrongCredAuthHttpClient);
 
 	private static Fixture? _fixture;
 	private static CancellationTokenSource? _cts;
@@ -66,7 +68,24 @@ public class HttpTest
 			SslOptions = new SslClientAuthenticationOptions { RemoteCertificateValidationCallback = (_, _, _, _) => true }
 		};
 
-		_fixture = new Fixture(mockHttp, mockHttps, listener, authListener, new HttpClient(handler), new HttpClient(authHandler));
+		SocketsHttpHandler noCredAuthHandler = new()
+		{
+			UseProxy = true,
+			Proxy = new WebProxy(IPAddress.Loopback.ToString(), authPort)
+		};
+
+		SocketsHttpHandler wrongCredAuthHandler = new()
+		{
+			UseProxy = true,
+			Proxy = new WebProxy(IPAddress.Loopback.ToString(), authPort) { Credentials = new NetworkCredential("wrong", "creds") }
+		};
+
+		_fixture = new Fixture
+		(
+			mockHttp, mockHttps, listener, authListener,
+			new HttpClient(handler), new HttpClient(authHandler),
+			new HttpClient(noCredAuthHandler), new HttpClient(wrongCredAuthHandler)
+		);
 	}
 
 	[After(Class)]
@@ -78,6 +97,8 @@ public class HttpTest
 		}
 
 		_cts?.Cancel();
+		f.WrongCredAuthHttpClient.Dispose();
+		f.NoCredAuthHttpClient.Dispose();
 		f.AuthHttpClient.Dispose();
 		f.HttpClient.Dispose();
 		f.AuthProxyListener.Stop();
@@ -420,26 +441,14 @@ public class HttpTest
 	[Test]
 	public async Task AuthProxy_NoCredentials_Returns407Async(CancellationToken cancellationToken)
 	{
-		ushort authPort = (ushort)((IPEndPoint)F.AuthProxyListener.LocalEndpoint).Port;
-		using HttpClient client = new(new SocketsHttpHandler
-		{
-			UseProxy = true,
-			Proxy = new WebProxy(IPAddress.Loopback.ToString(), authPort)
-		});
-		HttpResponseMessage response = await client.GetAsync($"http://localhost:{F.MockHttp.Port}/get", cancellationToken);
+		HttpResponseMessage response = await F.NoCredAuthHttpClient.GetAsync($"http://localhost:{F.MockHttp.Port}/get", cancellationToken);
 		await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.ProxyAuthenticationRequired);
 	}
 
 	[Test]
 	public async Task AuthProxy_WrongCredentials_Returns407Async(CancellationToken cancellationToken)
 	{
-		ushort authPort = (ushort)((IPEndPoint)F.AuthProxyListener.LocalEndpoint).Port;
-		using HttpClient client = new(new SocketsHttpHandler
-		{
-			UseProxy = true,
-			Proxy = new WebProxy(IPAddress.Loopback.ToString(), authPort) { Credentials = new NetworkCredential("wrong", "creds") }
-		});
-		HttpResponseMessage response = await client.GetAsync($"http://localhost:{F.MockHttp.Port}/get", cancellationToken);
+		HttpResponseMessage response = await F.WrongCredAuthHttpClient.GetAsync($"http://localhost:{F.MockHttp.Port}/get", cancellationToken);
 		await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.ProxyAuthenticationRequired);
 	}
 
@@ -507,7 +516,8 @@ public class HttpTest
 	[Test]
 	public async Task IsHttpHeaderTest(CancellationToken cancellationToken)
 	{
-		ReadOnlySequence<byte> sequence0 = TestUtils.GetMultiSegmentSequence(
+		ReadOnlySequence<byte> sequence0 = TestUtils.GetMultiSegmentSequence
+		(
 			"GET / HTTP/1.1"u8.ToArray(),
 			"\r\nHost: ip.sb\r\n"u8.ToArray(),
 			"User-Agent: curl/7.55.1\r\n"u8.ToArray(),
@@ -515,20 +525,23 @@ public class HttpTest
 		);
 		await Assert.That(sequence0.IsHttpHeader()).IsTrue();
 
-		ReadOnlySequence<byte> sequence1 = TestUtils.GetMultiSegmentSequence(
+		ReadOnlySequence<byte> sequence1 = TestUtils.GetMultiSegmentSequence
+		(
 			"GET / HTTP/1.1"u8.ToArray(),
 			"\r\nHost: ip.sb\r\n"u8.ToArray(),
 			"User-Agent: curl/7.55.1\r\n"u8.ToArray()
 		);
 		await Assert.That(sequence1.IsHttpHeader()).IsFalse();
 
-		ReadOnlySequence<byte> sequence2 = TestUtils.GetMultiSegmentSequence(
+		ReadOnlySequence<byte> sequence2 = TestUtils.GetMultiSegmentSequence
+		(
 			"\r\n"u8.ToArray(),
 			"\r\n"u8.ToArray()
 		);
 		await Assert.That(sequence2.IsHttpHeader()).IsFalse();
 
-		ReadOnlySequence<byte> sequence3 = TestUtils.GetMultiSegmentSequence(
+		ReadOnlySequence<byte> sequence3 = TestUtils.GetMultiSegmentSequence
+		(
 			"GET HTTP/1.1"u8.ToArray(),
 			"\r\nHost: ip.sb\r\n"u8.ToArray(),
 			"User-Agent: curl/7.55.1\r\n"u8.ToArray(),
@@ -537,7 +550,8 @@ public class HttpTest
 		await Assert.That(sequence3.IsHttpHeader()).IsFalse();
 
 		// Two spaces but version doesn't start with "HTTP/"
-		ReadOnlySequence<byte> sequence4 = TestUtils.GetMultiSegmentSequence(
+		ReadOnlySequence<byte> sequence4 = TestUtils.GetMultiSegmentSequence
+		(
 			"FOO BAR BAZ"u8.ToArray(),
 			"\r\nHost: ip.sb\r\n"u8.ToArray(),
 			"\r\n"u8.ToArray()
@@ -551,9 +565,11 @@ public class HttpTest
 		// GET http://real-host/path with Host: other-host.
 		// Proxy MUST connect to real-host (from URI), not other-host (from Host header).
 		// URI points to the real mock server; Host header points to unreachable port 1.
-		string response = await SendRawRequestAsync(
+		string response = await SendRawRequestAsync
+		(
 			$"GET http://localhost:{F.MockHttp.Port}/get HTTP/1.1\r\nHost: localhost:1\r\n\r\n",
-			cancellationToken);
+			cancellationToken
+		);
 
 		await Assert.That(response).Contains("HTTP/1.1 200");
 	}
@@ -581,9 +597,14 @@ public class HttpTest
 		// Proxy should detect the short read and NOT forward a 200 with incomplete body.
 		using TcpClient tcp = new();
 		NetworkStream ns = await ConnectToProxyAsync(tcp, cancellationToken);
-		await ns.WriteAsync(Encoding.UTF8.GetBytes(
-				$"POST http://localhost:{F.MockHttp.Port}/echo HTTP/1.1\r\nHost: localhost:{F.MockHttp.Port}\r\nContent-Length: 100\r\n\r\nhello"),
-			cancellationToken);
+		await ns.WriteAsync
+		(
+			Encoding.UTF8.GetBytes
+			(
+				$"POST http://localhost:{F.MockHttp.Port}/echo HTTP/1.1\r\nHost: localhost:{F.MockHttp.Port}\r\nContent-Length: 100\r\n\r\nhello"
+			),
+			cancellationToken
+		);
 		await ns.FlushAsync(cancellationToken);
 		tcp.Client.Shutdown(SocketShutdown.Send);
 
@@ -603,9 +624,11 @@ public class HttpTest
 		// Fix: should rewrite to "GET /?x=1".
 		// HttpClient normalizes URIs, so raw TCP is required for this edge case.
 		// Mock server echoes request line for paths starting with "/?" (200 vs default 204).
-		string response = await SendRawRequestAsync(
+		string response = await SendRawRequestAsync
+		(
 			$"GET http://localhost:{F.MockHttp.Port}?x=1 HTTP/1.1\r\nHost: localhost:{F.MockHttp.Port}\r\n\r\n",
-			cancellationToken);
+			cancellationToken
+		);
 
 		await Assert.That(response).Contains("?x=1");
 	}
@@ -617,9 +640,14 @@ public class HttpTest
 		// Per RFC 9110 §9.3.6, the proxy MUST use request-target, not Host.
 		using TcpClient tcp = new();
 		NetworkStream ns = await ConnectToProxyAsync(tcp, cancellationToken);
-		await ns.WriteAsync(Encoding.UTF8.GetBytes(
-				$"CONNECT localhost:{F.MockHttps.Port} HTTP/1.1\r\nHost: localhost:1\r\n\r\n"),
-			cancellationToken);
+		await ns.WriteAsync
+		(
+			Encoding.UTF8.GetBytes
+			(
+				$"CONNECT localhost:{F.MockHttps.Port} HTTP/1.1\r\nHost: localhost:1\r\n\r\n"
+			),
+			cancellationToken
+		);
 		await ns.FlushAsync(cancellationToken);
 
 		// Read only the CONNECT response status line (tunnel stays open after 200).
@@ -635,9 +663,11 @@ public class HttpTest
 	{
 		// GET /echo-request-line (relative-form) with Host pointing to the mock server.
 		// Proxy MUST use Host header as target (not "/echo-request-line" as authority).
-		string response = await SendRawRequestAsync(
+		string response = await SendRawRequestAsync
+		(
 			$"GET /echo-request-line HTTP/1.1\r\nHost: localhost:{F.MockHttp.Port}\r\n\r\n",
-			cancellationToken);
+			cancellationToken
+		);
 
 		await Assert.That(response).Contains("HTTP/1.1 200");
 	}
@@ -647,9 +677,11 @@ public class HttpTest
 	{
 		// GET /echo-request-line?next=http://a/b (origin-form with "://" in query).
 		// Proxy MUST treat this as relative-form: use Host header, preserve path+query as-is.
-		string response = await SendRawRequestAsync(
+		string response = await SendRawRequestAsync
+		(
 			$"GET /echo-request-line?next=http://a/b HTTP/1.1\r\nHost: localhost:{F.MockHttp.Port}\r\n\r\n",
-			cancellationToken);
+			cancellationToken
+		);
 
 		await Assert.That(response).Contains("HTTP/1.1 200");
 		// Verify the request-line forwarded to the server preserves the original path+query
@@ -661,9 +693,11 @@ public class HttpTest
 	{
 		// Upstream closes before sending complete headers (\r\n\r\n).
 		// Proxy should return 502, not 500.
-		HttpResponseMessage response = await F.HttpClient.GetAsync(
+		HttpResponseMessage response = await F.HttpClient.GetAsync
+		(
 			$"http://localhost:{F.MockHttp.Port}/truncated-headers",
-			cancellationToken);
+			cancellationToken
+		);
 
 		await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.BadGateway);
 	}
@@ -776,36 +810,19 @@ public class HttpTest
 		}
 	}
 
-	private static async Task<HttpResponseMessage> SendViaFailingProxyAsync(SocketError error, CancellationToken cancellationToken)
+	private static Task<HttpResponseMessage> SendViaFailingProxyAsync(SocketError error, CancellationToken cancellationToken)
 	{
-		HttpInbound forwarder = new();
-		FailingOutbound outbound = new(error);
-		TcpListener listener = new(IPAddress.Loopback, 0);
-		listener.Start();
-		using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-		_ = TestAcceptLoop.RunAsync(listener, forwarder, outbound, cts.Token);
-
-		try
-		{
-			ushort port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
-			using HttpClient client = new(new SocketsHttpHandler
-			{
-				UseProxy = true,
-				Proxy = new WebProxy(IPAddress.Loopback.ToString(), port)
-			});
-			return await client.GetAsync("http://localhost:1/test", cancellationToken);
-		}
-		finally
-		{
-			await cts.CancelAsync();
-			listener.Stop();
-		}
+		return SendViaEphemeralProxyAsync(new FailingOutbound(error), cancellationToken);
 	}
 
-	private static async Task<HttpResponseMessage> SendViaPacketOnlyProxyAsync(CancellationToken cancellationToken)
+	private static Task<HttpResponseMessage> SendViaPacketOnlyProxyAsync(CancellationToken cancellationToken)
+	{
+		return SendViaEphemeralProxyAsync(new PacketOnlyOutbound(), cancellationToken);
+	}
+
+	private static async Task<HttpResponseMessage> SendViaEphemeralProxyAsync(IOutbound outbound, CancellationToken cancellationToken)
 	{
 		HttpInbound forwarder = new();
-		PacketOnlyOutbound outbound = new();
 		TcpListener listener = new(IPAddress.Loopback, 0);
 		listener.Start();
 		using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -814,12 +831,16 @@ public class HttpTest
 		try
 		{
 			ushort port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
-			using HttpClient client = new(new SocketsHttpHandler
-			{
-				UseProxy = true,
-				Proxy = new WebProxy(IPAddress.Loopback.ToString(), port)
-			});
-			return await client.GetAsync("http://localhost:1/test", cancellationToken);
+			using HttpMessageInvoker invoker = new
+			(
+				new SocketsHttpHandler
+				{
+					UseProxy = true,
+					Proxy = new WebProxy(IPAddress.Loopback.ToString(), port)
+				},
+				disposeHandler: true
+			);
+			return await invoker.SendAsync(new HttpRequestMessage(HttpMethod.Get, "http://localhost:1/test"), cancellationToken);
 		}
 		finally
 		{
