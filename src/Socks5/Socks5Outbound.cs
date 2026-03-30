@@ -17,6 +17,7 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 	public async ValueTask<IConnection> ConnectAsync(ProxyDestination destination, CancellationToken cancellationToken = default)
 	{
 		(Socket socket, IDuplexPipe pipe) = await HandshakeAsync(cancellationToken);
+
 		try
 		{
 			await SendCommandAsync(pipe, Command.Connect, destination.Host, destination.Port, cancellationToken);
@@ -32,9 +33,11 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 	public async ValueTask<IPacketConnection> CreatePacketConnectionAsync(CancellationToken cancellationToken = default)
 	{
 		(Socket controlSocket, IDuplexPipe pipe) = await HandshakeAsync(cancellationToken);
+
 		try
 		{
 			Socket udpSocket = new(AddressFamily.InterNetworkV6, SocketType.Dgram, ProtocolType.Udp) { DualMode = true };
+
 			try
 			{
 				udpSocket.Bind(new IPEndPoint(IPAddress.IPv6Any, 0));
@@ -42,8 +45,11 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 
 				byte[] hostBytes = new byte[Constants.MaxIpTextLength];
 				local.Address.TryFormat(hostBytes, out int hostLen);
-				ServerBound bound = await SendCommandAsync(pipe, Command.UdpAssociate,
-					hostBytes.AsMemory(0, hostLen), (ushort)local.Port, cancellationToken);
+				ServerBound bound = await SendCommandAsync
+				(
+					pipe, Command.UdpAssociate,
+					hostBytes.AsMemory(0, hostLen), (ushort)local.Port, cancellationToken
+				);
 
 				// Connect UDP socket to the relay endpoint
 				switch (bound.Type)
@@ -55,11 +61,14 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 						{
 							throw new Socks5ProtocolErrorException("Invalid IP in server reply", Socks5Reply.GeneralFailure);
 						}
+
 						IPAddress unspecified = bound.Type is AddressType.IPv4 ? IPAddress.Any : IPAddress.IPv6Any;
+
 						if (Equals(boundAddr, unspecified))
 						{
 							boundAddr = option.Address!;
 						}
+
 						await udpSocket.ConnectAsync(boundAddr, bound.Port, cancellationToken);
 						break;
 					}
@@ -90,6 +99,7 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 	{
 		ArgumentNullException.ThrowIfNull(option.Address);
 		Socket socket = new(option.Address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+
 		try
 		{
 			await socket.ConnectAsync(option.Address, option.Port, cancellationToken);
@@ -109,6 +119,7 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 		Method[] clientMethods = option.UserPassAuth is not null ? MethodsWithAuth : MethodsNoAuth;
 
 		Method replyMethod = await HandshakeMethodAsync(pipe, clientMethods, cancellationToken);
+
 		switch (replyMethod)
 		{
 			case Method.NoAuthentication:
@@ -129,15 +140,21 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 		await pipe.Input.ReadAsync(HandleResponse, cancellationToken);
 
 		bool found = false;
+
 		foreach (Method m in clientMethods)
 		{
 			if (m == method)
-			{ found = true; break; }
+			{
+				found = true;
+				break;
+			}
 		}
+
 		if (!found)
 		{
 			throw new MethodUnsupportedException($@"Server sent an unsupported method ({method}:0x{(byte)method:X2}).", method);
 		}
+
 		return method;
 
 		int PackHandshake(Span<byte> span)
@@ -181,6 +198,7 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 		await pipe.Output.WriteAsync(Constants.MaxCommandLength, PackClientCommand, cancellationToken);
 
 		ServerBound bound = new();
+
 		if (!await pipe.Input.ReadAsync(HandleResponse, cancellationToken))
 		{
 			throw new Socks5ProtocolErrorException(@"Send command failed!", Socks5Reply.CommandNotSupported);
@@ -202,6 +220,7 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 	private sealed class SocketConnection(Socket socket, IDuplexPipe pipe) : IConnection
 	{
 		public PipeReader Input => pipe.Input;
+
 		public PipeWriter Output => pipe.Output;
 
 		public ValueTask DisposeAsync()
@@ -216,6 +235,7 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 		public async ValueTask<int> SendToAsync(ReadOnlyMemory<byte> data, ProxyDestination destination, CancellationToken cancellationToken = default)
 		{
 			byte[] buffer = ArrayPool<byte>.Shared.Rent(Constants.MaxUdpHandshakeHeaderLength + data.Length);
+
 			try
 			{
 				int length = Pack.Udp(buffer, destination.Host.Span, destination.Port, data.Span);
@@ -231,28 +251,39 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 		public async ValueTask<PacketReceiveResult> ReceiveFromAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
 		{
 			byte[] receiveBuffer = ArrayPool<byte>.Shared.Rent(0x10000);
+
 			try
 			{
-				int length = await udpSocket.ReceiveAsync(receiveBuffer.AsMemory(), SocketFlags.None, cancellationToken);
-				Socks5UdpReceivePacket packet = Unpack.Udp(receiveBuffer.AsMemory(0, length));
-
-				if (packet.Data.Length > buffer.Length)
+				while (true)
 				{
-					throw new ArgumentException(
-						$"Receive buffer ({buffer.Length} bytes) is too small for the received packet ({packet.Data.Length} bytes).",
-						nameof(buffer));
+					int length = await udpSocket.ReceiveAsync(receiveBuffer.AsMemory(), SocketFlags.None, cancellationToken);
+					Socks5UdpReceivePacket packet = Unpack.Udp(receiveBuffer.AsMemory(0, length));
+
+					if (packet.Fragment is not 0x00)
+					{
+						continue;
+					}
+
+					if (packet.Data.Length > buffer.Length)
+					{
+						throw new ArgumentException
+						(
+							$"Receive buffer ({buffer.Length} bytes) is too small for the received packet ({packet.Data.Length} bytes).",
+							nameof(buffer)
+						);
+					}
+
+					packet.Data.Span.CopyTo(buffer.Span);
+
+					byte[] hostBytes = new byte[packet.Host.Length];
+					packet.Host.Span.CopyTo(hostBytes);
+
+					return new PacketReceiveResult
+					{
+						BytesReceived = packet.Data.Length,
+						RemoteDestination = new ProxyDestination(hostBytes, packet.Port)
+					};
 				}
-
-				packet.Data.Span.CopyTo(buffer.Span);
-
-				byte[] hostBytes = new byte[packet.Host.Length];
-				packet.Host.Span.CopyTo(hostBytes);
-
-				return new PacketReceiveResult
-				{
-					BytesReceived = packet.Data.Length,
-					RemoteDestination = new ProxyDestination(hostBytes, packet.Port)
-				};
 			}
 			finally
 			{
