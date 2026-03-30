@@ -578,6 +578,38 @@ public class Socks5UnpackTest
 		await Assert.That(result).IsFalse();
 	}
 
+	[Test]
+	public async Task ReadClientAuth_EmptyUsername(CancellationToken cancellationToken)
+	{
+		// VER=0x01, ULEN=0, PLEN=1, PASSWD='p'
+		byte[] data = [Constants.AuthVersion, 0x00, 0x01, (byte)'p'];
+
+		Socks5ProtocolErrorException? ex = await Assert.That(() =>
+		{
+			ReadOnlySequence<byte> local = new(data);
+			UserPassAuth? p = null;
+			Unpack.ReadClientAuth(ref local, ref p);
+		}).Throws<Socks5ProtocolErrorException>();
+
+		await Assert.That(ex?.Socks5Reply).IsEqualTo(Socks5Reply.ConnectionNotAllowed);
+	}
+
+	[Test]
+	public async Task ReadClientAuth_EmptyPassword(CancellationToken cancellationToken)
+	{
+		// VER=0x01, ULEN=1, UNAME='u', PLEN=0
+		byte[] data = [Constants.AuthVersion, 0x01, (byte)'u', 0x00];
+
+		Socks5ProtocolErrorException? ex = await Assert.That(() =>
+		{
+			ReadOnlySequence<byte> local = new(data);
+			UserPassAuth? p = null;
+			Unpack.ReadClientAuth(ref local, ref p);
+		}).Throws<Socks5ProtocolErrorException>();
+
+		await Assert.That(ex?.Socks5Reply).IsEqualTo(Socks5Reply.ConnectionNotAllowed);
+	}
+
 	// --- Round-trip tests ---
 
 	[Test]

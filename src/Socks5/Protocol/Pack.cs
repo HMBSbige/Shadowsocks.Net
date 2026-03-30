@@ -116,9 +116,9 @@ internal static class Pack
 
 		ReadOnlySpan<byte> username = credential.UserName.Span;
 
-		if (username.Length > byte.MaxValue)
+		if (username.Length is 0 or > byte.MaxValue)
 		{
-			throw new ArgumentException($"{nameof(credential.UserName)} too long.", nameof(credential));
+			throw new ArgumentException($"{nameof(credential.UserName)} must be 1–255 bytes.", nameof(credential));
 		}
 
 		buffer[offset++] = (byte)username.Length;
@@ -127,9 +127,9 @@ internal static class Pack
 
 		ReadOnlySpan<byte> password = credential.Password.Span;
 
-		if (password.Length > byte.MaxValue)
+		if (password.Length is 0 or > byte.MaxValue)
 		{
-			throw new ArgumentException($"{nameof(credential.Password)} too long.", nameof(credential));
+			throw new ArgumentException($"{nameof(credential.Password)} must be 1–255 bytes.", nameof(credential));
 		}
 
 		buffer[offset++] = (byte)password.Length;

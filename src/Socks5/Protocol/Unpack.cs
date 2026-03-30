@@ -339,6 +339,11 @@ internal static class Unpack
 			return false;
 		}
 
+		if (uLen is 0)
+		{
+			throw new Socks5ProtocolErrorException("ULEN must be 1–255 (RFC 1929 §2).", Socks5Reply.ConnectionNotAllowed);
+		}
+
 		if (reader.Remaining < uLen)
 		{
 			return false;
@@ -350,6 +355,11 @@ internal static class Unpack
 		if (!reader.TryRead(out byte pLen))
 		{
 			return false;
+		}
+
+		if (pLen is 0)
+		{
+			throw new Socks5ProtocolErrorException("PLEN must be 1–255 (RFC 1929 §2).", Socks5Reply.ConnectionNotAllowed);
 		}
 
 		if (reader.Remaining < pLen)

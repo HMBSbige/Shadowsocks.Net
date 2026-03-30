@@ -145,6 +145,24 @@ public class Socks5PackTest
 	}
 
 	[Test]
+	public async Task UsernamePasswordAuth_EmptyUsername(CancellationToken cancellationToken)
+	{
+		byte[] buffer = new byte[1024];
+		UserPassAuth cred = new() { UserName = Array.Empty<byte>(), Password = "p"u8.ToArray() };
+
+		await Assert.That(() => Pack.UsernamePasswordAuth(cred, buffer)).Throws<ArgumentException>();
+	}
+
+	[Test]
+	public async Task UsernamePasswordAuth_EmptyPassword(CancellationToken cancellationToken)
+	{
+		byte[] buffer = new byte[1024];
+		UserPassAuth cred = new() { UserName = "u"u8.ToArray(), Password = Array.Empty<byte>() };
+
+		await Assert.That(() => Pack.UsernamePasswordAuth(cred, buffer)).Throws<ArgumentException>();
+	}
+
+	[Test]
 	public async Task AuthReply_Success(CancellationToken cancellationToken)
 	{
 		byte[] buffer = new byte[4];
