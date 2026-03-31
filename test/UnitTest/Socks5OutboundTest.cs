@@ -1,6 +1,7 @@
 using Proxy.Abstractions;
 using Socks5;
 using Socks5.Protocol;
+using System.Buffers.Binary;
 using System.Net;
 using System.Net.Sockets;
 using UnitTest.TestBase;
@@ -248,42 +249,68 @@ public class Socks5OutboundTest
 		await Assert.That(resultBuf.AsSpan(0, result.BytesReceived).SequenceEqual(expectedPayload)).IsTrue();
 	}
 
-	private static async Task FakeUdpAssociateServerAsync(TcpListener tcp, ushort relayPort, CancellationToken cancellationToken)
+	[Test]
+	[DisplayName("UDP ASSOCIATE: sends all-zero IPv4 address on IPv4 control connection")]
+	public async Task UdpAssociate_IPv4ControlConnection_SendsAllZeroIPv4Address(CancellationToken cancellationToken)
 	{
-		using TcpClient client = await tcp.AcceptTcpClientAsync(cancellationToken);
-		NetworkStream stream = client.GetStream();
-		byte[] buf = new byte[512];
+		using TcpListener tcp = new(IPAddress.Loopback, 0);
+		tcp.Start();
+		ushort tcpPort = (ushort)((IPEndPoint)tcp.LocalEndpoint).Port;
 
-		// Method negotiation: read VER+NMETHODS, then METHODS
-		await stream.ReadExactlyAsync(buf.AsMemory(0, 2), cancellationToken);
-		int nmethods = buf[1];
-		await stream.ReadExactlyAsync(buf.AsMemory(0, nmethods), cancellationToken);
-		await stream.WriteAsync(new[] { Constants.ProtocolVersion, (byte)Method.NoAuthentication }, cancellationToken);
+		using Socket relaySocket = new(AddressFamily.InterNetworkV6, SocketType.Dgram, ProtocolType.Udp);
+		relaySocket.DualMode = true;
+		relaySocket.Bind(new IPEndPoint(IPAddress.IPv6Any, 0));
+		ushort relayPort = (ushort)((IPEndPoint)relaySocket.LocalEndPoint!).Port;
 
-		// UdpAssociate command: read fixed header (VER+CMD+RSV+ATYP=4), then address+port
-		await stream.ReadExactlyAsync(buf.AsMemory(0, 4), cancellationToken);
-		int addrLen = buf[3] switch
+		TaskCompletionSource<(byte Atyp, byte[] Addr, ushort Port)> capturedDst = new();
+		_ = FakeUdpAssociateServerAsync(tcp, relayPort, capturedDst, cancellationToken);
+
+		Socks5Outbound outbound = new(new Socks5CreateOption
 		{
-			0x01 => 4,  // IPv4
-			0x04 => 16, // IPv6
-			_ => throw new InvalidOperationException()
-		};
-		await stream.ReadExactlyAsync(buf.AsMemory(0, addrLen + 2), cancellationToken);
-		ServerBound bound = new()
-		{
-			Type = AddressType.IPv4,
-			Port = relayPort
-		};
-		"127.0.0.1"u8.CopyTo(bound.Host.WriteBuffer);
-		bound.Host.Length = 9;
-		byte[] reply = new byte[Constants.MaxCommandLength];
-		int replyLen = Pack.ServerReply(Socks5Reply.Succeeded, bound, reply);
-		await stream.WriteAsync(reply.AsMemory(0, replyLen), cancellationToken);
+			Address = IPAddress.Loopback,
+			Port = tcpPort,
+		});
 
-		// Keep TCP alive until test ends
-		try
-		{ await Task.Delay(Timeout.Infinite, cancellationToken); }
-		catch (OperationCanceledException) { }
+		// This implementation uses an all-zero address in the control connection's family.
+		await using IPacketConnection pkt = await outbound.CreatePacketConnectionAsync(cancellationToken);
+
+		var (atyp, addr, port) = await capturedDst.Task;
+
+		await Assert.That(atyp).IsEqualTo((byte)0x01);
+		await Assert.That(addr.SequenceEqual(new byte[4])).IsTrue();
+		await Assert.That(port).IsEqualTo((ushort)0);
+	}
+
+	[Test]
+	[DisplayName("UDP ASSOCIATE: sends all-zero IPv6 address on IPv6 control connection")]
+	public async Task UdpAssociate_IPv6ControlConnection_SendsAllZeroIPv6Address(CancellationToken cancellationToken)
+	{
+		using TcpListener tcp = new(IPAddress.IPv6Loopback, 0);
+		tcp.Start();
+		ushort tcpPort = (ushort)((IPEndPoint)tcp.LocalEndpoint).Port;
+
+		using Socket relaySocket = new(AddressFamily.InterNetworkV6, SocketType.Dgram, ProtocolType.Udp);
+		relaySocket.DualMode = true;
+		relaySocket.Bind(new IPEndPoint(IPAddress.IPv6Any, 0));
+		ushort relayPort = (ushort)((IPEndPoint)relaySocket.LocalEndPoint!).Port;
+
+		TaskCompletionSource<(byte Atyp, byte[] Addr, ushort Port)> capturedDst = new();
+		_ = FakeUdpAssociateServerAsync(tcp, relayPort, capturedDst, cancellationToken);
+
+		Socks5Outbound outbound = new(new Socks5CreateOption
+		{
+			Address = IPAddress.IPv6Loopback,
+			Port = tcpPort,
+		});
+
+		// This implementation uses an all-zero address in the control connection's family.
+		await using IPacketConnection pkt = await outbound.CreatePacketConnectionAsync(cancellationToken);
+
+		var (atyp, addr, port) = await capturedDst.Task;
+
+		await Assert.That(atyp).IsEqualTo((byte)0x04);
+		await Assert.That(addr.SequenceEqual(new byte[16])).IsTrue();
+		await Assert.That(port).IsEqualTo((ushort)0);
 	}
 
 	[Test]
@@ -306,5 +333,62 @@ public class Socks5OutboundTest
 		).Throws<MethodUnsupportedException>();
 
 		await Assert.That(methodEx?.ServerReplyMethod).IsEqualTo(Method.NoAcceptable);
+	}
+
+	private static Task FakeUdpAssociateServerAsync(TcpListener tcp, ushort relayPort, CancellationToken cancellationToken)
+	{
+		return FakeUdpAssociateServerAsync(tcp, relayPort, null, cancellationToken);
+	}
+
+	private static async Task FakeUdpAssociateServerAsync(
+		TcpListener tcp, ushort relayPort,
+		TaskCompletionSource<(byte Atyp, byte[] Addr, ushort Port)>? capturedDst,
+		CancellationToken cancellationToken)
+	{
+		using TcpClient client = await tcp.AcceptTcpClientAsync(cancellationToken);
+		NetworkStream stream = client.GetStream();
+		byte[] buf = new byte[512];
+
+		// Method negotiation
+		await stream.ReadExactlyAsync(buf.AsMemory(0, 2), cancellationToken);
+		int nmethods = buf[1];
+		await stream.ReadExactlyAsync(buf.AsMemory(0, nmethods), cancellationToken);
+		await stream.WriteAsync(new[] { Constants.ProtocolVersion, (byte)Method.NoAuthentication }, cancellationToken);
+
+		// Command: VER+CMD+RSV+ATYP
+		await stream.ReadExactlyAsync(buf.AsMemory(0, 4), cancellationToken);
+		byte atyp = buf[3];
+		int addrLen = atyp switch
+		{
+			0x01 => 4,
+			0x04 => 16,
+			_ => throw new InvalidOperationException($"Unexpected ATYP: {atyp}")
+		};
+		await stream.ReadExactlyAsync(buf.AsMemory(0, addrLen + 2), cancellationToken);
+
+		if (capturedDst is not null)
+		{
+			byte[] addr = buf.AsSpan(0, addrLen).ToArray();
+			ushort port = BinaryPrimitives.ReadUInt16BigEndian(buf.AsSpan(addrLen, 2));
+			capturedDst.SetResult((atyp, addr, port));
+		}
+
+		// Reply with relay address
+		ServerBound bound = new()
+		{
+			Type = AddressType.IPv4,
+			Port = relayPort
+		};
+		"127.0.0.1"u8.CopyTo(bound.Host.WriteBuffer);
+		bound.Host.Length = 9;
+		byte[] reply = new byte[Constants.MaxCommandLength];
+		int replyLen = Pack.ServerReply(Socks5Reply.Succeeded, bound, reply);
+		await stream.WriteAsync(reply.AsMemory(0, replyLen), cancellationToken);
+
+		try
+		{
+			await Task.Delay(Timeout.Infinite, cancellationToken);
+		}
+		catch (OperationCanceledException) { }
 	}
 }

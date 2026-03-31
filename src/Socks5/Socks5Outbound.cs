@@ -13,6 +13,8 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 {
 	private static readonly Method[] MethodsNoAuth = [Method.NoAuthentication];
 	private static readonly Method[] MethodsWithAuth = [Method.NoAuthentication, Method.UsernamePassword];
+	private static readonly byte[] IPv4Unspecified = "0.0.0.0"u8.ToArray();
+	private static readonly byte[] IPv6Unspecified = "::"u8.ToArray();
 
 	public async ValueTask<IConnection> ConnectAsync(ProxyDestination destination, CancellationToken cancellationToken = default)
 	{
@@ -36,21 +38,13 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 
 		try
 		{
+			byte[] host = option.Address?.AddressFamily is AddressFamily.InterNetworkV6 ? IPv6Unspecified : IPv4Unspecified;
+			ServerBound bound = await SendCommandAsync(pipe, Command.UdpAssociate, host, 0, cancellationToken);
+
 			Socket udpSocket = new(AddressFamily.InterNetworkV6, SocketType.Dgram, ProtocolType.Udp) { DualMode = true };
 
 			try
 			{
-				udpSocket.Bind(new IPEndPoint(IPAddress.IPv6Any, 0));
-				IPEndPoint local = (IPEndPoint)udpSocket.LocalEndPoint!;
-
-				byte[] hostBytes = new byte[Constants.MaxIpTextLength];
-				local.Address.TryFormat(hostBytes, out int hostLen);
-				ServerBound bound = await SendCommandAsync
-				(
-					pipe, Command.UdpAssociate,
-					hostBytes.AsMemory(0, hostLen), (ushort)local.Port, cancellationToken
-				);
-
 				// Connect UDP socket to the relay endpoint
 				switch (bound.Type)
 				{
