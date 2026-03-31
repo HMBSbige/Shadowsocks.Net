@@ -175,6 +175,78 @@ public class Socks5InboundTest
 	}
 
 	[Test]
+	[DisplayName("Truncated greeting (VER byte only then EOF) throws without sending 0xFF")]
+	public async Task TruncatedGreeting_OnlyVer_ThrowsWithoutResponse(CancellationToken cancellationToken)
+	{
+		Socks5Inbound inbound = new();
+
+		Pipe clientToServer = new();
+		Pipe serverToClient = new();
+		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		ValueTask handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken);
+
+		// Send only VER byte, then EOF — incomplete greeting
+		await clientToServer.Writer.WriteAsync(new byte[] { 0x05 }, cancellationToken);
+		await clientToServer.Writer.CompleteAsync();
+
+		await Assert.That(async () => await handleTask).Throws<InvalidDataException>();
+
+		// Server must not have sent any response
+		await serverToClient.Writer.CompleteAsync();
+		ReadResult result = await serverToClient.Reader.ReadAsync(cancellationToken);
+		await Assert.That(result.Buffer.IsEmpty).IsTrue();
+	}
+
+	[Test]
+	[DisplayName("Truncated greeting (partial METHODS then EOF) throws without sending 0xFF")]
+	public async Task TruncatedGreeting_PartialMethods_ThrowsWithoutResponse(CancellationToken cancellationToken)
+	{
+		Socks5Inbound inbound = new();
+
+		Pipe clientToServer = new();
+		Pipe serverToClient = new();
+		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		ValueTask handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken);
+
+		// VER=0x05, NMETHODS=0x02, but only 1 method byte — incomplete greeting
+		await clientToServer.Writer.WriteAsync(new byte[] { 0x05, 0x02, 0x00 }, cancellationToken);
+		await clientToServer.Writer.CompleteAsync();
+
+		await Assert.That(async () => await handleTask).Throws<InvalidDataException>();
+
+		await serverToClient.Writer.CompleteAsync();
+		ReadResult result = await serverToClient.Reader.ReadAsync(cancellationToken);
+		await Assert.That(result.Buffer.IsEmpty).IsTrue();
+	}
+
+	[Test]
+	[DisplayName("Method negotiation: NMETHODS=0 replies METHOD=0xFF before closing (RFC 1928 §3)")]
+	public async Task MethodNegotiation_ZeroMethods_RepliesNoAcceptable(CancellationToken cancellationToken)
+	{
+		Socks5Inbound inbound = new();
+
+		Pipe clientToServer = new();
+		Pipe serverToClient = new();
+		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		ValueTask handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken);
+
+		// VER=0x05, NMETHODS=0x00 — no methods offered
+		await clientToServer.Writer.WriteAsync(new byte[] { 0x05, 0x00 }, cancellationToken);
+
+		await handleTask;
+		await clientToServer.Writer.CompleteAsync();
+		await serverToClient.Writer.CompleteAsync();
+
+		ReadResult result = await serverToClient.Reader.ReadAsync(cancellationToken);
+		byte[] allServerData = result.Buffer.ToArray();
+		serverToClient.Reader.AdvanceTo(result.Buffer.End);
+
+		await Assert.That(allServerData).Count().IsEqualTo(2);
+		await Assert.That(allServerData[0]).IsEqualTo(Constants.ProtocolVersion);
+		await Assert.That(allServerData[1]).IsEqualTo((byte)Method.NoAcceptable);
+	}
+
+	[Test]
 	public async Task NoAcceptableMethod_ClosesWithoutFurtherReply(CancellationToken cancellationToken)
 	{
 		UserPassAuth cred = new()

@@ -82,19 +82,15 @@ public sealed partial class Socks5Inbound(
 
 	private static async ValueTask<(Command command, ServerBound target)> AcceptClientAsync(IDuplexPipe pipe, UserPassAuth? credential, CancellationToken cancellationToken)
 	{
-		// Cannot use Span<Method> here — local function TryReadClientHandshake captures
-		// 'methods' and 'methodCount', and Span cannot be captured by closures.
 		Method[] methods = new Method[byte.MaxValue];
 		int methodCount = 0;
 
-		await pipe.Input.ReadAsync(TryReadClientHandshake, cancellationToken);
-
-		if (methodCount <= 0)
+		if (!await pipe.Input.ReadAsync(TryReadClientHandshake, cancellationToken))
 		{
-			throw new InvalidDataException(@"Error SOCKS5 header!");
+			throw new InvalidDataException(@"Incomplete SOCKS5 greeting.");
 		}
 
-		// Select method
+		// Select method (NMETHODS=0 falls through to METHOD=0xFF per RFC 1928 §3).
 		Method desired = credential?.UserName.Length > 0
 			? Method.UsernamePassword
 			: Method.NoAuthentication;
