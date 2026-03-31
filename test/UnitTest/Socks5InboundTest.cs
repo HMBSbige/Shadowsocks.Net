@@ -308,6 +308,34 @@ public class Socks5InboundTest
 	}
 
 	[Test]
+	[DisplayName("Unknown command (0x04) replies REP=0x07 CommandNotSupported (RFC 1928 §6)")]
+	public async Task UnknownCommand_RepliesCommandNotSupported(CancellationToken cancellationToken)
+	{
+		Socks5Inbound inbound = new();
+
+		Pipe clientToServer = new();
+		Pipe serverToClient = new();
+		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		ValueTask handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken);
+
+		await NoAuthHandshakeAsync(clientToServer.Writer, serverToClient.Reader, cancellationToken);
+
+		// Send unknown CMD=0x04 (not defined in RFC 1928)
+		byte[] cmd = new byte[Constants.MaxCommandLength];
+		int cmdLen = Pack.ClientCommand((Command)0x04, "127.0.0.1"u8, 80, cmd);
+		await clientToServer.Writer.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
+
+		ReadResult replyResult = await serverToClient.Reader.ReadAsync(cancellationToken);
+		byte[] reply = replyResult.Buffer.ToArray();
+		serverToClient.Reader.AdvanceTo(replyResult.Buffer.End);
+
+		await handleTask;
+
+		await Assert.That(reply[0]).IsEqualTo(Constants.ProtocolVersion);
+		await Assert.That(reply[1]).IsEqualTo((byte)Socks5Reply.CommandNotSupported);
+	}
+
+	[Test]
 	[DisplayName("UDP relay: DST=0.0.0.0:0 forwards from client IP with any port")]
 	public async Task UdpRelay_ZeroAddr_ZeroPort_ForwardsFromClientIp(CancellationToken cancellationToken)
 	{

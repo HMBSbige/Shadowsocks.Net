@@ -99,11 +99,6 @@ public static partial class Socks5Utils
 
 			command = (Command)cmd;
 
-			if (!Enum.IsDefined(command))
-			{
-				throw new Socks5ProtocolErrorException($@"client sent an unknown command: {command}.", Socks5Reply.CommandNotSupported);
-			}
-
 			if (!reader.TryRead(out byte rsv))
 			{
 				return ParseResult.NeedsMoreData;
