@@ -1,5 +1,6 @@
 using Pipelines.Extensions;
 using Proxy.Abstractions;
+using System.Buffers.Binary;
 using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
@@ -63,6 +64,8 @@ public sealed class DirectOutbound : IStreamOutbound, IPacketOutbound
 	private sealed class DirectPacketConnection : IPacketConnection
 	{
 		private readonly Socket _socket = new(AddressFamily.InterNetworkV6, SocketType.Dgram, ProtocolType.Udp) { DualMode = true };
+		private readonly SocketAddress _sendSa = new(AddressFamily.InterNetworkV6);
+		private readonly SocketAddress _recvSa = new(AddressFamily.InterNetworkV6);
 
 		public DirectPacketConnection()
 		{
@@ -85,26 +88,46 @@ public sealed class DirectOutbound : IStreamOutbound, IPacketOutbound
 				address = addresses[0];
 			}
 
-			await _socket.SendToAsync(data, SocketFlags.None, new IPEndPoint(address, destination.Port), cancellationToken);
+			Span<byte> buf = _sendSa.Buffer.Span;
+			BinaryPrimitives.WriteUInt16BigEndian(buf.Slice(2), destination.Port);
+
+			if (address.AddressFamily is AddressFamily.InterNetwork)
+			{
+				buf.Slice(8, 10).Clear();
+				buf[18] = 0xff;
+				buf[19] = 0xff;
+				address.TryWriteBytes(buf.Slice(20), out _);
+				buf.Slice(24, 4).Clear();
+			}
+			else
+			{
+				address.TryWriteBytes(buf.Slice(8), out _);
+				BinaryPrimitives.WriteInt32LittleEndian(buf.Slice(24), (int)address.ScopeId);
+			}
+
+			await _socket.SendToAsync(data, SocketFlags.None, _sendSa, cancellationToken);
 			return data.Length;
 		}
 
 		public async ValueTask<PacketReceiveResult> ReceiveFromAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
 		{
-			SocketReceiveFromResult result = await _socket.ReceiveFromAsync(
-				buffer,
-				SocketFlags.None,
-				new IPEndPoint(IPAddress.IPv6Any, 0),
-				cancellationToken);
+			int received = await _socket.ReceiveFromAsync(buffer, SocketFlags.None, _recvSa, cancellationToken);
 
-			IPEndPoint remote = (IPEndPoint)result.RemoteEndPoint;
-			IPAddress address = remote.Address.IsIPv4MappedToIPv6 ? remote.Address.MapToIPv4() : remote.Address;
+			Span<byte> buf = _recvSa.Buffer.Span;
+			ushort port = BinaryPrimitives.ReadUInt16BigEndian(buf.Slice(2));
+			IPAddress address = new(buf.Slice(8, 16));
+
+			if (address.IsIPv4MappedToIPv6)
+			{
+				address = address.MapToIPv4();
+			}
+
 			byte[] hostBytes = Encoding.ASCII.GetBytes(address.ToString());
 
 			return new PacketReceiveResult
 			{
-				BytesReceived = result.ReceivedBytes,
-				RemoteDestination = new ProxyDestination(hostBytes, (ushort)remote.Port)
+				BytesReceived = received,
+				RemoteDestination = new ProxyDestination(hostBytes, port)
 			};
 		}
 
