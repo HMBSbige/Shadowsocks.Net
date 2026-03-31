@@ -90,10 +90,13 @@ Creates packet-oriented outbound connections. Per-message destinations are speci
 ### `IConnection`
 
 ```csharp
-public interface IConnection : IDuplexPipe, IAsyncDisposable;
+public interface IConnection : IDuplexPipe, IAsyncDisposable
+{
+    SocketAddress? LocalEndPoint { get; }
+}
 ```
 
-A duplex pipe backed by a connection. Provides `PipeReader` / `PipeWriter` for I/O. `DisposeAsync` releases the underlying transport.
+A duplex pipe backed by a connection. Provides `PipeReader` / `PipeWriter` for I/O and exposes the local `SocketAddress` of the underlying transport when available. `DisposeAsync` releases the underlying transport.
 
 ### `ProxyDestination`
 

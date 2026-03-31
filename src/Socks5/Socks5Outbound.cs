@@ -123,6 +123,8 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 
 	private sealed class SocketConnection(Socket socket, IDuplexPipe pipe) : IConnection
 	{
+		public SocketAddress? LocalEndPoint { get; } = socket.LocalEndPoint?.Serialize();
+
 		public PipeReader Input => pipe.Input;
 
 		public PipeWriter Output => pipe.Output;

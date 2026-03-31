@@ -47,6 +47,8 @@ public sealed class DirectOutbound : IStreamOutbound, IPacketOutbound
 	{
 		private readonly IDuplexPipe _pipe = socket.AsDuplexPipe();
 
+		public SocketAddress? LocalEndPoint { get; } = socket.LocalEndPoint?.Serialize();
+
 		public PipeReader Input => _pipe.Input;
 
 		public PipeWriter Output => _pipe.Output;

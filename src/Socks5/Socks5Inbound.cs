@@ -127,7 +127,8 @@ public sealed partial class Socks5Inbound(
 
 			await using (connection)
 			{
-				await Socks5Utils.SendReplyAsync(clientPipe.Output, Socks5Reply.Succeeded, ServerBound.Unspecified, cancellationToken);
+				ServerBound bound = connection.LocalEndPoint is { } sa ? ServerBound.FromSocketAddress(sa) : ServerBound.Unspecified;
+				await Socks5Utils.SendReplyAsync(clientPipe.Output, Socks5Reply.Succeeded, bound, cancellationToken);
 				await connection.LinkToAsync(clientPipe, cancellationToken);
 			}
 		}
@@ -156,14 +157,9 @@ public sealed partial class Socks5Inbound(
 		using Socket relaySocket = new(bindAddress.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
 		relaySocket.Bind(new IPEndPoint(bindAddress, 0));
 
-		IPEndPoint localEndPoint = (IPEndPoint)relaySocket.LocalEndPoint!;
+		ServerBound replyBound = relaySocket.LocalEndPoint?.Serialize() is { } sa ? ServerBound.FromSocketAddress(sa) : ServerBound.Unspecified;
 
-		ServerBound replyBound = default;
-		replyBound.Type = bindAddress.AddressFamily is AddressFamily.InterNetworkV6 ? AddressType.IPv6 : AddressType.IPv4;
-		localEndPoint.Address.TryFormat(replyBound.Host.WriteBuffer, out replyBound.Host.Length);
-		replyBound.Port = (ushort)localEndPoint.Port;
-
-		LogUdpRelay(localEndPoint.Port);
+		LogUdpRelay(replyBound.Port);
 
 		await Socks5Utils.SendReplyAsync(clientPipe.Output, Socks5Reply.Succeeded, replyBound, cancellationToken);
 

@@ -512,6 +512,69 @@ public class Socks5InboundTest
 	}
 
 	[Test]
+	[DisplayName("CONNECT: BND.ADDR/BND.PORT match actual outbound socket (RFC 1928 §6)")]
+	public async Task Connect_RepliesWithRealBoundAddress(CancellationToken cancellationToken)
+	{
+		await ConnectAndVerifyBoundAddress(IPAddress.Loopback, AddressType.IPv4, cancellationToken);
+	}
+
+	[Test]
+	[DisplayName("CONNECT IPv6: BND.ADDR/BND.PORT match actual outbound socket (RFC 1928 §6)")]
+	public async Task Connect_IPv6_RepliesWithRealBoundAddress(CancellationToken cancellationToken)
+	{
+		await ConnectAndVerifyBoundAddress(IPAddress.IPv6Loopback, AddressType.IPv6, cancellationToken);
+	}
+
+	private async Task ConnectAndVerifyBoundAddress(IPAddress loopback, AddressType expectedType, CancellationToken cancellationToken)
+	{
+		using TcpListener target = new(loopback, 0);
+		target.Start();
+		ushort targetPort = (ushort)((IPEndPoint)target.LocalEndpoint).Port;
+		Task<Socket> acceptTask = target.AcceptSocketAsync(cancellationToken).AsTask();
+
+		Socks5Inbound inbound = new();
+		DirectOutbound outbound = new();
+		using TcpListener proxy = new(loopback, 0);
+		proxy.Start();
+		ushort proxyPort = (ushort)((IPEndPoint)proxy.LocalEndpoint).Port;
+		using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+		_ = TestAcceptLoop.RunAsync(proxy, inbound, outbound, cts.Token);
+
+		using TcpClient client = new();
+		await client.ConnectAsync(loopback, proxyPort, cancellationToken);
+		NetworkStream stream = client.GetStream();
+
+		await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, cancellationToken);
+		byte[] methodReply = new byte[2];
+		await stream.ReadExactlyAsync(methodReply, cancellationToken);
+
+		byte[] cmd = new byte[Constants.MaxCommandLength];
+		byte[] hostBytes = System.Text.Encoding.ASCII.GetBytes(loopback.ToString());
+		int cmdLen = Pack.ClientCommand(Command.Connect, hostBytes, targetPort, cmd);
+		await stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
+
+		byte[] replyBuf = new byte[Constants.MaxCommandLength];
+		int read = await stream.ReadAsync(replyBuf, cancellationToken);
+		ReadOnlySequence<byte> seq = new(replyBuf.AsMemory(0, read));
+		bool parsed = Unpack.ReadServerReplyCommand(ref seq, out ServerBound bound);
+		await Assert.That(parsed).IsTrue();
+
+		await Assert.That(bound.Type).IsEqualTo(expectedType);
+
+		// The target sees the proxy's outbound socket as its RemoteEndPoint —
+		// this must exactly match BND.ADDR:BND.PORT in the SOCKS5 reply.
+		using Socket accepted = await acceptTask;
+		IPEndPoint outboundEp = (IPEndPoint)accepted.RemoteEndPoint!;
+
+		await Assert.That(bound.Host.Span.SequenceEqual(
+			System.Text.Encoding.ASCII.GetBytes(outboundEp.Address.ToString()))).IsTrue();
+		await Assert.That(bound.Port).IsEqualTo((ushort)outboundEp.Port);
+
+		await cts.CancelAsync();
+		target.Stop();
+	}
+
+	[Test]
 	public async Task UdpAssociateNoAuth(CancellationToken cancellationToken)
 	{
 		Socks5CreateOption option = new()
