@@ -36,7 +36,15 @@ public static partial class Socks5Utils
 			throw new Socks5ProtocolErrorException(@"SOCKS5 auth username password error.", Socks5Reply.ConnectionNotAllowed);
 		}
 
-		return await ReadTargetAsync(pipe, cancellationToken);
+		try
+		{
+			return await ReadTargetAsync(pipe, cancellationToken);
+		}
+		catch (Socks5ProtocolErrorException ex) when (ex.Socks5Reply is Socks5Reply.AddressTypeNotSupported)
+		{
+			await SendReplyAsync(pipe.Output, ex.Socks5Reply, ServerBound.Unspecified, cancellationToken);
+			throw;
+		}
 
 		ParseResult TryReadClientHandshake(ref ReadOnlySequence<byte> buffer)
 		{

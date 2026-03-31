@@ -336,6 +336,32 @@ public class Socks5InboundTest
 	}
 
 	[Test]
+	[DisplayName("Unknown ATYP (0x05) replies REP=0x08 AddressTypeNotSupported (RFC 1928 §6)")]
+	public async Task UnknownAddressType_RepliesAddressTypeNotSupported(CancellationToken cancellationToken)
+	{
+		Socks5Inbound inbound = new();
+
+		Pipe clientToServer = new();
+		Pipe serverToClient = new();
+		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		ValueTask handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken);
+
+		await NoAuthHandshakeAsync(clientToServer.Writer, serverToClient.Reader, cancellationToken);
+
+		// Manually craft: VER=0x05, CMD=CONNECT, RSV=0x00, ATYP=0x05 (unknown), dummy addr+port
+		await clientToServer.Writer.WriteAsync(new byte[] { 0x05, 0x01, 0x00, 0x05, 0x00, 0x00, 0x00, 0x50 }, cancellationToken);
+
+		ReadResult replyResult = await serverToClient.Reader.ReadAsync(cancellationToken);
+		byte[] reply = replyResult.Buffer.ToArray();
+		serverToClient.Reader.AdvanceTo(replyResult.Buffer.End);
+
+		await handleTask;
+
+		await Assert.That(reply[0]).IsEqualTo(Constants.ProtocolVersion);
+		await Assert.That(reply[1]).IsEqualTo((byte)Socks5Reply.AddressTypeNotSupported);
+	}
+
+	[Test]
 	[DisplayName("UDP relay: DST=0.0.0.0:0 forwards from client IP with any port")]
 	public async Task UdpRelay_ZeroAddr_ZeroPort_ForwardsFromClientIp(CancellationToken cancellationToken)
 	{
