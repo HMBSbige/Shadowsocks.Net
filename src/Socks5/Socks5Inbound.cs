@@ -82,28 +82,16 @@ public sealed partial class Socks5Inbound(
 
 	private static async ValueTask<(Command command, ServerBound target)> AcceptClientAsync(IDuplexPipe pipe, UserPassAuth? credential, CancellationToken cancellationToken)
 	{
-		Method[] methods = new Method[byte.MaxValue];
-		int methodCount = 0;
-
-		if (!await pipe.Input.ReadAsync(TryReadClientHandshake, cancellationToken))
-		{
-			throw new InvalidDataException(@"Incomplete SOCKS5 greeting.");
-		}
-
-		// Select method (NMETHODS=0 falls through to METHOD=0xFF per RFC 1928 §3).
 		Method desired = credential?.UserName.Length > 0
 			? Method.UsernamePassword
 			: Method.NoAuthentication;
 
+		// NMETHODS=0 falls through to METHOD=0xFF per RFC 1928 §3.
 		Method method = Method.NoAcceptable;
 
-		for (int i = 0; i < methodCount; i++)
+		if (!await pipe.Input.ReadAsync(TryReadClientHandshake, cancellationToken))
 		{
-			if (methods[i] == desired)
-			{
-				method = desired;
-				break;
-			}
+			throw new InvalidDataException(@"Incomplete SOCKS5 greeting.");
 		}
 
 		await pipe.Output.WriteAsync(2, PackMethod, cancellationToken);
@@ -122,7 +110,7 @@ public sealed partial class Socks5Inbound(
 
 		ParseResult TryReadClientHandshake(ref ReadOnlySequence<byte> buffer)
 		{
-			return Unpack.ReadClientHandshake(ref buffer, methods, out methodCount) ? ParseResult.Success : ParseResult.NeedsMoreData;
+			return Unpack.ReadClientHandshake(ref buffer, desired, out method) ? ParseResult.Success : ParseResult.NeedsMoreData;
 		}
 
 		int PackMethod(Span<byte> span)

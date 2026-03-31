@@ -267,7 +267,7 @@ internal static class Unpack
 		return true;
 	}
 
-	public static bool ReadClientHandshake(ref ReadOnlySequence<byte> buffer, Span<Method> methods, out int methodCount)
+	public static bool ReadClientHandshake(ref ReadOnlySequence<byte> buffer, Method target, out Method selected)
 	{
 		// +----+----------+----------+
 		// |VER | NMETHODS | METHODS  |
@@ -275,7 +275,7 @@ internal static class Unpack
 		// | 1  |    1     | 1 to 255 |
 		// +----+----------+----------+
 
-		methodCount = 0;
+		selected = Method.NoAcceptable;
 
 		SequenceReader<byte> reader = new(buffer);
 
@@ -286,7 +286,7 @@ internal static class Unpack
 
 		if (ver is not Constants.ProtocolVersion)
 		{
-			throw new Socks5ProtocolErrorException($@"Server version is not 0x05: 0x{ver:X2}.", Socks5Reply.GeneralFailure);
+			throw new Socks5ProtocolErrorException($@"Client version is not 0x05: 0x{ver:X2}.", Socks5Reply.GeneralFailure);
 		}
 
 		if (!reader.TryRead(out byte num))
@@ -294,20 +294,14 @@ internal static class Unpack
 			return false;
 		}
 
-		if (reader.Remaining < num)
+		if (!reader.TryReadExact(num, out ReadOnlySequence<byte> methods))
 		{
 			return false;
 		}
 
-		for (int i = 0; i < num; ++i)
+		if (methods.PositionOf((byte)target) is not null)
 		{
-			reader.TryRead(out byte b);
-			Method m = (Method)b;
-
-			if (methodCount < methods.Length && !methods.Slice(0, methodCount).Contains(m))
-			{
-				methods[methodCount++] = m;
-			}
+			selected = target;
 		}
 
 		buffer = buffer.Slice(reader.Consumed);

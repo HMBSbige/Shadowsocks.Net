@@ -447,13 +447,24 @@ public class Socks5UnpackTest
 		int len = Pack.Handshake(methods, buffer);
 
 		ReadOnlySequence<byte> seq = new(buffer.AsMemory(0, len));
-		Method[] parsed = new Method[8];
-		bool result = Unpack.ReadClientHandshake(ref seq, parsed, out int count);
+		bool result = Unpack.ReadClientHandshake(ref seq, Method.NoAuthentication, out Method selected);
 
 		await Assert.That(result).IsTrue();
-		await Assert.That(count).IsEqualTo(2);
-		await Assert.That(parsed[0]).IsEqualTo(Method.NoAuthentication);
-		await Assert.That(parsed[1]).IsEqualTo(Method.UsernamePassword);
+		await Assert.That(selected).IsEqualTo(Method.NoAuthentication);
+	}
+
+	[Test]
+	public async Task ReadClientHandshake_TargetNotFound(CancellationToken cancellationToken)
+	{
+		byte[] buffer = new byte[Constants.MaxHandshakeClientMethodLength];
+		ReadOnlySpan<Method> methods = [Method.NoAuthentication];
+		int len = Pack.Handshake(methods, buffer);
+
+		ReadOnlySequence<byte> seq = new(buffer.AsMemory(0, len));
+		bool result = Unpack.ReadClientHandshake(ref seq, Method.UsernamePassword, out Method selected);
+
+		await Assert.That(result).IsTrue();
+		await Assert.That(selected).IsEqualTo(Method.NoAcceptable);
 	}
 
 	[Test]
@@ -464,39 +475,10 @@ public class Socks5UnpackTest
 		Socks5ProtocolErrorException? ex = await Assert.That(() =>
 		{
 			ReadOnlySequence<byte> local = new(data);
-			Unpack.ReadClientHandshake(ref local, new Method[8], out _);
+			Unpack.ReadClientHandshake(ref local, Method.NoAuthentication, out _);
 		}).Throws<Socks5ProtocolErrorException>();
 
 		await Assert.That(ex?.Socks5Reply).IsEqualTo(Socks5Reply.GeneralFailure);
-	}
-
-	[Test]
-	public async Task ReadClientHandshake_DuplicateDedup(CancellationToken cancellationToken)
-	{
-		// VER=05, NMETHODS=3, METHODS=[NoAuth, UserPassAuth, NoAuth]
-		byte[] data = [Constants.ProtocolVersion, 0x03, 0x00, 0x02, 0x00];
-		ReadOnlySequence<byte> seq = new(data);
-		Method[] parsed = new Method[8];
-
-		bool result = Unpack.ReadClientHandshake(ref seq, parsed, out int count);
-
-		await Assert.That(result).IsTrue();
-		await Assert.That(count).IsEqualTo(2); // deduped
-	}
-
-	[Test]
-	public async Task ReadClientHandshake_MethodsExceedBuffer(CancellationToken cancellationToken)
-	{
-		// VER=05, NMETHODS=10, 10 unique method bytes — buffer only holds 8
-		byte[] data = [Constants.ProtocolVersion, 0x0A, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x80, 0xFF];
-		ReadOnlySequence<byte> seq = new(data);
-		Method[] parsed = new Method[8];
-
-		bool result = Unpack.ReadClientHandshake(ref seq, parsed, out int count);
-
-		await Assert.That(result).IsTrue();
-		await Assert.That(count).IsEqualTo(8); // buffer full, extra methods discarded
-		await Assert.That(seq.Length).IsEqualTo(0); // all bytes consumed
 	}
 
 	[Test]
@@ -504,9 +486,8 @@ public class Socks5UnpackTest
 	{
 		byte[] data = [Constants.ProtocolVersion, 0x02, 0x00]; // says 2 methods, only 1
 		ReadOnlySequence<byte> seq = new(data);
-		Method[] methods = new Method[8];
 
-		bool result = Unpack.ReadClientHandshake(ref seq, methods, out _);
+		bool result = Unpack.ReadClientHandshake(ref seq, Method.NoAuthentication, out _);
 
 		await Assert.That(result).IsFalse();
 	}
@@ -685,12 +666,9 @@ public class Socks5UnpackTest
 		int packLen = Pack.Handshake(original, packBuf);
 
 		ReadOnlySequence<byte> seq = new(packBuf.AsMemory(0, packLen));
-		Method[] parsed = new Method[8];
-		Unpack.ReadClientHandshake(ref seq, parsed, out int count);
+		Unpack.ReadClientHandshake(ref seq, Method.UsernamePassword, out Method selected);
 
-		await Assert.That(count).IsEqualTo(2);
-		await Assert.That(parsed[0]).IsEqualTo(Method.NoAuthentication);
-		await Assert.That(parsed[1]).IsEqualTo(Method.UsernamePassword);
+		await Assert.That(selected).IsEqualTo(Method.UsernamePassword);
 	}
 
 	[Test]
