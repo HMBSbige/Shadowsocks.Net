@@ -11,18 +11,13 @@ namespace Socks5;
 
 public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound, IPacketOutbound
 {
-	private static readonly Method[] MethodsNoAuth = [Method.NoAuthentication];
-	private static readonly Method[] MethodsWithAuth = [Method.NoAuthentication, Method.UsernamePassword];
-	private static readonly byte[] IPv4Unspecified = "0.0.0.0"u8.ToArray();
-	private static readonly byte[] IPv6Unspecified = "::"u8.ToArray();
-
 	public async ValueTask<IConnection> ConnectAsync(ProxyDestination destination, CancellationToken cancellationToken = default)
 	{
 		(Socket socket, IDuplexPipe pipe) = await HandshakeAsync(cancellationToken);
 
 		try
 		{
-			await SendCommandAsync(pipe, Command.Connect, destination.Host, destination.Port, cancellationToken);
+			await Socks5Utils.SendCommandAsync(pipe, Command.Connect, destination.Host, destination.Port, cancellationToken);
 			return new SocketConnection(socket, pipe);
 		}
 		catch
@@ -38,8 +33,8 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 
 		try
 		{
-			byte[] host = option.Address?.AddressFamily is AddressFamily.InterNetworkV6 ? IPv6Unspecified : IPv4Unspecified;
-			ServerBound bound = await SendCommandAsync(pipe, Command.UdpAssociate, host, 0, cancellationToken);
+			byte[] host = option.Address?.AddressFamily is AddressFamily.InterNetworkV6 ? Socks5Utils.IPv6Unspecified : Socks5Utils.IPv4Unspecified;
+			ServerBound bound = await Socks5Utils.SendCommandAsync(pipe, Command.UdpAssociate, host, 0, cancellationToken);
 
 			Socket udpSocket = new(AddressFamily.InterNetworkV6, SocketType.Dgram, ProtocolType.Udp) { DualMode = true };
 
@@ -110,104 +105,19 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 
 	private async ValueTask HandshakeWithAuthAsync(IDuplexPipe pipe, CancellationToken cancellationToken)
 	{
-		Method[] clientMethods = option.UserPassAuth is not null ? MethodsWithAuth : MethodsNoAuth;
+		Method[] clientMethods = option.UserPassAuth is not null ? Socks5Utils.MethodsWithAuth : Socks5Utils.MethodsNoAuth;
 
-		Method replyMethod = await HandshakeMethodAsync(pipe, clientMethods, cancellationToken);
+		Method replyMethod = await Socks5Utils.HandshakeMethodAsync(pipe, clientMethods, cancellationToken);
 
 		switch (replyMethod)
 		{
 			case Method.NoAuthentication:
 				return;
 			case Method.UsernamePassword when option.UserPassAuth is { } credential:
-				await AuthAsync(pipe, credential, cancellationToken);
+				await Socks5Utils.AuthAsync(pipe, credential, cancellationToken);
 				break;
 			default:
 				throw new MethodUnsupportedException($@"Error method: {replyMethod}", replyMethod);
-		}
-	}
-
-	private static async ValueTask<Method> HandshakeMethodAsync(IDuplexPipe pipe, Method[] clientMethods, CancellationToken cancellationToken)
-	{
-		await pipe.Output.WriteAsync(Constants.MaxHandshakeClientMethodLength, PackHandshake, cancellationToken);
-
-		Method method = Method.NoAuthentication;
-		await pipe.Input.ReadAsync(HandleResponse, cancellationToken);
-
-		bool found = false;
-
-		foreach (Method m in clientMethods)
-		{
-			if (m == method)
-			{
-				found = true;
-				break;
-			}
-		}
-
-		if (!found)
-		{
-			throw new MethodUnsupportedException($@"Server sent an unsupported method ({method}:0x{(byte)method:X2}).", method);
-		}
-
-		return method;
-
-		int PackHandshake(Span<byte> span)
-		{
-			return Pack.Handshake(clientMethods, span);
-		}
-
-		ParseResult HandleResponse(ref ReadOnlySequence<byte> buffer)
-		{
-			return Unpack.ReadResponseMethod(ref buffer, out method) ? ParseResult.Success : ParseResult.NeedsMoreData;
-		}
-	}
-
-	private static async ValueTask AuthAsync(IDuplexPipe pipe, UserPassAuth credential, CancellationToken cancellationToken)
-	{
-		await pipe.Output.WriteAsync(Constants.MaxUsernamePasswordAuthLength, PackUsernamePassword, cancellationToken);
-
-		if (!await pipe.Input.ReadAsync(HandleResponse, cancellationToken))
-		{
-			throw new Socks5ProtocolErrorException(@"Auth failed!", Socks5Reply.ConnectionNotAllowed);
-		}
-
-		return;
-
-		int PackUsernamePassword(Span<byte> span)
-		{
-			return Pack.UsernamePasswordAuth(credential, span);
-		}
-
-		static ParseResult HandleResponse(ref ReadOnlySequence<byte> buffer)
-		{
-			return Unpack.ReadResponseAuthReply(ref buffer) ? ParseResult.Success : ParseResult.NeedsMoreData;
-		}
-	}
-
-	private static async ValueTask<ServerBound> SendCommandAsync(
-		IDuplexPipe pipe, Command command,
-		ReadOnlyMemory<byte> host, ushort port,
-		CancellationToken cancellationToken)
-	{
-		await pipe.Output.WriteAsync(Constants.MaxCommandLength, PackClientCommand, cancellationToken);
-
-		ServerBound bound = new();
-
-		if (!await pipe.Input.ReadAsync(HandleResponse, cancellationToken))
-		{
-			throw new Socks5ProtocolErrorException(@"Send command failed!", Socks5Reply.CommandNotSupported);
-		}
-
-		return bound;
-
-		int PackClientCommand(Span<byte> span)
-		{
-			return Pack.ClientCommand(command, host.Span, port, span);
-		}
-
-		ParseResult HandleResponse(ref ReadOnlySequence<byte> buffer)
-		{
-			return Unpack.ReadServerReplyCommand(ref buffer, out bound) ? ParseResult.Success : ParseResult.NeedsMoreData;
 		}
 	}
 

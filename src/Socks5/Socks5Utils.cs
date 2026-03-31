@@ -3,7 +3,7 @@ using System.Buffers;
 
 namespace Socks5;
 
-public static class Socks5Utils
+public static partial class Socks5Utils
 {
 	public static bool IsSocks5Header(this ReadOnlySequence<byte> buffer)
 	{
