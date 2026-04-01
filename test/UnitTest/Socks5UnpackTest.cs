@@ -482,6 +482,20 @@ public class Socks5UnpackTest
 	}
 
 	[Test]
+	public async Task ReadClientHandshake_ZeroMethods_Throws(CancellationToken cancellationToken)
+	{
+		byte[] data = [Constants.ProtocolVersion, 0x00]; // NMETHODS=0
+
+		Socks5ProtocolErrorException? ex = await Assert.That(() =>
+		{
+			ReadOnlySequence<byte> local = new(data);
+			Unpack.ReadClientHandshake(ref local, Method.NoAuthentication, out _);
+		}).Throws<Socks5ProtocolErrorException>();
+
+		await Assert.That(ex?.Socks5Reply).IsEqualTo(Socks5Reply.GeneralFailure);
+	}
+
+	[Test]
 	public async Task ReadClientHandshake_InsufficientData(CancellationToken cancellationToken)
 	{
 		byte[] data = [Constants.ProtocolVersion, 0x02, 0x00]; // says 2 methods, only 1

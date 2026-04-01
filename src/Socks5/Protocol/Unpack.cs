@@ -294,6 +294,11 @@ internal static class Unpack
 			return false;
 		}
 
+		if (num is 0)
+		{
+			throw new Socks5ProtocolErrorException("NMETHODS is 0 (RFC 1928 §3 requires 1–255 methods).", Socks5Reply.GeneralFailure);
+		}
+
 		if (!reader.TryReadExact(num, out ReadOnlySequence<byte> methods))
 		{
 			return false;

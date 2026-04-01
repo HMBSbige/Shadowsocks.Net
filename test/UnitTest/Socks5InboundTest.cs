@@ -220,8 +220,8 @@ public class Socks5InboundTest
 	}
 
 	[Test]
-	[DisplayName("Method negotiation: NMETHODS=0 replies METHOD=0xFF before closing (RFC 1928 §3)")]
-	public async Task MethodNegotiation_ZeroMethods_RepliesNoAcceptable(CancellationToken cancellationToken)
+	[DisplayName("NMETHODS=0 (malformed) closes without any response")]
+	public async Task MalformedGreeting_ZeroMethods_ClosesWithoutResponse(CancellationToken cancellationToken)
 	{
 		Socks5Inbound inbound = new();
 
@@ -230,7 +230,7 @@ public class Socks5InboundTest
 		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
 		ValueTask handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken);
 
-		// VER=0x05, NMETHODS=0x00 — no methods offered
+		// VER=0x05, NMETHODS=0x00 — malformed greeting per RFC 1928 §3
 		await clientToServer.Writer.WriteAsync(new byte[] { 0x05, 0x00 }, cancellationToken);
 
 		await handleTask;
@@ -238,12 +238,7 @@ public class Socks5InboundTest
 		await serverToClient.Writer.CompleteAsync();
 
 		ReadResult result = await serverToClient.Reader.ReadAsync(cancellationToken);
-		byte[] allServerData = result.Buffer.ToArray();
-		serverToClient.Reader.AdvanceTo(result.Buffer.End);
-
-		await Assert.That(allServerData).Count().IsEqualTo(2);
-		await Assert.That(allServerData[0]).IsEqualTo(Constants.ProtocolVersion);
-		await Assert.That(allServerData[1]).IsEqualTo((byte)Method.NoAcceptable);
+		await Assert.That(result.Buffer.IsEmpty).IsTrue();
 	}
 
 	[Test]

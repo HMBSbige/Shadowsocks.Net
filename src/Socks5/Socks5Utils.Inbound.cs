@@ -16,7 +16,6 @@ public static partial class Socks5Utils
 			? Method.UsernamePassword
 			: Method.NoAuthentication;
 
-		// NMETHODS=0 falls through to METHOD=0xFF per RFC 1928 §3.
 		Method method = Method.NoAcceptable;
 
 		if (!await pipe.Input.ReadAsync(TryReadClientHandshake, cancellationToken))
