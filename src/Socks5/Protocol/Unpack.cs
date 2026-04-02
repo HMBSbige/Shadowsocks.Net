@@ -138,10 +138,7 @@ internal static class Unpack
 
 		Socks5UdpReceivePacket res = new();
 
-		if (span[0] is not Constants.Rsv || span[1] is not Constants.Rsv)
-		{
-			throw new Socks5ProtocolErrorException($@"Protocol failed, RESERVED is not 0x0000: 0x{span[0]:X2}{span[1]:X2}.", Socks5Reply.GeneralFailure);
-		}
+		// UDP RSV bytes are skipped for interoperability.
 
 		res.Fragment = span[2];
 
@@ -250,12 +247,7 @@ internal static class Unpack
 			throw new Socks5ProtocolErrorException($@"Protocol failed, server reply: {reply}.", reply);
 		}
 
-		reader.TryRead(out byte b2);
-
-		if (b2 is not Constants.Rsv)
-		{
-			throw new Socks5ProtocolErrorException($@"Protocol failed, RESERVED is not 0x00: 0x{b2:X2}.", Socks5Reply.GeneralFailure);
-		}
+		reader.TryRead(out _); // RSV (skipped for interoperability)
 
 		reader.TryRead(out byte b3);
 		bound.Type = (AddressType)b3;

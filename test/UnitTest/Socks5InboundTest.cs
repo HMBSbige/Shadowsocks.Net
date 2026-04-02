@@ -3,6 +3,7 @@ using Proxy.Abstractions;
 using Socks5;
 using Socks5.Protocol;
 using System.Buffers;
+using System.Buffers.Binary;
 using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
@@ -403,6 +404,40 @@ public class Socks5InboundTest
 		await serverToClient.Writer.CompleteAsync();
 		ReadResult result = await serverToClient.Reader.ReadAsync(cancellationToken);
 		await Assert.That(result.Buffer.IsEmpty).IsTrue();
+	}
+
+	[Test]
+	[DisplayName("AcceptClient: non-zero RSV in client request is accepted for interoperability")]
+	public async Task AcceptClient_ConnectCommand_RsvNonZero_Ignored(CancellationToken cancellationToken)
+	{
+		Pipe clientToServer = new();
+		Pipe serverToClient = new();
+		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+
+		Task<(Command command, ServerBound target)> acceptTask =
+			Socks5Utils.AcceptClientAsync(pipe, null, cancellationToken).AsTask();
+
+		// Handshake: VER=0x05, NMETHODS=1, METHOD=NoAuth
+		await clientToServer.Writer.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, cancellationToken);
+		ReadResult handshake = await serverToClient.Reader.ReadAsync(cancellationToken);
+		serverToClient.Reader.AdvanceTo(handshake.Buffer.End);
+
+		byte[] cmd = new byte[10];
+		cmd[0] = Constants.ProtocolVersion; // VER
+		cmd[1] = (byte)Command.Connect;     // CMD
+		cmd[2] = 0xFF;                      // RSV — non-zero, accepted by current parser
+		cmd[3] = (byte)AddressType.IPv4;    // ATYP
+		cmd[4] = 127;
+		cmd[5] = 0;
+		cmd[6] = 0;
+		cmd[7] = 1; // DST.ADDR
+		BinaryPrimitives.WriteUInt16BigEndian(cmd.AsSpan(8), 80); // DST.PORT
+		await clientToServer.Writer.WriteAsync(cmd, cancellationToken);
+
+		(Command command, ServerBound target) = await acceptTask;
+
+		await Assert.That(command).IsEqualTo(Command.Connect);
+		await Assert.That(target.Port).IsEqualTo((ushort)80);
 	}
 
 	[Test]

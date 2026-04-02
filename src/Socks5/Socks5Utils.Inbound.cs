@@ -115,14 +115,9 @@ public static partial class Socks5Utils
 
 			command = (Command)cmd;
 
-			if (!reader.TryRead(out byte rsv))
+			if (!reader.TryRead(out _)) // RSV (skipped for interoperability)
 			{
 				return ParseResult.NeedsMoreData;
-			}
-
-			if (rsv is not Constants.Rsv)
-			{
-				throw new Socks5ProtocolErrorException($@"Protocol failed, RESERVED is not 0x00: 0x{rsv:X2}.", Socks5Reply.GeneralFailure);
 			}
 
 			if (!reader.TryRead(out byte type))

@@ -299,20 +299,26 @@ public class Socks5UnpackTest
 	}
 
 	[Test]
-	public async Task Udp_RsvNonZero(CancellationToken cancellationToken)
+	[DisplayName("Udp: non-zero RSV is accepted for interoperability")]
+	public async Task Udp_RsvNonZero_Ignored(CancellationToken cancellationToken)
 	{
-		byte[] buffer = new byte[32];
-		buffer[0] = 0x01; // RSV should be 0x00
-		buffer[1] = 0x00;
-		buffer[2] = 0x00;
+		byte[] buffer = new byte[11];
+		buffer[0] = 0xAB; // RSV byte 1 — non-zero
+		buffer[1] = 0xCD; // RSV byte 2 — non-zero
+		buffer[2] = 0x00; // FRAG
 		buffer[3] = (byte)AddressType.IPv4;
+		buffer[4] = 127;
+		buffer[5] = 0;
+		buffer[6] = 0;
+		buffer[7] = 1;
+		BinaryPrimitives.WriteUInt16BigEndian(buffer.AsSpan(8), 8080);
+		buffer[10] = 0xFF; // 1 byte payload
 
-		Socks5ProtocolErrorException? ex = await Assert.That(() =>
-		{
-			Unpack.Udp(buffer.AsMemory(0, 16));
-		}).Throws<Socks5ProtocolErrorException>();
+		Socks5UdpReceivePacket packet = Unpack.Udp(buffer);
 
-		await Assert.That(ex?.Socks5Reply).IsEqualTo(Socks5Reply.GeneralFailure);
+		await Assert.That(packet.Type).IsEqualTo(AddressType.IPv4);
+		await Assert.That(packet.Port).IsEqualTo((ushort)8080);
+		await Assert.That(packet.Data.Length).IsEqualTo(1);
 	}
 
 	[Test]
@@ -442,20 +448,25 @@ public class Socks5UnpackTest
 	}
 
 	[Test]
-	public async Task ReadServerReplyCommand_RsvNonZero(CancellationToken cancellationToken)
+	[DisplayName("ReadServerReplyCommand: non-zero RSV is accepted for interoperability")]
+	public async Task ReadServerReplyCommand_RsvNonZero_Ignored(CancellationToken cancellationToken)
 	{
-		byte[] data = new byte[19];
+		byte[] data = new byte[10];
 		data[0] = Constants.ProtocolVersion;
 		data[1] = (byte)Socks5Reply.Succeeded;
-		data[2] = 0x01; // RSV should be 0x00
+		data[2] = 0xFF; // RSV — non-zero, accepted by current parser
+		data[3] = (byte)AddressType.IPv4;
+		data[4] = 127;
+		data[5] = 0;
+		data[6] = 0;
+		data[7] = 1; // 127.0.0.1
+		BinaryPrimitives.WriteUInt16BigEndian(data.AsSpan(8), 1080);
 
-		Socks5ProtocolErrorException? ex = await Assert.That(() =>
-		{
-			ReadOnlySequence<byte> local = new(data);
-			Unpack.ReadServerReplyCommand(ref local, out _);
-		}).Throws<Socks5ProtocolErrorException>();
+		ReadOnlySequence<byte> seq = new(data);
+		bool result = Unpack.ReadServerReplyCommand(ref seq, out ServerBound bound);
 
-		await Assert.That(ex?.Socks5Reply).IsEqualTo(Socks5Reply.GeneralFailure);
+		await Assert.That(result).IsTrue();
+		await Assert.That(bound.Port).IsEqualTo((ushort)1080);
 	}
 
 	[Test]
