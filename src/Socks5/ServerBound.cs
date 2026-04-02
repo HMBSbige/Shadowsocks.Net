@@ -8,8 +8,10 @@ internal struct ServerBound
 {
 	/// <summary>
 	/// An unspecified endpoint (IPv4 0.0.0.0:0) for SOCKS5 replies where the
-	/// bound address is not meaningful — e.g. error replies or when the actual
-	/// bound address is unavailable (RFC 1928, Section 6).
+	/// bound address is not meaningful (error replies) or genuinely unavailable
+	/// (e.g. proxy-chained connections with no local socket).
+	/// RFC 1928 §6 assumes the bound address is always known and does not
+	/// address this edge case; 0.0.0.0:0 is the de-facto industry convention.
 	/// </summary>
 	public static readonly ServerBound Unspecified = CreateUnspecified();
 

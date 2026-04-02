@@ -753,7 +753,7 @@ public class Socks5InboundTest
 	}
 
 	[Test]
-	[DisplayName("CONNECT: null LocalEndPoint replies Succeeded with unspecified BND.ADDR (RFC 1928 §6)")]
+	[DisplayName("CONNECT: null LocalEndPoint replies Succeeded with 0.0.0.0:0 BND (industry convention)")]
 	public async Task Connect_NullLocalEndPoint_SucceedsWithUnspecifiedBound(CancellationToken cancellationToken)
 	{
 		Socks5Inbound inbound = new();
