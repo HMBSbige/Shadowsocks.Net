@@ -58,7 +58,7 @@ public static partial class Socks5Utils
 
 		if (!await pipe.Input.ReadAsync(HandleResponse, cancellationToken))
 		{
-			throw new Socks5ProtocolErrorException(@"Auth failed!", Socks5Reply.ConnectionNotAllowed);
+			throw new InvalidDataException("Incomplete SOCKS5 auth reply.");
 		}
 
 		return;
@@ -85,7 +85,7 @@ public static partial class Socks5Utils
 
 		if (!await pipe.Input.ReadAsync(HandleResponse, cancellationToken))
 		{
-			throw new Socks5ProtocolErrorException(@"Send command failed!", Socks5Reply.CommandNotSupported);
+			throw new InvalidDataException("Incomplete SOCKS5 command reply.");
 		}
 
 		return bound;

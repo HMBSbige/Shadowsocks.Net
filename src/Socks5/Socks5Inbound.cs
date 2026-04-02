@@ -79,14 +79,17 @@ public sealed partial class Socks5Inbound(
 
 	private static Socks5Reply MapExceptionToReply(Exception ex)
 	{
-		return ex is SocketException socketEx
-			? socketEx.SocketErrorCode switch
+		return ex switch
+		{
+			Socks5ProtocolErrorException socks5Ex => socks5Ex.Socks5Reply,
+			SocketException socketEx => socketEx.SocketErrorCode switch
 			{
 				SocketError.HostNotFound or SocketError.HostUnreachable => Socks5Reply.HostUnreachable,
 				SocketError.ConnectionRefused => Socks5Reply.ConnectionRefused,
 				SocketError.NetworkUnreachable => Socks5Reply.NetworkUnreachable,
 				_ => Socks5Reply.GeneralFailure,
-			}
-			: Socks5Reply.GeneralFailure;
+			},
+			_ => Socks5Reply.GeneralFailure,
+		};
 	}
 }

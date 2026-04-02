@@ -896,4 +896,76 @@ public class Socks5InboundTest
 		await cts.CancelAsync();
 	}
 
+	[Test]
+	[DisplayName("CONNECT: upstream Socks5ProtocolErrorException forwards exact REP to client")]
+	public async Task Connect_UpstreamSocks5Error_ForwardsExactReply(CancellationToken cancellationToken)
+	{
+		Socks5Inbound inbound = new();
+		Socks5ReplyThrowingOutbound outbound = new(Socks5Reply.ConnectionRefused);
+
+		using TcpListener listener = new(IPAddress.Loopback, 0);
+		listener.Start();
+		ushort port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
+
+		using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+		_ = TestAcceptLoop.RunAsync(listener, inbound, outbound, cts.Token);
+
+		using TcpClient client = new();
+		await client.ConnectAsync(IPAddress.Loopback, port, cancellationToken);
+		NetworkStream stream = client.GetStream();
+
+		await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, cancellationToken);
+		byte[] methodReply = new byte[2];
+		await stream.ReadExactlyAsync(methodReply, cancellationToken);
+
+		byte[] cmd = new byte[Constants.MaxCommandLength];
+		int cmdLen = Pack.ClientCommand(Command.Connect, "127.0.0.1"u8, 80, cmd);
+		await stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
+
+		byte[] reply = new byte[Constants.MaxCommandLength];
+		int read = await stream.ReadAsync(reply, cancellationToken);
+
+		await Assert.That(read).IsGreaterThan(0);
+		await Assert.That(reply[0]).IsEqualTo(Constants.ProtocolVersion);
+		await Assert.That(reply[1]).IsEqualTo((byte)Socks5Reply.ConnectionRefused);
+
+		await cts.CancelAsync();
+	}
+
+	[Test]
+	[DisplayName("UDP ASSOCIATE: upstream Socks5ProtocolErrorException forwards exact REP to client")]
+	public async Task UdpAssociate_UpstreamSocks5Error_ForwardsExactReply(CancellationToken cancellationToken)
+	{
+		Socks5Inbound inbound = new();
+		Socks5ReplyThrowingOutbound outbound = new(Socks5Reply.HostUnreachable);
+
+		using TcpListener listener = new(IPAddress.Loopback, 0);
+		listener.Start();
+		ushort port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
+
+		using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+		_ = TestAcceptLoop.RunAsync(listener, inbound, outbound, cts.Token);
+
+		using TcpClient client = new();
+		await client.ConnectAsync(IPAddress.Loopback, port, cancellationToken);
+		NetworkStream stream = client.GetStream();
+
+		await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, cancellationToken);
+		byte[] methodReply = new byte[2];
+		await stream.ReadExactlyAsync(methodReply, cancellationToken);
+
+		byte[] cmd = new byte[Constants.MaxCommandLength];
+		int cmdLen = Pack.ClientCommand(Command.UdpAssociate, "0.0.0.0"u8, 0, cmd);
+		await stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
+
+		byte[] reply = new byte[Constants.MaxCommandLength];
+		int read = await stream.ReadAsync(reply, cancellationToken);
+
+		await Assert.That(read).IsGreaterThan(0);
+		await Assert.That(reply[0]).IsEqualTo(Constants.ProtocolVersion);
+		await Assert.That(reply[1]).IsEqualTo((byte)Socks5Reply.HostUnreachable);
+
+		await cts.CancelAsync();
+	}
+
 }

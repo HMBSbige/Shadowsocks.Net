@@ -377,6 +377,164 @@ public class Socks5OutboundTest
 		await Assert.That(methodEx?.ServerReplyMethod).IsEqualTo(Method.NoAcceptable);
 	}
 
+	[Test]
+	[DisplayName("Truncated auth reply (0 bytes then EOF) throws InvalidDataException")]
+	public async Task TruncatedAuthReply_ZeroBytes_ThrowsInvalidDataException(CancellationToken cancellationToken)
+	{
+		using TcpListener tcp = new(IPAddress.Loopback, 0);
+		tcp.Start();
+		ushort tcpPort = (ushort)((IPEndPoint)tcp.LocalEndpoint).Port;
+
+		_ = FakeTruncatedAuthServerAsync(tcp, bytesToSend: 0, cancellationToken);
+
+		Socks5Outbound outbound = new(new Socks5CreateOption
+		{
+			Address = IPAddress.Loopback,
+			Port = tcpPort,
+			UserPassAuth = new UserPassAuth
+			{
+				UserName = "u"u8.ToArray(),
+				Password = "p"u8.ToArray()
+			}
+		});
+
+		await Assert.That(async () =>
+			await outbound.ConnectAsync(new ProxyDestination("127.0.0.1"u8.ToArray(), 80), cancellationToken)
+		).Throws<InvalidDataException>();
+	}
+
+	[Test]
+	[DisplayName("Truncated auth reply (1 byte then EOF) throws InvalidDataException")]
+	public async Task TruncatedAuthReply_OneByte_ThrowsInvalidDataException(CancellationToken cancellationToken)
+	{
+		using TcpListener tcp = new(IPAddress.Loopback, 0);
+		tcp.Start();
+		ushort tcpPort = (ushort)((IPEndPoint)tcp.LocalEndpoint).Port;
+
+		_ = FakeTruncatedAuthServerAsync(tcp, bytesToSend: 1, cancellationToken);
+
+		Socks5Outbound outbound = new(new Socks5CreateOption
+		{
+			Address = IPAddress.Loopback,
+			Port = tcpPort,
+			UserPassAuth = new UserPassAuth
+			{
+				UserName = "u"u8.ToArray(),
+				Password = "p"u8.ToArray()
+			}
+		});
+
+		await Assert.That(async () =>
+			await outbound.ConnectAsync(new ProxyDestination("127.0.0.1"u8.ToArray(), 80), cancellationToken)
+		).Throws<InvalidDataException>();
+	}
+
+	[Test]
+	[DisplayName("Truncated command reply (0 bytes then EOF) throws InvalidDataException")]
+	public async Task TruncatedCommandReply_ZeroBytes_ThrowsInvalidDataException(CancellationToken cancellationToken)
+	{
+		using TcpListener tcp = new(IPAddress.Loopback, 0);
+		tcp.Start();
+		ushort tcpPort = (ushort)((IPEndPoint)tcp.LocalEndpoint).Port;
+
+		_ = FakeTruncatedCommandServerAsync(tcp, bytesToSend: 0, cancellationToken);
+
+		Socks5Outbound outbound = new(new Socks5CreateOption
+		{
+			Address = IPAddress.Loopback,
+			Port = tcpPort,
+		});
+
+		await Assert.That(async () =>
+			await outbound.ConnectAsync(new ProxyDestination("127.0.0.1"u8.ToArray(), 80), cancellationToken)
+		).Throws<InvalidDataException>();
+	}
+
+	[Test]
+	[DisplayName("Truncated command reply (1 byte then EOF) throws InvalidDataException")]
+	public async Task TruncatedCommandReply_OneByte_ThrowsInvalidDataException(CancellationToken cancellationToken)
+	{
+		using TcpListener tcp = new(IPAddress.Loopback, 0);
+		tcp.Start();
+		ushort tcpPort = (ushort)((IPEndPoint)tcp.LocalEndpoint).Port;
+
+		_ = FakeTruncatedCommandServerAsync(tcp, bytesToSend: 1, cancellationToken);
+
+		Socks5Outbound outbound = new(new Socks5CreateOption
+		{
+			Address = IPAddress.Loopback,
+			Port = tcpPort,
+		});
+
+		await Assert.That(async () =>
+			await outbound.ConnectAsync(new ProxyDestination("127.0.0.1"u8.ToArray(), 80), cancellationToken)
+		).Throws<InvalidDataException>();
+	}
+
+	private static async Task FakeTruncatedAuthServerAsync(TcpListener tcp, int bytesToSend, CancellationToken cancellationToken)
+	{
+		using TcpClient client = await tcp.AcceptTcpClientAsync(cancellationToken);
+		NetworkStream stream = client.GetStream();
+		byte[] buf = new byte[256];
+
+		// Read method negotiation
+		await stream.ReadExactlyAsync(buf.AsMemory(0, 2), cancellationToken);
+		int nmethods = buf[1];
+		await stream.ReadExactlyAsync(buf.AsMemory(0, nmethods), cancellationToken);
+
+		// Reply: accept UsernamePassword
+		await stream.WriteAsync(new[] { Constants.ProtocolVersion, (byte)Method.UsernamePassword }, cancellationToken);
+
+		// Read auth request (VER + ULEN + user + PLEN + pass)
+		await stream.ReadExactlyAsync(buf.AsMemory(0, 2), cancellationToken);
+		int uLen = buf[1];
+		await stream.ReadExactlyAsync(buf.AsMemory(0, uLen + 1), cancellationToken);
+		int pLen = buf[uLen];
+		await stream.ReadExactlyAsync(buf.AsMemory(0, pLen), cancellationToken);
+
+		// Send partial auth reply then EOF
+		if (bytesToSend > 0)
+		{
+			byte[] reply = new byte[bytesToSend];
+			reply[0] = Constants.AuthVersion;
+			await stream.WriteAsync(reply.AsMemory(0, bytesToSend), cancellationToken);
+		}
+	}
+
+	private static async Task FakeTruncatedCommandServerAsync(TcpListener tcp, int bytesToSend, CancellationToken cancellationToken)
+	{
+		using TcpClient client = await tcp.AcceptTcpClientAsync(cancellationToken);
+		NetworkStream stream = client.GetStream();
+		byte[] buf = new byte[256];
+
+		// Read method negotiation
+		await stream.ReadExactlyAsync(buf.AsMemory(0, 2), cancellationToken);
+		int nmethods = buf[1];
+		await stream.ReadExactlyAsync(buf.AsMemory(0, nmethods), cancellationToken);
+
+		// Reply: accept NoAuthentication
+		await stream.WriteAsync(new[] { Constants.ProtocolVersion, (byte)Method.NoAuthentication }, cancellationToken);
+
+		// Read command request
+		await stream.ReadExactlyAsync(buf.AsMemory(0, 4), cancellationToken);
+		byte atyp = buf[3];
+		int addrLen = atyp switch
+		{
+			0x01 => 4,
+			0x04 => 16,
+			_ => throw new InvalidOperationException($"Unexpected ATYP: {atyp}")
+		};
+		await stream.ReadExactlyAsync(buf.AsMemory(0, addrLen + 2), cancellationToken);
+
+		// Send partial command reply then EOF
+		if (bytesToSend > 0)
+		{
+			byte[] reply = new byte[bytesToSend];
+			reply[0] = Constants.ProtocolVersion;
+			await stream.WriteAsync(reply.AsMemory(0, bytesToSend), cancellationToken);
+		}
+	}
+
 	private static async Task FakeTruncatedMethodServerAsync(TcpListener tcp, int bytesToSend, CancellationToken cancellationToken)
 	{
 		using TcpClient client = await tcp.AcceptTcpClientAsync(cancellationToken);
