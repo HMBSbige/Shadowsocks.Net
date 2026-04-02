@@ -174,6 +174,21 @@ public class Socks5UnpackTest
 	}
 
 	[Test]
+	[DisplayName("DestinationAddress: ATYP=Domain with length 0 rejects empty name")]
+	public async Task DestinationAddress_Domain_EmptyName_Throws(CancellationToken cancellationToken)
+	{
+		byte[] hostBuffer = new byte[64];
+		byte[] domainData = [0]; // length byte = 0
+
+		Socks5ProtocolErrorException? ex = await Assert.That(() =>
+		{
+			Unpack.DestinationAddress(AddressType.Domain, domainData, hostBuffer, out _);
+		}).Throws<Socks5ProtocolErrorException>();
+
+		await Assert.That(ex?.Socks5Reply).IsEqualTo(Socks5Reply.GeneralFailure);
+	}
+
+	[Test]
 	public async Task DestinationAddress_UnknownType(CancellationToken cancellationToken)
 	{
 		byte[] hostBuffer = new byte[64];
@@ -219,6 +234,23 @@ public class Socks5UnpackTest
 
 		await Assert.That(result).IsTrue();
 		await Assert.That(Encoding.ASCII.GetString(hostBuffer.AsSpan(0, written))).IsEqualTo("example.com");
+	}
+
+	[Test]
+	[DisplayName("ReadDestinationAddress: ATYP=Domain with length 0 rejects empty name")]
+	public async Task ReadDestinationAddress_Domain_EmptyName_Throws(CancellationToken cancellationToken)
+	{
+		byte[] data = [0]; // domain length byte = 0
+
+		Socks5ProtocolErrorException? ex = await Assert.That(() =>
+		{
+			ReadOnlySequence<byte> seq = new(data);
+			SequenceReader<byte> reader = new(seq);
+			byte[] hostBuffer = new byte[64];
+			Unpack.ReadDestinationAddress(ref reader, AddressType.Domain, hostBuffer, out _);
+		}).Throws<Socks5ProtocolErrorException>();
+
+		await Assert.That(ex?.Socks5Reply).IsEqualTo(Socks5Reply.GeneralFailure);
 	}
 
 	[Test]

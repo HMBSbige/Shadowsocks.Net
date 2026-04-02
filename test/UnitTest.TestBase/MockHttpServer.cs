@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -45,169 +46,180 @@ public sealed class MockHttpServer : IDisposable
 
 	private async Task HandleAsync(Socket socket)
 	{
-		Stream stream = new NetworkStream(socket, ownsSocket: true);
-
-		if (_cert is not null)
+		try
 		{
-			SslStream ssl = new(stream, leaveInnerStreamOpen: false);
-			await ssl.AuthenticateAsServerAsync(_cert);
-			stream = ssl;
-		}
+			Stream stream = new NetworkStream(socket, ownsSocket: true);
 
-		await using Stream _ = stream;
-
-		byte[] buf = new byte[4096];
-		int total = 0;
-
-		while (total < buf.Length)
-		{
-			int n = await stream.ReadAsync(buf.AsMemory(total));
-
-			if (n is 0)
+			if (_cert is not null)
 			{
-				break;
+				SslStream ssl = new(stream, leaveInnerStreamOpen: false);
+				await ssl.AuthenticateAsServerAsync(_cert);
+				stream = ssl;
 			}
 
-			total += n;
+			await using Stream _ = stream;
 
-			if (buf.AsSpan(0, total).IndexOf("\r\n\r\n"u8) >= 0)
+			byte[] buf = new byte[4096];
+			int total = 0;
+
+			while (total < buf.Length)
 			{
-				break;
+				int n = await stream.ReadAsync(buf.AsMemory(total));
+
+				if (n is 0)
+				{
+					break;
+				}
+
+				total += n;
+
+				if (buf.AsSpan(0, total).IndexOf("\r\n\r\n"u8) >= 0)
+				{
+					break;
+				}
+			}
+
+			string firstLine = Encoding.UTF8.GetString(buf, 0, total).Split("\r\n")[0];
+			string[] parts = firstLine.Split(' ');
+			string path = parts.Length > 1 ? parts[1] : "/";
+
+			if (path.StartsWith("/stream-bytes/") && int.TryParse(path["/stream-bytes/".Length..], out int count))
+			{
+				await WriteChunkedAsync(stream, count, delay: true);
+			}
+			else if (path is "/status/204")
+			{
+				await WriteAsync(stream, 204, "No Content");
+			}
+			else if (path is "/get")
+			{
+				await WriteAsync(stream, 200, "OK", """{"message":"hello"}""");
+			}
+			else if (path is "/set-cookies")
+			{
+				await stream.WriteAsync("HTTP/1.1 200 OK\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"u8.ToArray());
+				await stream.FlushAsync();
+			}
+			else if (path is "/echo")
+			{
+				await WriteEchoAsync(stream, buf, total);
+			}
+			else if (path is "/echo-te")
+			{
+				await WriteEchoTeAsync(stream, buf, total);
+			}
+			else if (path is "/echo-request-line" || path.StartsWith("/echo-request-line?"))
+			{
+				await WriteAsync(stream, 200, "OK", firstLine);
+			}
+			else if (path is "/echo-headers")
+			{
+				string allHeaders = Encoding.UTF8.GetString(buf, 0, total);
+				int headerEnd = allHeaders.IndexOf("\r\n\r\n", StringComparison.Ordinal);
+				string headersOnly = headerEnd >= 0 ? allHeaders[..headerEnd] : allHeaders;
+				await WriteAsync(stream, 200, "OK", headersOnly);
+			}
+			else if (path is "/te-gzip-response")
+			{
+				// Response with Transfer-Encoding: gzip (close-delimited, no chunked)
+				await stream.WriteAsync("HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip\r\nConnection: close\r\n\r\n"u8.ToArray());
+				await stream.WriteAsync(new byte[] { 0x1f, 0x8b, 0x08, 0x00 });
+				await stream.FlushAsync();
+			}
+			else if (path is "/close-delimited")
+			{
+				await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"u8.ToArray());
+				await stream.WriteAsync("""{"message":"close-delimited"}"""u8.ToArray());
+				await stream.FlushAsync();
+			}
+			else if (path is "/bad-content-length")
+			{
+				await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Length: abc\r\nConnection: close\r\n\r\nhello"u8.ToArray());
+				await stream.FlushAsync();
+			}
+			else if (path is "/conflicting-content-length")
+			{
+				await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Length: 5\r\nContent-Length: 10\r\nConnection: close\r\n\r\nhello"u8.ToArray());
+				await stream.FlushAsync();
+			}
+			else if (path.StartsWith("/stream-bytes-ext/") && int.TryParse(path["/stream-bytes-ext/".Length..], out int extCount))
+			{
+				await WriteChunkedAsync(stream, extCount, chunkExtension: ";ext=val", terminator: "0;ext=final\r\n\r\n");
+			}
+			else if (path.StartsWith("/stream-bytes-trailer/") && int.TryParse(path["/stream-bytes-trailer/".Length..], out int trailerCount))
+			{
+				await WriteChunkedAsync(stream, trailerCount, terminator: "0\r\nX-Checksum: abc123\r\n\r\n");
+			}
+			else if (path is "/truncated-headers")
+			{
+				// Write partial headers then close — no \r\n\r\n
+				await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-"u8.ToArray());
+				await stream.FlushAsync();
+				return;// close without shutdown — skip graceful teardown below
+			}
+			else if (path is "/garbage-response")
+			{
+				// Write non-HTTP data as response
+				await stream.WriteAsync("XYZZY totally not HTTP\r\n\r\n"u8.ToArray());
+				await stream.FlushAsync();
+			}
+			else if (path is "/framing/single-write")
+			{
+				await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello"u8.ToArray());
+				await stream.FlushAsync();
+			}
+			else if (path is "/framing/separate-writes")
+			{
+				await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\n"u8.ToArray());
+				await stream.FlushAsync();
+				await stream.WriteAsync("hello"u8.ToArray());
+				await stream.FlushAsync();
+			}
+			else if (path is "/framing/split-mid-header")
+			{
+				await stream.WriteAsync("HTTP/1.1 200 OK\r\nCont"u8.ToArray());
+				await stream.FlushAsync();
+				await Task.Delay(50);
+				await stream.WriteAsync("ent-Length: 5\r\nConnection: close\r\n\r\nhello"u8.ToArray());
+				await stream.FlushAsync();
+			}
+			else if (path is "/framing/split-mid-body")
+			{
+				await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhel"u8.ToArray());
+				await stream.FlushAsync();
+				await Task.Delay(50);
+				await stream.WriteAsync("lo"u8.ToArray());
+				await stream.FlushAsync();
+			}
+			else if (path.StartsWith("/?"))
+			{
+				// Echo full request line — used by path-less query-string tests
+				await WriteAsync(stream, 200, "OK", firstLine);
+			}
+			else
+			{
+				await WriteAsync(stream, 204, "No Content");
+			}
+
+			// Graceful shutdown: send FIN on write side, then drain remaining
+			// request body. Without this, closing the socket with unread data
+			// can cause TCP RST, which discards buffered response data at the
+			// SOCKS5 relay before the proxy reads it.
+			socket.Shutdown(SocketShutdown.Send);
+
+			byte[] drain = new byte[4096];
+
+			while (await stream.ReadAsync(drain) > 0)
+			{
 			}
 		}
-
-		string firstLine = Encoding.UTF8.GetString(buf, 0, total).Split("\r\n")[0];
-		string[] parts = firstLine.Split(' ');
-		string path = parts.Length > 1 ? parts[1] : "/";
-
-		if (path.StartsWith("/stream-bytes/") && int.TryParse(path["/stream-bytes/".Length..], out int count))
+		catch (IOException ex)
 		{
-			await WriteChunkedAsync(stream, count, delay: true);
+			Debug.WriteLine($"MockHttpServer: {ex.GetType().Name}: {ex.Message}");
 		}
-		else if (path is "/status/204")
+		catch (SocketException ex)
 		{
-			await WriteAsync(stream, 204, "No Content");
-		}
-		else if (path is "/get")
-		{
-			await WriteAsync(stream, 200, "OK", """{"message":"hello"}""");
-		}
-		else if (path is "/set-cookies")
-		{
-			await stream.WriteAsync("HTTP/1.1 200 OK\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"u8.ToArray());
-			await stream.FlushAsync();
-		}
-		else if (path is "/echo")
-		{
-			await WriteEchoAsync(stream, buf, total);
-		}
-		else if (path is "/echo-te")
-		{
-			await WriteEchoTeAsync(stream, buf, total);
-		}
-		else if (path is "/echo-request-line" || path.StartsWith("/echo-request-line?"))
-		{
-			await WriteAsync(stream, 200, "OK", firstLine);
-		}
-		else if (path is "/echo-headers")
-		{
-			string allHeaders = Encoding.UTF8.GetString(buf, 0, total);
-			int headerEnd = allHeaders.IndexOf("\r\n\r\n", StringComparison.Ordinal);
-			string headersOnly = headerEnd >= 0 ? allHeaders[..headerEnd] : allHeaders;
-			await WriteAsync(stream, 200, "OK", headersOnly);
-		}
-		else if (path is "/te-gzip-response")
-		{
-			// Response with Transfer-Encoding: gzip (close-delimited, no chunked)
-			await stream.WriteAsync("HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip\r\nConnection: close\r\n\r\n"u8.ToArray());
-			await stream.WriteAsync(new byte[] { 0x1f, 0x8b, 0x08, 0x00 });
-			await stream.FlushAsync();
-		}
-		else if (path is "/close-delimited")
-		{
-			await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"u8.ToArray());
-			await stream.WriteAsync("""{"message":"close-delimited"}"""u8.ToArray());
-			await stream.FlushAsync();
-		}
-		else if (path is "/bad-content-length")
-		{
-			await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Length: abc\r\nConnection: close\r\n\r\nhello"u8.ToArray());
-			await stream.FlushAsync();
-		}
-		else if (path is "/conflicting-content-length")
-		{
-			await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Length: 5\r\nContent-Length: 10\r\nConnection: close\r\n\r\nhello"u8.ToArray());
-			await stream.FlushAsync();
-		}
-		else if (path.StartsWith("/stream-bytes-ext/") && int.TryParse(path["/stream-bytes-ext/".Length..], out int extCount))
-		{
-			await WriteChunkedAsync(stream, extCount, chunkExtension: ";ext=val", terminator: "0;ext=final\r\n\r\n");
-		}
-		else if (path.StartsWith("/stream-bytes-trailer/") && int.TryParse(path["/stream-bytes-trailer/".Length..], out int trailerCount))
-		{
-			await WriteChunkedAsync(stream, trailerCount, terminator: "0\r\nX-Checksum: abc123\r\n\r\n");
-		}
-		else if (path is "/truncated-headers")
-		{
-			// Write partial headers then close — no \r\n\r\n
-			await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-"u8.ToArray());
-			await stream.FlushAsync();
-			return;// close without shutdown — skip graceful teardown below
-		}
-		else if (path is "/garbage-response")
-		{
-			// Write non-HTTP data as response
-			await stream.WriteAsync("XYZZY totally not HTTP\r\n\r\n"u8.ToArray());
-			await stream.FlushAsync();
-		}
-		else if (path is "/framing/single-write")
-		{
-			await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello"u8.ToArray());
-			await stream.FlushAsync();
-		}
-		else if (path is "/framing/separate-writes")
-		{
-			await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\n"u8.ToArray());
-			await stream.FlushAsync();
-			await stream.WriteAsync("hello"u8.ToArray());
-			await stream.FlushAsync();
-		}
-		else if (path is "/framing/split-mid-header")
-		{
-			await stream.WriteAsync("HTTP/1.1 200 OK\r\nCont"u8.ToArray());
-			await stream.FlushAsync();
-			await Task.Delay(50);
-			await stream.WriteAsync("ent-Length: 5\r\nConnection: close\r\n\r\nhello"u8.ToArray());
-			await stream.FlushAsync();
-		}
-		else if (path is "/framing/split-mid-body")
-		{
-			await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhel"u8.ToArray());
-			await stream.FlushAsync();
-			await Task.Delay(50);
-			await stream.WriteAsync("lo"u8.ToArray());
-			await stream.FlushAsync();
-		}
-		else if (path.StartsWith("/?"))
-		{
-			// Echo full request line — used by path-less query-string tests
-			await WriteAsync(stream, 200, "OK", firstLine);
-		}
-		else
-		{
-			await WriteAsync(stream, 204, "No Content");
-		}
-
-		// Graceful shutdown: send FIN on write side, then drain remaining
-		// request body. Without this, closing the socket with unread data
-		// can cause TCP RST, which discards buffered response data at the
-		// SOCKS5 relay before the proxy reads it.
-		socket.Shutdown(SocketShutdown.Send);
-
-		byte[] drain = new byte[4096];
-
-		while (await stream.ReadAsync(drain) > 0)
-		{
+			Debug.WriteLine($"MockHttpServer: {ex.GetType().Name}: {ex.SocketErrorCode}");
 		}
 	}
 

@@ -38,6 +38,11 @@ internal static class Pack
 		}
 		else
 		{
+			if (hostText.Length is 0)
+			{
+				throw new ArgumentException("Domain name must not be empty.", nameof(hostText));
+			}
+
 			if (hostText.Length > byte.MaxValue)
 			{
 				throw new ArgumentException($"Domain length > {byte.MaxValue}", nameof(hostText));

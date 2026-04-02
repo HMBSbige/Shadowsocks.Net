@@ -49,6 +49,15 @@ public class Socks5PackTest
 	}
 
 	[Test]
+	[DisplayName("DestinationAddressAndPort: empty non-IP host rejects empty domain name")]
+	public async Task DestinationAddressAndPort_EmptyDomain_Throws(CancellationToken cancellationToken)
+	{
+		byte[] buffer = new byte[64];
+
+		await Assert.That(() => Pack.DestinationAddressAndPort(ReadOnlySpan<byte>.Empty, 80, buffer)).Throws<ArgumentException>();
+	}
+
+	[Test]
 	public async Task DestinationAddressAndPort_DomainTooLong(CancellationToken cancellationToken)
 	{
 		byte[] buffer = new byte[512];

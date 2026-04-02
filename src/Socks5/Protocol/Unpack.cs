@@ -99,10 +99,11 @@ internal static class Unpack
 				{
 					throw new Socks5ProtocolErrorException("Truncated domain address: missing length byte.", Socks5Reply.GeneralFailure);
 				}
-				// Length 0 is intentionally accepted: RFC 1928 §4 does not
-				// explicitly require a minimum length, and downstream resolution
-				// will fail naturally for empty names.
 				offset = bytes[0];
+				if (offset is 0)
+				{
+					throw new Socks5ProtocolErrorException("Empty domain name (length 0) is not a valid FQDN (RFC 1928 §5).", Socks5Reply.GeneralFailure);
+				}
 				if (bytes.Length < 1 + offset)
 				{
 					throw new Socks5ProtocolErrorException($@"Truncated domain address: expected {offset} bytes, got {bytes.Length - 1}.", Socks5Reply.GeneralFailure);
@@ -189,10 +190,14 @@ internal static class Unpack
 			}
 			case AddressType.Domain:
 			{
-				// See DestinationAddress for rationale on accepting length 0.
 				if (!reader.TryRead(out byte domainLength))
 				{
 					return false;
+				}
+
+				if (domainLength is 0)
+				{
+					throw new Socks5ProtocolErrorException("Empty domain name (length 0) is not a valid FQDN (RFC 1928 §5).", Socks5Reply.GeneralFailure);
 				}
 
 				if (reader.Remaining < domainLength)

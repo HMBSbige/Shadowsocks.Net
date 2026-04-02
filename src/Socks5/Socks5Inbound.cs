@@ -7,13 +7,25 @@ using System.Net.Sockets;
 
 namespace Socks5;
 
-public sealed partial class Socks5Inbound(
-	UserPassAuth? credential = null,
-	ILogger<Socks5Inbound>? logger = null,
-	IPAddress? udpRelayBindAddress = null) : IStreamInbound
+public sealed partial class Socks5Inbound : IStreamInbound
 {
-	private readonly ILogger<Socks5Inbound> _logger = logger ?? NullLogger<Socks5Inbound>.Instance;
-	private readonly IPAddress _udpRelayBindAddress = udpRelayBindAddress ?? IPAddress.Any;
+	private readonly UserPassAuth? _credential;
+	private readonly ILogger<Socks5Inbound> _logger;
+	private readonly IPAddress _udpRelayBindAddress;
+	private readonly bool _isWildcardBind;
+
+	public Socks5Inbound(
+		UserPassAuth? credential = null,
+		ILogger<Socks5Inbound>? logger = null,
+		IPAddress? udpRelayBindAddress = null)
+	{
+		credential?.ThrowIfInvalid();
+
+		_credential = credential;
+		_logger = logger ?? NullLogger<Socks5Inbound>.Instance;
+		_udpRelayBindAddress = udpRelayBindAddress ?? IPAddress.Any;
+		_isWildcardBind = _udpRelayBindAddress.Equals(IPAddress.Any) || _udpRelayBindAddress.Equals(IPAddress.IPv6Any);
+	}
 
 	[LoggerMessage(Level = LogLevel.Debug, Message = "SOCKS5 CONNECT to {Host}:{Port}")]
 	private partial void LogConnect(string host, ushort port);
@@ -31,7 +43,7 @@ public sealed partial class Socks5Inbound(
 	{
 		try
 		{
-			(Command command, ServerBound target) = await Socks5Utils.AcceptClientAsync(clientPipe, credential, cancellationToken);
+			(Command command, ServerBound target) = await Socks5Utils.AcceptClientAsync(clientPipe, _credential, cancellationToken);
 
 			switch (command)
 			{

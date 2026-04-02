@@ -87,6 +87,9 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 	private async ValueTask<(Socket socket, IDuplexPipe pipe)> HandshakeAsync(CancellationToken cancellationToken)
 	{
 		ArgumentNullException.ThrowIfNull(option.Address);
+
+		option.UserPassAuth?.ThrowIfInvalid();
+
 		Socket socket = new(option.Address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
 
 		try

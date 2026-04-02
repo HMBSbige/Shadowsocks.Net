@@ -15,7 +15,11 @@ public sealed partial class Socks5Inbound
 		InboundContext context,
 		CancellationToken cancellationToken)
 	{
-		if (!TryCreateExpectedUdpSource(_udpRelayBindAddress.AddressFamily, target.Port, context.ClientAddress, out SocketAddress expectedUdpSource))
+		AddressFamily effectiveFamily = _isWildcardBind
+			? context.LocalAddress.AddressFamily
+			: _udpRelayBindAddress.AddressFamily;
+
+		if (!TryCreateExpectedUdpSource(effectiveFamily, target.Port, context.ClientAddress, out SocketAddress expectedUdpSource))
 		{
 			await Socks5Utils.SendReplyAsync(clientPipe.Output, Socks5Reply.AddressTypeNotSupported, ServerBound.Unspecified, cancellationToken);
 			return;
@@ -52,7 +56,7 @@ public sealed partial class Socks5Inbound
 			// RFC 1928 §4: BND.ADDR/BND.PORT tells the client where to send UDP datagrams.
 			// A wildcard address (0.0.0.0 / ::) is unusable as a destination, so fall back
 			// to the TCP control connection's local address — an address the client can reach.
-			IPAddress bindAddress = _udpRelayBindAddress.Equals(IPAddress.Any) || _udpRelayBindAddress.Equals(IPAddress.IPv6Any)
+			IPAddress bindAddress = _isWildcardBind
 				? tcpLocalAddress
 				: _udpRelayBindAddress;
 

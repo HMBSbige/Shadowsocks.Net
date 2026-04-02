@@ -161,6 +161,58 @@ public class Socks5InboundTest
 	}
 
 	[Test]
+	[DisplayName("Constructor: empty username credential throws ArgumentException")]
+	public async Task Constructor_EmptyUsername_Throws(CancellationToken cancellationToken)
+	{
+		UserPassAuth cred = new()
+		{
+			UserName = Array.Empty<byte>(),
+			Password = "pass"u8.ToArray()
+		};
+
+		await Assert.That(() => new Socks5Inbound(cred)).Throws<ArgumentException>();
+	}
+
+	[Test]
+	[DisplayName("Constructor: username > 255 bytes throws ArgumentException")]
+	public async Task Constructor_UsernameTooLong_Throws(CancellationToken cancellationToken)
+	{
+		UserPassAuth cred = new()
+		{
+			UserName = new byte[256],
+			Password = "pass"u8.ToArray()
+		};
+
+		await Assert.That(() => new Socks5Inbound(cred)).Throws<ArgumentException>();
+	}
+
+	[Test]
+	[DisplayName("Constructor: password > 255 bytes throws ArgumentException")]
+	public async Task Constructor_PasswordTooLong_Throws(CancellationToken cancellationToken)
+	{
+		UserPassAuth cred = new()
+		{
+			UserName = "user"u8.ToArray(),
+			Password = new byte[256]
+		};
+
+		await Assert.That(() => new Socks5Inbound(cred)).Throws<ArgumentException>();
+	}
+
+	[Test]
+	[DisplayName("Constructor: empty password credential throws ArgumentException")]
+	public async Task Constructor_EmptyPassword_Throws(CancellationToken cancellationToken)
+	{
+		UserPassAuth cred = new()
+		{
+			UserName = "user"u8.ToArray(),
+			Password = Array.Empty<byte>()
+		};
+
+		await Assert.That(() => new Socks5Inbound(cred)).Throws<ArgumentException>();
+	}
+
+	[Test]
 	[DisplayName("Method negotiation: desired method beyond 8th position is still accepted")]
 	public async Task MethodNegotiation_DesiredMethodBeyondEighth_StillAccepted(CancellationToken cancellationToken)
 	{
@@ -486,6 +538,46 @@ public class Socks5InboundTest
 		ushort senderPort = (ushort)((IPEndPoint)udp.LocalEndPoint!).Port;
 		int count = await SendUdpAndCountForwardsAsync("127.0.0.1"u8.ToArray(), (ushort)(senderPort + 1), udp, cancellationToken);
 		await Assert.That(count).IsEqualTo(0);
+	}
+
+	[Test]
+	[DisplayName("UDP ASSOCIATE: default wildcard bind + IPv6 context succeeds (RFC 1928 §4)")]
+	public async Task UdpAssociate_DefaultWildcardBind_IPv6Context_Succeeds(CancellationToken cancellationToken)
+	{
+		// Default Socks5Inbound uses IPAddress.Any (IPv4 wildcard) as _udpRelayBindAddress,
+		// but on an IPv6 TCP control connection the relay should fall back to tcpLocalAddress.
+		// The pre-check must use the effective family, not the raw wildcard family.
+		Socks5Inbound inbound = new();
+
+		Pipe clientToServer = new();
+		Pipe serverToClient = new();
+		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		InboundContext ipv6Context = new()
+		{
+			ClientAddress = IPAddress.IPv6Loopback,
+			ClientPort = 0,
+			LocalAddress = IPAddress.IPv6Loopback,
+			LocalPort = 0,
+		};
+		ValueTask handleTask = inbound.HandleAsync(ipv6Context, pipe, new SpyPacketOutbound(), cancellationToken);
+
+		await NoAuthHandshakeAsync(clientToServer.Writer, serverToClient.Reader, cancellationToken);
+
+		byte[] cmd = new byte[Constants.MaxCommandLength];
+		int cmdLen = Pack.ClientCommand(Command.UdpAssociate, "::"u8.ToArray(), 0, cmd);
+		await clientToServer.Writer.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
+
+		ReadResult replyResult = await serverToClient.Reader.ReadAsync(cancellationToken);
+		ReadOnlySequence<byte> seq = replyResult.Buffer;
+		bool parsed = Unpack.ReadServerReplyCommand(ref seq, out ServerBound bound);
+		serverToClient.Reader.AdvanceTo(replyResult.Buffer.End);
+
+		await Assert.That(parsed).IsTrue();
+		await Assert.That(bound.Type).IsEqualTo(AddressType.IPv6);
+		await Assert.That(bound.Port).IsGreaterThan((ushort)0);
+
+		await clientToServer.Writer.CompleteAsync();
+		await handleTask;
 	}
 
 	[Test]
