@@ -316,11 +316,18 @@ public static partial class Socks5Utils
 					result.RemoteDestination.Port,
 					receiveBuffer.AsSpan(0, result.BytesReceived));
 
-				await relaySocket.SendToAsync(
-					sendBuffer.AsMemory(0, packedLength),
-					SocketFlags.None,
-					clientSa,
-					cancellationToken);
+				try
+				{
+					await relaySocket.SendToAsync(
+						sendBuffer.AsMemory(0, packedLength),
+						SocketFlags.None,
+						clientSa,
+						cancellationToken);
+				}
+				catch (Exception ex) when (ex is not OperationCanceledException)
+				{
+					// Transient send failure — drop this datagram, keep relay alive.
+				}
 			}
 		}
 		finally

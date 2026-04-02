@@ -917,6 +917,62 @@ public class Socks5InboundTest
 	}
 
 	[Test]
+	[DisplayName("UDP relay: transient remote-to-client send failure is dropped, subsequent packet still forwarded (RFC 1928 §7)")]
+	public async Task UdpRelay_RemoteToClientSendFailure_DroppedAndRelayContinues(CancellationToken cancellationToken)
+	{
+		OversizedThenNormalPacketOutbound outbound = new();
+		Socks5Inbound inbound = new();
+		using TcpListener listener = new(IPAddress.Loopback, 0);
+		listener.Start();
+		ushort port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
+
+		using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+		_ = TestAcceptLoop.RunAsync(listener, inbound, outbound, cts.Token);
+
+		using TcpClient client = new();
+		await client.ConnectAsync(IPAddress.Loopback, port, cancellationToken);
+		NetworkStream stream = client.GetStream();
+
+		await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, cancellationToken);
+		byte[] methodReply = new byte[2];
+		await stream.ReadExactlyAsync(methodReply, cancellationToken);
+
+		byte[] cmd = new byte[Constants.MaxCommandLength];
+		int cmdLen = Pack.ClientCommand(Command.UdpAssociate, "0.0.0.0"u8, 0, cmd);
+		await stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
+
+		byte[] replyBuf = new byte[Constants.MaxCommandLength];
+		int replyRead = await stream.ReadAsync(replyBuf, cancellationToken);
+		ReadOnlySequence<byte> seq = new(replyBuf.AsMemory(0, replyRead));
+		bool parsed = Unpack.ReadServerReplyCommand(ref seq, out ServerBound bound);
+		await Assert.That(parsed).IsTrue();
+
+		using Socket udp = CreateBoundUdpSocket();
+		IPEndPoint relayEp = new(IPAddress.Loopback, bound.Port);
+
+		// Send a normal client->remote packet to establish clientSa in the relay.
+		byte[] trigger = "trigger"u8.ToArray();
+		byte[] triggerPkt = new byte[Constants.MaxUdpHandshakeHeaderLength + trigger.Length];
+		int triggerLen = Pack.Udp(triggerPkt, "127.0.0.1"u8, 9999, trigger);
+		await udp.SendToAsync(triggerPkt.AsMemory(0, triggerLen), SocketFlags.None, relayEp, cancellationToken);
+
+		// The outbound's ReceiveFromAsync returns an oversized packet first (relay send throws),
+		// then a normal packet second (relay send succeeds).
+		// The client must receive the second (normal) packet — proving the relay stayed alive.
+		byte[] recvBuf = new byte[0x10000];
+		using CancellationTokenSource recvCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+		recvCts.CancelAfter(3000);
+		SocketReceiveFromResult recvResult = await udp.ReceiveFromAsync(recvBuf, SocketFlags.None, relayEp, recvCts.Token);
+
+		await Assert.That(recvResult.ReceivedBytes).IsGreaterThan(0);
+
+		// Verify both ReceiveFromAsync calls completed (oversized + normal).
+		await Assert.That(Volatile.Read(ref outbound.PacketConnection.ReceiveReturnCount)).IsGreaterThanOrEqualTo(2);
+
+		await cts.CancelAsync();
+	}
+
+	[Test]
 	[DisplayName("UDP ASSOCIATE: setup failure sends REP=0x01 GeneralFailure")]
 	public async Task UdpAssociate_SetupFailure_RepliesGeneralFailure(CancellationToken cancellationToken)
 	{
