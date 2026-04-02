@@ -200,8 +200,16 @@ public static partial class Socks5Utils
 	{
 		try
 		{
-			ReadResult result = await input.ReadAsync(linkedCts.Token);
-			input.AdvanceTo(result.Buffer.End);
+			while (true)
+			{
+				ReadResult result = await input.ReadAsync(linkedCts.Token);
+				input.AdvanceTo(result.Buffer.End);
+
+				if (result.IsCompleted)
+				{
+					break;
+				}
+			}
 		}
 		catch (OperationCanceledException) { }
 		finally

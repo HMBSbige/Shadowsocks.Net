@@ -140,6 +140,21 @@ public class Socks5InboundTest
 		return s;
 	}
 
+	private static async Task<bool> WaitForSendCountAsync(SpyPacketConnection connection, int expected, CancellationToken cancellationToken)
+	{
+		for (int i = 0; i < 50; ++i)
+		{
+			if (Volatile.Read(ref connection.SendToCallCount) >= expected)
+			{
+				return true;
+			}
+
+			await Task.Delay(10, cancellationToken);
+		}
+
+		return Volatile.Read(ref connection.SendToCallCount) >= expected;
+	}
+
 	[Test]
 	[DisplayName("Method negotiation: desired method beyond 8th position is still accepted")]
 	public async Task MethodNegotiation_DesiredMethodBeyondEighth_StillAccepted(CancellationToken cancellationToken)
@@ -650,4 +665,129 @@ public class Socks5InboundTest
 			)
 		).IsTrue();
 	}
+
+	[Test]
+	[DisplayName("UDP ASSOCIATE: control channel readable data does not terminate association before TCP closes")]
+	public async Task UdpAssociate_ControlChannelReadableData_DoesNotTerminateAssociation(CancellationToken cancellationToken)
+	{
+		SpyPacketOutbound outbound = new();
+		Socks5Inbound inbound = new();
+		using TcpListener listener = new(IPAddress.Loopback, 0);
+		listener.Start();
+		ushort port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
+
+		using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+		_ = TestAcceptLoop.RunAsync(listener, inbound, outbound, cts.Token);
+
+		using TcpClient client = new();
+		await client.ConnectAsync(IPAddress.Loopback, port, cancellationToken);
+		NetworkStream stream = client.GetStream();
+
+		await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, cancellationToken);
+		byte[] methodReply = new byte[2];
+		await stream.ReadExactlyAsync(methodReply, cancellationToken);
+
+		byte[] cmd = new byte[Constants.MaxCommandLength];
+		int cmdLen = Pack.ClientCommand(Command.UdpAssociate, "0.0.0.0"u8, 0, cmd);
+		await stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
+
+		byte[] replyBuf = new byte[Constants.MaxCommandLength];
+		int replyRead = await stream.ReadAsync(replyBuf, cancellationToken);
+		ReadOnlySequence<byte> seq = new(replyBuf.AsMemory(0, replyRead));
+		bool parsed = Unpack.ReadServerReplyCommand(ref seq, out ServerBound bound);
+		await Assert.That(parsed).IsTrue();
+
+		using Socket udp = CreateBoundUdpSocket();
+		byte[] payload1 = "first"u8.ToArray();
+		byte[] pkt1 = new byte[Constants.MaxUdpHandshakeHeaderLength + payload1.Length];
+		int pkt1Len = Pack.Udp(pkt1, "127.0.0.1"u8, 9999, payload1);
+		await udp.SendToAsync(pkt1.AsMemory(0, pkt1Len), SocketFlags.None, new IPEndPoint(IPAddress.Loopback, bound.Port), cancellationToken);
+
+		await Assert.That(await WaitForSendCountAsync(outbound.PacketConnection, 1, cancellationToken)).IsTrue();
+
+		await stream.WriteAsync(new byte[] { 0x00 }, cancellationToken);
+		await Task.Delay(100, cancellationToken);
+
+		byte[] payload2 = "second"u8.ToArray();
+		byte[] pkt2 = new byte[Constants.MaxUdpHandshakeHeaderLength + payload2.Length];
+		int pkt2Len = Pack.Udp(pkt2, "127.0.0.1"u8, 9999, payload2);
+		await udp.SendToAsync(pkt2.AsMemory(0, pkt2Len), SocketFlags.None, new IPEndPoint(IPAddress.Loopback, bound.Port), cancellationToken);
+
+		await Assert.That(await WaitForSendCountAsync(outbound.PacketConnection, 2, cancellationToken)).IsTrue();
+
+		await cts.CancelAsync();
+	}
+
+	[Test]
+	[DisplayName("UDP ASSOCIATE: setup failure sends REP=0x01 GeneralFailure")]
+	public async Task UdpAssociate_SetupFailure_RepliesGeneralFailure(CancellationToken cancellationToken)
+	{
+		Socks5Inbound inbound = new();
+		using TcpListener listener = new(IPAddress.Loopback, 0);
+		listener.Start();
+		ushort port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
+
+		using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+		_ = TestAcceptLoop.RunAsync(listener, inbound, new ThrowingPacketOutbound(), cts.Token);
+
+		using TcpClient client = new();
+		await client.ConnectAsync(IPAddress.Loopback, port, cancellationToken);
+		NetworkStream stream = client.GetStream();
+
+		await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, cancellationToken);
+		byte[] methodReply = new byte[2];
+		await stream.ReadExactlyAsync(methodReply, cancellationToken);
+
+		byte[] cmd = new byte[Constants.MaxCommandLength];
+		int cmdLen = Pack.ClientCommand(Command.UdpAssociate, "0.0.0.0"u8, 0, cmd);
+		await stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
+
+		byte[] reply = new byte[Constants.MaxCommandLength];
+		int read = await stream.ReadAsync(reply, cancellationToken);
+
+		await Assert.That(read).IsGreaterThan(0);
+		await Assert.That(reply[0]).IsEqualTo(Constants.ProtocolVersion);
+		await Assert.That(reply[1]).IsEqualTo((byte)Socks5Reply.GeneralFailure);
+
+		await cts.CancelAsync();
+	}
+
+	[Test]
+	[DisplayName("CONNECT: null LocalEndPoint replies Succeeded with unspecified BND.ADDR (RFC 1928 §6)")]
+	public async Task Connect_NullLocalEndPoint_SucceedsWithUnspecifiedBound(CancellationToken cancellationToken)
+	{
+		Socks5Inbound inbound = new();
+		using TcpListener listener = new(IPAddress.Loopback, 0);
+		listener.Start();
+		ushort port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
+
+		using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+		_ = TestAcceptLoop.RunAsync(listener, inbound, new NullLocalEndPointOutbound(), cts.Token);
+
+		using TcpClient client = new();
+		await client.ConnectAsync(IPAddress.Loopback, port, cancellationToken);
+		NetworkStream stream = client.GetStream();
+
+		await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, cancellationToken);
+		byte[] methodReply = new byte[2];
+		await stream.ReadExactlyAsync(methodReply, cancellationToken);
+
+		byte[] cmd = new byte[Constants.MaxCommandLength];
+		int cmdLen = Pack.ClientCommand(Command.Connect, "127.0.0.1"u8, 80, cmd);
+		await stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
+
+		byte[] replyBuf = new byte[Constants.MaxCommandLength];
+		int read = await stream.ReadAsync(replyBuf, cancellationToken);
+		ReadOnlySequence<byte> seq = new(replyBuf.AsMemory(0, read));
+		bool parsed = Unpack.ReadServerReplyCommand(ref seq, out ServerBound bound);
+
+		await Assert.That(parsed).IsTrue();
+		await Assert.That(replyBuf[1]).IsEqualTo((byte)Socks5Reply.Succeeded);
+		await Assert.That(bound.Type).IsEqualTo(AddressType.IPv4);
+		await Assert.That(bound.Port).IsEqualTo((ushort)0);
+		await Assert.That(bound.Host.Span.SequenceEqual("0.0.0.0"u8)).IsTrue();
+
+		await cts.CancelAsync();
+	}
+
 }
