@@ -313,8 +313,9 @@ public class HttpTest
 		await ns.FlushAsync(cancellationToken);
 
 		string response = await ReadResponseAsync(ns, cancellationToken);
-		// Proxy should reject "1G" with 500, not silently accept it as size=1
-		await Assert.That(response).Contains("HTTP/1.1 500");
+		// Proxy should reject "1G" with 400, not silently accept it as size=1
+		await Assert.That(response).Contains("HTTP/1.1 400");
+		await Assert.That(response).Contains("X-Proxy-Error-Type: InvalidRequest");
 	}
 
 	[Test]
@@ -342,7 +343,31 @@ public class HttpTest
 		await ns.FlushAsync(cancellationToken);
 
 		string response = await ReadResponseAsync(ns, cancellationToken);
-		await Assert.That(response).Contains("HTTP/1.1 500");
+		await Assert.That(response).Contains("HTTP/1.1 400");
+		await Assert.That(response).Contains("X-Proxy-Error-Type: InvalidRequest");
+	}
+
+	[Test]
+	public async Task HttpTruncatedRequestHeadersAsync(CancellationToken cancellationToken)
+	{
+		using TcpClient tcp = new();
+		NetworkStream ns = await ConnectToProxyAsync(tcp, cancellationToken);
+
+		await ns.WriteAsync
+		(
+			Encoding.UTF8.GetBytes
+			(
+				$"GET http://localhost:{F.MockHttp.Port}/get HTTP/1.1\r\nHost: localhost:{F.MockHttp.Port}\r\n"
+			),
+			cancellationToken
+		);
+		await ns.FlushAsync(cancellationToken);
+		tcp.Client.Shutdown(SocketShutdown.Send);
+
+		string response = await ReadResponseAsync(ns, cancellationToken);
+
+		await Assert.That(response).Contains("HTTP/1.1 400");
+		await Assert.That(response).Contains("X-Proxy-Error-Type: InvalidRequest");
 	}
 
 	[Test]
@@ -406,7 +431,7 @@ public class HttpTest
 						+ "0\r\n\r\n";
 
 		string response = await SendRawRequestAsync(request, cancellationToken);
-		await Assert.That(response).Contains("HTTP/1.1 500");
+		await Assert.That(response).Contains("HTTP/1.1 400");
 	}
 
 	[Test]
@@ -421,7 +446,7 @@ public class HttpTest
 						+ "ABCDE";
 
 		string response = await SendRawRequestAsync(request, cancellationToken);
-		await Assert.That(response).Contains("HTTP/1.1 500");
+		await Assert.That(response).Contains("HTTP/1.1 400");
 	}
 
 	[Test]
@@ -435,7 +460,7 @@ public class HttpTest
 						+ "ABCDE";
 
 		string response = await SendRawRequestAsync(request, cancellationToken);
-		await Assert.That(response).Contains("HTTP/1.1 500");
+		await Assert.That(response).Contains("HTTP/1.1 400");
 	}
 
 	[Test]
@@ -594,7 +619,7 @@ public class HttpTest
 	public async Task IncompleteRequestBody_DoesNotForwardNormally(CancellationToken cancellationToken)
 	{
 		// Client declares Content-Length: 100 but sends only 5 bytes then closes.
-		// Proxy should detect the short read and NOT forward a 200 with incomplete body.
+		// Proxy should classify this as an invalid request and return 400.
 		using TcpClient tcp = new();
 		NetworkStream ns = await ConnectToProxyAsync(tcp, cancellationToken);
 		await ns.WriteAsync
@@ -613,8 +638,8 @@ public class HttpTest
 
 		string response = Encoding.UTF8.GetString(buf, 0, n);
 
-		// Must NOT get a 200 with the echoed (incomplete) body
-		await Assert.That(response).DoesNotContain("HTTP/1.1 200");
+		await Assert.That(response).Contains("HTTP/1.1 400");
+		await Assert.That(response).Contains("X-Proxy-Error-Type: InvalidRequest");
 	}
 
 	[Test]

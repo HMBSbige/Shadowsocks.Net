@@ -66,7 +66,19 @@ public partial class HttpInbound(HttpProxyCredential? credential = null, ILogger
 	{
 		try
 		{
-			(byte[] rented, int headerLen) = await ReadHeaderBytesAsync(clientPipe.Input, cancellationToken);
+			byte[] rented;
+			int headerLen;
+
+			try
+			{
+				(rented, headerLen) = await ReadHeaderBytesAsync(clientPipe.Input, cancellationToken);
+			}
+			catch (InvalidDataException)
+			{
+				LogInvalidRequest();
+				await clientPipe.Output.SendErrorAsync(ConnectionErrorResult.InvalidRequest, cancellationToken);
+				return;
+			}
 
 			try
 			{
@@ -147,7 +159,16 @@ public partial class HttpInbound(HttpProxyCredential? credential = null, ILogger
 						// ContentLength: null=chunked, 0=no body, >0=fixed
 						if (httpHeaders.ContentLength is null)
 						{
-							await CopyChunkedRequestAsync(clientPipe.Input, connection.Output, cancellationToken);
+							try
+							{
+								await CopyChunkedRequestAsync(clientPipe.Input, connection.Output, cancellationToken);
+							}
+							catch (InvalidDataException)
+							{
+								LogInvalidRequest();
+								await clientPipe.Output.SendErrorAsync(ConnectionErrorResult.InvalidRequest, cancellationToken);
+								return;
+							}
 						}
 						else if (httpHeaders.ContentLength > 0)
 						{
@@ -159,7 +180,9 @@ public partial class HttpInbound(HttpProxyCredential? credential = null, ILogger
 
 							if (readLength < httpHeaders.ContentLength.Value)
 							{
-								return;// Client sent fewer bytes than Content-Length — abort
+								LogInvalidRequest();
+								await clientPipe.Output.SendErrorAsync(ConnectionErrorResult.InvalidRequest, cancellationToken);
+								return;
 							}
 						}
 

@@ -312,7 +312,7 @@ public static partial class HttpUtils
 				}
 				case ConnectionErrorResult.InvalidRequest:
 				{
-					output.Write("HTTP/1.1 500 Internal Server Error"u8);
+					output.Write("HTTP/1.1 400 Bad Request"u8);
 					output.Write(HttpNewLine);
 					output.Write("X-Proxy-Error-Type: InvalidRequest"u8);
 					break;
