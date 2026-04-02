@@ -276,6 +276,64 @@ public class Socks5InboundTest
 	}
 
 	[Test]
+	[DisplayName("Truncated auth (VER byte only then EOF) closes silently, no auth reply sent")]
+	public async Task TruncatedAuth_ClosesWithoutError(CancellationToken cancellationToken)
+	{
+		UserPassAuth cred = new()
+		{
+			UserName = "u"u8.ToArray(),
+			Password = "p"u8.ToArray()
+		};
+		Socks5Inbound inbound = new(cred);
+
+		Pipe clientToServer = new();
+		Pipe serverToClient = new();
+		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		ValueTask handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken);
+
+		// Handshake: offer UsernamePassword
+		await clientToServer.Writer.WriteAsync(new byte[] { 0x05, 0x01, 0x02 }, cancellationToken);
+		ReadResult methodResult = await serverToClient.Reader.ReadAsync(cancellationToken);
+		serverToClient.Reader.AdvanceTo(methodResult.Buffer.End);
+
+		// Send only auth VER byte, then EOF
+		await clientToServer.Writer.WriteAsync(new byte[] { 0x01 }, cancellationToken);
+		await clientToServer.Writer.CompleteAsync();
+
+		await handleTask;
+
+		// Server must not have sent an auth reply
+		await serverToClient.Writer.CompleteAsync();
+		ReadResult result = await serverToClient.Reader.ReadAsync(cancellationToken);
+		await Assert.That(result.Buffer.IsEmpty).IsTrue();
+	}
+
+	[Test]
+	[DisplayName("Truncated request (VER+CMD only then EOF) closes silently, no reply sent")]
+	public async Task TruncatedRequest_VerCmdOnly_ClosesWithoutError(CancellationToken cancellationToken)
+	{
+		Socks5Inbound inbound = new();
+
+		Pipe clientToServer = new();
+		Pipe serverToClient = new();
+		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		ValueTask handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken);
+
+		await NoAuthHandshakeAsync(clientToServer.Writer, serverToClient.Reader, cancellationToken);
+
+		// Send VER+CMD=UDP_ASSOCIATE then EOF — command field gets partially written
+		await clientToServer.Writer.WriteAsync(new byte[] { 0x05, 0x03 }, cancellationToken);
+		await clientToServer.Writer.CompleteAsync();
+
+		await handleTask;
+
+		// Server must not have sent any request reply
+		await serverToClient.Writer.CompleteAsync();
+		ReadResult result = await serverToClient.Reader.ReadAsync(cancellationToken);
+		await Assert.That(result.Buffer.IsEmpty).IsTrue();
+	}
+
+	[Test]
 	public async Task UnsupportedCommand_Bind(CancellationToken cancellationToken)
 	{
 		Socks5Inbound inbound = new();

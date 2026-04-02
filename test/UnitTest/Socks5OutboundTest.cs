@@ -314,6 +314,48 @@ public class Socks5OutboundTest
 	}
 
 	[Test]
+	[DisplayName("Truncated method reply (0 bytes then EOF) throws InvalidDataException")]
+	public async Task TruncatedMethodReply_ZeroBytes_ThrowsInvalidDataException(CancellationToken cancellationToken)
+	{
+		using TcpListener tcp = new(IPAddress.Loopback, 0);
+		tcp.Start();
+		ushort tcpPort = (ushort)((IPEndPoint)tcp.LocalEndpoint).Port;
+
+		_ = FakeTruncatedMethodServerAsync(tcp, bytesToSend: 0, cancellationToken);
+
+		Socks5Outbound outbound = new(new Socks5CreateOption
+		{
+			Address = IPAddress.Loopback,
+			Port = tcpPort,
+		});
+
+		await Assert.That(async () =>
+			await outbound.ConnectAsync(new ProxyDestination("127.0.0.1"u8.ToArray(), 80), cancellationToken)
+		).Throws<InvalidDataException>();
+	}
+
+	[Test]
+	[DisplayName("Truncated method reply (1 byte then EOF) throws InvalidDataException")]
+	public async Task TruncatedMethodReply_OneByte_ThrowsInvalidDataException(CancellationToken cancellationToken)
+	{
+		using TcpListener tcp = new(IPAddress.Loopback, 0);
+		tcp.Start();
+		ushort tcpPort = (ushort)((IPEndPoint)tcp.LocalEndpoint).Port;
+
+		_ = FakeTruncatedMethodServerAsync(tcp, bytesToSend: 1, cancellationToken);
+
+		Socks5Outbound outbound = new(new Socks5CreateOption
+		{
+			Address = IPAddress.Loopback,
+			Port = tcpPort,
+		});
+
+		await Assert.That(async () =>
+			await outbound.ConnectAsync(new ProxyDestination("127.0.0.1"u8.ToArray(), 80), cancellationToken)
+		).Throws<InvalidDataException>();
+	}
+
+	[Test]
 	public async Task AuthRequired_NoCredentials(CancellationToken cancellationToken)
 	{
 		Socks5CreateOption option = new()
@@ -333,6 +375,25 @@ public class Socks5OutboundTest
 		).Throws<MethodUnsupportedException>();
 
 		await Assert.That(methodEx?.ServerReplyMethod).IsEqualTo(Method.NoAcceptable);
+	}
+
+	private static async Task FakeTruncatedMethodServerAsync(TcpListener tcp, int bytesToSend, CancellationToken cancellationToken)
+	{
+		using TcpClient client = await tcp.AcceptTcpClientAsync(cancellationToken);
+		NetworkStream stream = client.GetStream();
+		byte[] buf = new byte[256];
+
+		// Read method negotiation
+		await stream.ReadExactlyAsync(buf.AsMemory(0, 2), cancellationToken);
+		int nmethods = buf[1];
+		await stream.ReadExactlyAsync(buf.AsMemory(0, nmethods), cancellationToken);
+
+		if (bytesToSend > 0)
+		{
+			byte[] reply = new byte[bytesToSend];
+			reply[0] = Constants.ProtocolVersion;
+			await stream.WriteAsync(reply, cancellationToken);
+		}
 	}
 
 	private static Task FakeUdpAssociateServerAsync(TcpListener tcp, ushort relayPort, CancellationToken cancellationToken)

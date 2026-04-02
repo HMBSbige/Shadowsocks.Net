@@ -17,7 +17,11 @@ public static partial class Socks5Utils
 		await pipe.Output.WriteAsync(Constants.MaxHandshakeClientMethodLength, PackHandshake, cancellationToken);
 
 		Method method = Method.NoAuthentication;
-		await pipe.Input.ReadAsync(HandleResponse, cancellationToken);
+
+		if (!await pipe.Input.ReadAsync(HandleResponse, cancellationToken))
+		{
+			throw new InvalidDataException(@"Incomplete SOCKS5 method reply.");
+		}
 
 		bool found = false;
 

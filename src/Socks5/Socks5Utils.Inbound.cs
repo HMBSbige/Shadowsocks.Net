@@ -59,7 +59,11 @@ public static partial class Socks5Utils
 	private static async ValueTask<bool> UsernamePasswordAuthAsync(IDuplexPipe pipe, UserPassAuth? credential, CancellationToken cancellationToken)
 	{
 		UserPassAuth? clientCredential = null;
-		await pipe.Input.ReadAsync(TryReadClientAuth, cancellationToken);
+
+		if (!await pipe.Input.ReadAsync(TryReadClientAuth, cancellationToken))
+		{
+			throw new Socks5ProtocolErrorException(@"Incomplete SOCKS5 auth request.", Socks5Reply.GeneralFailure);
+		}
 
 		bool isAuth = clientCredential == credential;
 
@@ -82,7 +86,12 @@ public static partial class Socks5Utils
 	{
 		Command command = default;
 		ServerBound target = default;
-		await pipe.Input.ReadAsync(TryReadCommand, cancellationToken);
+
+		if (!await pipe.Input.ReadAsync(TryReadCommand, cancellationToken))
+		{
+			throw new Socks5ProtocolErrorException(@"Incomplete SOCKS5 request.", Socks5Reply.GeneralFailure);
+		}
+
 		return (command, target);
 
 		ParseResult TryReadCommand(ref ReadOnlySequence<byte> buffer)
