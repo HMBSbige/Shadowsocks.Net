@@ -348,6 +348,31 @@ public class HttpTest
 	}
 
 	[Test]
+	public async Task HttpTruncatedChunkedBodyAsync(CancellationToken cancellationToken)
+	{
+		byte[] payload = "Hello"u8.ToArray();
+
+		using TcpClient tcp = new();
+		NetworkStream ns = await ConnectToProxyAsync(tcp, cancellationToken);
+
+		string requestHeaders = $"POST http://localhost:{F.MockHttp.Port}/echo HTTP/1.1\r\n"
+								+ $"Host: localhost:{F.MockHttp.Port}\r\n"
+								+ "Transfer-Encoding: chunked\r\n"
+								+ "\r\n";
+		await ns.WriteAsync(Encoding.UTF8.GetBytes(requestHeaders), cancellationToken);
+		await ns.WriteAsync(Encoding.UTF8.GetBytes($"{payload.Length:x}\r\n"), cancellationToken);
+		await ns.WriteAsync(payload, cancellationToken);
+		await ns.WriteAsync("\r\n"u8.ToArray(), cancellationToken);
+		await ns.FlushAsync(cancellationToken);
+		tcp.Client.Shutdown(SocketShutdown.Send);
+
+		string response = await ReadResponseAsync(ns, cancellationToken);
+
+		await Assert.That(response).Contains("HTTP/1.1 400");
+		await Assert.That(response).Contains("X-Proxy-Error-Type: InvalidRequest");
+	}
+
+	[Test]
 	public async Task HttpTruncatedRequestHeadersAsync(CancellationToken cancellationToken)
 	{
 		using TcpClient tcp = new();

@@ -338,7 +338,7 @@ public partial class HttpInbound(HttpProxyCredential? credential = null, ILogger
 
 				if (result.IsCompleted)
 				{
-					break;
+					throw new InvalidDataException("Incomplete chunked request body.");
 				}
 			}
 			finally
@@ -346,8 +346,6 @@ public partial class HttpInbound(HttpProxyCredential? credential = null, ILogger
 				reader.AdvanceTo(buffer.Start, buffer.End);
 			}
 		}
-
-		return;
 
 		bool TryForwardChunk(ref ReadOnlySequence<byte> buffer, out bool isLast)
 		{
