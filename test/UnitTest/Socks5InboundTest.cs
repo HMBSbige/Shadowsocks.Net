@@ -140,11 +140,16 @@ public class Socks5InboundTest
 		return s;
 	}
 
-	private static async Task<bool> WaitForSendCountAsync(SpyPacketConnection connection, int expected, CancellationToken cancellationToken)
+	private static Task<bool> WaitForSendCountAsync(SpyPacketConnection connection, int expected, CancellationToken cancellationToken)
+	{
+		return WaitForCountAsync(() => Volatile.Read(ref connection.SendToCallCount), expected, cancellationToken);
+	}
+
+	private static async Task<bool> WaitForCountAsync(Func<int> getCount, int expected, CancellationToken cancellationToken)
 	{
 		for (int i = 0; i < 50; ++i)
 		{
-			if (Volatile.Read(ref connection.SendToCallCount) >= expected)
+			if (getCount() >= expected)
 			{
 				return true;
 			}
@@ -152,7 +157,7 @@ public class Socks5InboundTest
 			await Task.Delay(10, cancellationToken);
 		}
 
-		return Volatile.Read(ref connection.SendToCallCount) >= expected;
+		return getCount() >= expected;
 	}
 
 	[Test]
@@ -714,6 +719,107 @@ public class Socks5InboundTest
 		await udp.SendToAsync(pkt2.AsMemory(0, pkt2Len), SocketFlags.None, new IPEndPoint(IPAddress.Loopback, bound.Port), cancellationToken);
 
 		await Assert.That(await WaitForSendCountAsync(outbound.PacketConnection, 2, cancellationToken)).IsTrue();
+
+		await cts.CancelAsync();
+	}
+
+	[Test]
+	[DisplayName("UDP relay: malformed packet is dropped, subsequent valid packet still forwarded (RFC 1928 §7)")]
+	public async Task UdpRelay_MalformedPacket_DroppedAndRelayContinues(CancellationToken cancellationToken)
+	{
+		SpyPacketOutbound outbound = new();
+		Socks5Inbound inbound = new();
+		using TcpListener listener = new(IPAddress.Loopback, 0);
+		listener.Start();
+		ushort port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
+
+		using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+		_ = TestAcceptLoop.RunAsync(listener, inbound, outbound, cts.Token);
+
+		using TcpClient client = new();
+		await client.ConnectAsync(IPAddress.Loopback, port, cancellationToken);
+		NetworkStream stream = client.GetStream();
+
+		await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, cancellationToken);
+		byte[] methodReply = new byte[2];
+		await stream.ReadExactlyAsync(methodReply, cancellationToken);
+
+		byte[] cmd = new byte[Constants.MaxCommandLength];
+		int cmdLen = Pack.ClientCommand(Command.UdpAssociate, "0.0.0.0"u8, 0, cmd);
+		await stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
+
+		byte[] replyBuf = new byte[Constants.MaxCommandLength];
+		int replyRead = await stream.ReadAsync(replyBuf, cancellationToken);
+		ReadOnlySequence<byte> seq = new(replyBuf.AsMemory(0, replyRead));
+		bool parsed = Unpack.ReadServerReplyCommand(ref seq, out ServerBound bound);
+		await Assert.That(parsed).IsTrue();
+
+		using Socket udp = CreateBoundUdpSocket();
+		IPEndPoint relayEp = new(IPAddress.Loopback, bound.Port);
+
+		// Send a malformed UDP packet (too short for SOCKS5 UDP header).
+		await udp.SendToAsync(new byte[] { 0xFF, 0xFF }, SocketFlags.None, relayEp, cancellationToken);
+		await Task.Delay(50, cancellationToken);
+
+		// Send a valid packet — relay must still be alive.
+		byte[] payload = "after-malformed"u8.ToArray();
+		byte[] pkt = new byte[Constants.MaxUdpHandshakeHeaderLength + payload.Length];
+		int pktLen = Pack.Udp(pkt, "127.0.0.1"u8, 9999, payload);
+		await udp.SendToAsync(pkt.AsMemory(0, pktLen), SocketFlags.None, relayEp, cancellationToken);
+
+		await Assert.That(await WaitForSendCountAsync(outbound.PacketConnection, 1, cancellationToken)).IsTrue();
+
+		await cts.CancelAsync();
+	}
+
+	[Test]
+	[DisplayName("UDP relay: transient SendToAsync failure is dropped, subsequent packet still forwarded (RFC 1928 §7)")]
+	public async Task UdpRelay_SendFailure_DroppedAndRelayContinues(CancellationToken cancellationToken)
+	{
+		FailOnceSendPacketOutbound outbound = new();
+		Socks5Inbound inbound = new();
+		using TcpListener listener = new(IPAddress.Loopback, 0);
+		listener.Start();
+		ushort port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
+
+		using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+		_ = TestAcceptLoop.RunAsync(listener, inbound, outbound, cts.Token);
+
+		using TcpClient client = new();
+		await client.ConnectAsync(IPAddress.Loopback, port, cancellationToken);
+		NetworkStream stream = client.GetStream();
+
+		await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, cancellationToken);
+		byte[] methodReply = new byte[2];
+		await stream.ReadExactlyAsync(methodReply, cancellationToken);
+
+		byte[] cmd = new byte[Constants.MaxCommandLength];
+		int cmdLen = Pack.ClientCommand(Command.UdpAssociate, "0.0.0.0"u8, 0, cmd);
+		await stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
+
+		byte[] replyBuf = new byte[Constants.MaxCommandLength];
+		int replyRead = await stream.ReadAsync(replyBuf, cancellationToken);
+		ReadOnlySequence<byte> seq = new(replyBuf.AsMemory(0, replyRead));
+		bool parsed = Unpack.ReadServerReplyCommand(ref seq, out ServerBound bound);
+		await Assert.That(parsed).IsTrue();
+
+		using Socket udp = CreateBoundUdpSocket();
+		IPEndPoint relayEp = new(IPAddress.Loopback, bound.Port);
+
+		// First valid packet — SendToAsync will throw, should be silently dropped.
+		byte[] payload1 = "will-fail"u8.ToArray();
+		byte[] pkt1 = new byte[Constants.MaxUdpHandshakeHeaderLength + payload1.Length];
+		int pkt1Len = Pack.Udp(pkt1, "127.0.0.1"u8, 9999, payload1);
+		await udp.SendToAsync(pkt1.AsMemory(0, pkt1Len), SocketFlags.None, relayEp, cancellationToken);
+		await Task.Delay(50, cancellationToken);
+
+		// Second valid packet — relay must still be alive.
+		byte[] payload2 = "will-succeed"u8.ToArray();
+		byte[] pkt2 = new byte[Constants.MaxUdpHandshakeHeaderLength + payload2.Length];
+		int pkt2Len = Pack.Udp(pkt2, "127.0.0.1"u8, 9999, payload2);
+		await udp.SendToAsync(pkt2.AsMemory(0, pkt2Len), SocketFlags.None, relayEp, cancellationToken);
+
+		await Assert.That(await WaitForCountAsync(() => Volatile.Read(ref outbound.PacketConnection.SuccessfulSendCount), 1, cancellationToken)).IsTrue();
 
 		await cts.CancelAsync();
 	}

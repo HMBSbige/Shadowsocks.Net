@@ -252,7 +252,19 @@ public static partial class Socks5Utils
 					clientSaTcs.TrySetResult(snapshot);
 				}
 
-				Socks5UdpReceivePacket packet = Unpack.Udp(buffer.AsMemory(0, received));
+				// RFC 1928 §7: a UDP relay server MUST drop any datagram it
+				// cannot or will not relay — never let a single bad packet
+				// tear down the entire relay loop.
+				Socks5UdpReceivePacket packet;
+
+				try
+				{
+					packet = Unpack.Udp(buffer.AsMemory(0, received));
+				}
+				catch (Socks5ProtocolErrorException)
+				{
+					continue;
+				}
 
 				if (packet.Fragment is not 0x00)
 				{
@@ -263,7 +275,14 @@ public static partial class Socks5Utils
 				packet.Host.Span.CopyTo(hostBytes);
 				ProxyDestination dest = new(hostBytes, packet.Port);
 
-				await packetConnection.SendToAsync(packet.Data, dest, cancellationToken);
+				try
+				{
+					await packetConnection.SendToAsync(packet.Data, dest, cancellationToken);
+				}
+				catch (Exception ex) when (ex is not OperationCanceledException)
+				{
+					// Transient send failure — drop this datagram, keep relay alive.
+				}
 			}
 		}
 		finally
