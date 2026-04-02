@@ -49,6 +49,22 @@ public class Socks5PackTest
 	}
 
 	[Test]
+	[DisplayName("DestinationAddressAndPort: IPv4-mapped IPv6 encodes as ATYP=IPv4")]
+	public async Task DestinationAddressAndPort_IPv4MappedIPv6_EncodesAsIPv4(CancellationToken cancellationToken)
+	{
+		byte[] buffer = new byte[64];
+		int len = Pack.DestinationAddressAndPort("::ffff:1.2.3.4"u8, 80, buffer);
+
+		await Assert.That(len).IsEqualTo(7); // 1 ATYP + 4 addr + 2 port
+		await Assert.That(buffer[0]).IsEqualTo((byte)AddressType.IPv4);
+		await Assert.That(buffer[1]).IsEqualTo((byte)1);
+		await Assert.That(buffer[2]).IsEqualTo((byte)2);
+		await Assert.That(buffer[3]).IsEqualTo((byte)3);
+		await Assert.That(buffer[4]).IsEqualTo((byte)4);
+		await Assert.That(BinaryPrimitives.ReadUInt16BigEndian(buffer.AsSpan().Slice(5))).IsEqualTo((ushort)80);
+	}
+
+	[Test]
 	[DisplayName("DestinationAddressAndPort: empty non-IP host rejects empty domain name")]
 	public async Task DestinationAddressAndPort_EmptyDomain_Throws(CancellationToken cancellationToken)
 	{

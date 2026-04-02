@@ -202,7 +202,34 @@ public class Socks5OutboundTest
 	[DisplayName("UDP receive: drops FRAG != 0 packets (RFC 1928 §7)")]
 	public async Task ReceiveFromAsync_DropsFragmentedPackets(CancellationToken cancellationToken)
 	{
-		// Fake SOCKS5 server: TCP for handshake, UDP for relay
+		await AssertBadUdpPacketIsDroppedAsync(async (relay, clientEp, ct) =>
+		{
+			byte[] fragPkt = new byte[256];
+			int fragLen = Pack.Udp(fragPkt, "10.0.0.1"u8, 8080, "dropped"u8, fragment: 1);
+			await relay.SendToAsync(fragPkt.AsMemory(0, fragLen), SocketFlags.None, clientEp, ct);
+		}, cancellationToken);
+	}
+
+	[Test]
+	[DisplayName("UDP receive: malformed SOCKS5 relay response is silently dropped")]
+	public async Task ReceiveFromAsync_MalformedRelayResponse_DroppedAndContinues(CancellationToken cancellationToken)
+	{
+		await AssertBadUdpPacketIsDroppedAsync(async (relay, clientEp, ct) =>
+		{
+			byte[] malformedPkt = new byte[12];
+			malformedPkt[3] = 0x99; // invalid ATYP, rest zero
+			await relay.SendToAsync(malformedPkt, SocketFlags.None, clientEp, ct);
+		}, cancellationToken);
+	}
+
+	/// <summary>
+	/// Scaffolds a fake SOCKS5 UDP relay, sends a bad packet via <paramref name="sendBadPacket"/>,
+	/// then a valid packet, and asserts ReceiveFromAsync returns only the valid one.
+	/// </summary>
+	private static async Task AssertBadUdpPacketIsDroppedAsync(
+		Func<Socket, EndPoint, CancellationToken, Task> sendBadPacket,
+		CancellationToken cancellationToken)
+	{
 		using TcpListener tcp = new(IPAddress.Loopback, 0);
 		tcp.Start();
 		ushort tcpPort = (ushort)((IPEndPoint)tcp.LocalEndpoint).Port;
@@ -212,18 +239,15 @@ public class Socks5OutboundTest
 		relaySocket.Bind(new IPEndPoint(IPAddress.IPv6Any, 0));
 		ushort relayPort = (ushort)((IPEndPoint)relaySocket.LocalEndPoint!).Port;
 
-		// Run fake SOCKS5 server handshake
 		_ = FakeUdpAssociateServerAsync(tcp, relayPort, cancellationToken);
 
-		Socks5CreateOption option = new()
+		Socks5Outbound outbound = new(new Socks5CreateOption
 		{
 			Address = IPAddress.Loopback,
 			Port = tcpPort,
-		};
-		Socks5Outbound outbound = new(option);
+		});
 		await using IPacketConnection pkt = await outbound.CreatePacketConnectionAsync(cancellationToken);
 
-		// Send a probe so relay can discover outbound's UDP endpoint
 		await pkt.SendToAsync("probe"u8.ToArray(), new ProxyDestination("127.0.0.1"u8.ToArray(), 9999), cancellationToken);
 		byte[] probeBuf = new byte[1024];
 		SocketReceiveFromResult probeResult = await relaySocket.ReceiveFromAsync
@@ -231,14 +255,10 @@ public class Socks5OutboundTest
 			probeBuf, SocketFlags.None, new IPEndPoint(IPAddress.IPv6Any, 0), cancellationToken
 		);
 
-		// Send FRAG=1 packet (must be dropped)
-		byte[] fragPkt = new byte[256];
-		int fragLen = Pack.Udp(fragPkt, "10.0.0.1"u8, 8080, "dropped"u8, fragment: 1);
-		await relaySocket.SendToAsync(fragPkt.AsMemory(0, fragLen), SocketFlags.None, probeResult.RemoteEndPoint, cancellationToken);
+		await sendBadPacket(relaySocket, probeResult.RemoteEndPoint, cancellationToken);
 
-		// Send FRAG=0 packet (must be returned)
 		byte[] goodPkt = new byte[256];
-		byte[] expectedPayload = "hello"u8.ToArray();
+		byte[] expectedPayload = "good"u8.ToArray();
 		int goodLen = Pack.Udp(goodPkt, "10.0.0.1"u8, 8080, expectedPayload);
 		await relaySocket.SendToAsync(goodPkt.AsMemory(0, goodLen), SocketFlags.None, probeResult.RemoteEndPoint, cancellationToken);
 

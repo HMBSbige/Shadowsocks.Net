@@ -26,6 +26,11 @@ internal static class Pack
 
 		if (IPAddress.TryParse(hostText, out IPAddress? addr))
 		{
+			if (addr.IsIPv4MappedToIPv6)
+			{
+				addr = addr.MapToIPv4();
+			}
+
 			AddressType type = addr.AddressFamily is AddressFamily.InterNetworkV6 ? AddressType.IPv6 : AddressType.IPv4;
 			destination[0] = (byte)type;
 

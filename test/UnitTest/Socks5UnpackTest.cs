@@ -51,6 +51,7 @@ public class Socks5UnpackTest
 	}
 
 	[Test]
+	[DisplayName("ReadResponseMethod: unknown method is a local protocol error (GeneralFailure), not ConnectionNotAllowed")]
 	public async Task ReadResponseMethod_UnknownMethod(CancellationToken cancellationToken)
 	{
 		byte[] data = [Constants.ProtocolVersion, 0x05]; // undefined method value
@@ -61,7 +62,7 @@ public class Socks5UnpackTest
 			Unpack.ReadResponseMethod(ref local, out _);
 		}).Throws<Socks5ProtocolErrorException>();
 
-		await Assert.That(ex?.Socks5Reply).IsEqualTo(Socks5Reply.ConnectionNotAllowed);
+		await Assert.That(ex?.Socks5Reply).IsEqualTo(Socks5Reply.GeneralFailure);
 	}
 
 	[Test]
@@ -103,6 +104,7 @@ public class Socks5UnpackTest
 	}
 
 	[Test]
+	[DisplayName("ReadResponseAuthReply: wrong auth version is a local protocol error (GeneralFailure), not ConnectionNotAllowed")]
 	public async Task ReadResponseAuthReply_WrongVersion(CancellationToken cancellationToken)
 	{
 		byte[] data = [0x02, 0x00];
@@ -113,7 +115,7 @@ public class Socks5UnpackTest
 			Unpack.ReadResponseAuthReply(ref local);
 		}).Throws<Socks5ProtocolErrorException>();
 
-		await Assert.That(ex?.Socks5Reply).IsEqualTo(Socks5Reply.ConnectionNotAllowed);
+		await Assert.That(ex?.Socks5Reply).IsEqualTo(Socks5Reply.GeneralFailure);
 	}
 
 	[Test]
@@ -324,7 +326,7 @@ public class Socks5UnpackTest
 	[Test]
 	public async Task Udp_InsufficientData(CancellationToken cancellationToken)
 	{
-		byte[] buffer = "\0\0\0"u8.ToArray(); // only 3 bytes, need >= 4
+		byte[] buffer = "\0\0\0"u8.ToArray(); // only 3 bytes, need >= 8
 
 		Socks5ProtocolErrorException? ex = await Assert.That(() =>
 		{
@@ -332,6 +334,37 @@ public class Socks5UnpackTest
 		}).Throws<Socks5ProtocolErrorException>();
 
 		await Assert.That(ex?.Socks5Reply).IsEqualTo(Socks5Reply.GeneralFailure);
+	}
+
+	[Test]
+	[DisplayName("Udp: packet shorter than minimum domain length (8) is rejected at initial check")]
+	public async Task Udp_ShorterThanMinimum_RejectedImmediately(CancellationToken cancellationToken)
+	{
+		// 5 bytes: header(4) + 1 — passes old < 4 check but not < 8
+		byte[] buffer = [0x00, 0x00, 0x00, (byte)AddressType.IPv4, 127];
+
+		Socks5ProtocolErrorException? ex = await Assert.That(() =>
+		{
+			Unpack.Udp(buffer.AsMemory());
+		}).Throws<Socks5ProtocolErrorException>();
+
+		await Assert.That(ex?.Message).Contains("minimum 8");
+	}
+
+	[Test]
+	[DisplayName("Udp: shortest valid domain packet (8 bytes, 1-char domain) parses correctly")]
+	public async Task Udp_ShortestValidDomain_Parses(CancellationToken cancellationToken)
+	{
+		// RSV(00 00) + FRAG(00) + ATYP=Domain(03) + LEN=1(01) + "a"(61) + PORT=53(00 35)
+		byte[] buffer = [0x00, 0x00, 0x00, 0x03, 0x01, 0x61, 0x00, 0x35];
+
+		Socks5UdpReceivePacket packet = Unpack.Udp(buffer.AsMemory());
+
+		await Assert.That(packet.Fragment).IsEqualTo((byte)0);
+		await Assert.That(packet.Type).IsEqualTo(AddressType.Domain);
+		await Assert.That(packet.Port).IsEqualTo((ushort)53);
+		await Assert.That(Encoding.ASCII.GetString(packet.Host.Span)).IsEqualTo("a");
+		await Assert.That(packet.Data.Length).IsEqualTo(0);
 	}
 
 	[Test]

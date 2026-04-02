@@ -36,7 +36,7 @@ internal static class Unpack
 
 		if (!Enum.IsDefined(method))
 		{
-			throw new Socks5ProtocolErrorException($@"Server sent an unknown method: 0x{b1:X2}.", Socks5Reply.ConnectionNotAllowed);
+			throw new Socks5ProtocolErrorException($@"Server sent an unknown method: 0x{b1:X2}.", Socks5Reply.GeneralFailure);
 		}
 
 		buffer = buffer.Slice(2);
@@ -62,7 +62,7 @@ internal static class Unpack
 
 		if (b0 is not Constants.AuthVersion)
 		{
-			throw new Socks5ProtocolErrorException($@"Authentication version is not 0x01: 0x{b0:X2}.", Socks5Reply.ConnectionNotAllowed);
+			throw new Socks5ProtocolErrorException($@"Authentication version is not 0x01: 0x{b0:X2}.", Socks5Reply.GeneralFailure);
 		}
 
 		reader.TryRead(out byte status);
@@ -86,10 +86,12 @@ internal static class Unpack
 			case AddressType.IPv6:
 			{
 				offset = type is AddressType.IPv4 ? Constants.IPv4AddressBytesLength : Constants.IPv6AddressBytesLength;
+
 				if (bytes.Length < offset)
 				{
 					throw new Socks5ProtocolErrorException($@"Truncated {type} address: expected {offset} bytes, got {bytes.Length}.", Socks5Reply.GeneralFailure);
 				}
+
 				FormatIPAddress(bytes.Slice(0, offset), hostBuffer, out hostBytesWritten);
 				break;
 			}
@@ -99,15 +101,19 @@ internal static class Unpack
 				{
 					throw new Socks5ProtocolErrorException("Truncated domain address: missing length byte.", Socks5Reply.GeneralFailure);
 				}
+
 				offset = bytes[0];
+
 				if (offset is 0)
 				{
 					throw new Socks5ProtocolErrorException("Empty domain name (length 0) is not a valid FQDN (RFC 1928 §5).", Socks5Reply.GeneralFailure);
 				}
+
 				if (bytes.Length < 1 + offset)
 				{
 					throw new Socks5ProtocolErrorException($@"Truncated domain address: expected {offset} bytes, got {bytes.Length - 1}.", Socks5Reply.GeneralFailure);
 				}
+
 				bytes.Slice(1, offset).CopyTo(hostBuffer);
 				hostBytesWritten = offset;
 				++offset; // skip length byte
@@ -131,18 +137,18 @@ internal static class Unpack
 		// +----+------+------+----------+----------+----------+
 
 		ReadOnlySpan<byte> span = buffer.Span;
-		if (buffer.Length < 4)
+
+		if (buffer.Length < 8) // RSV(2) + FRAG(1) + ATYP(1) + LEN(1) + Domain(1) + PORT(2)
 		{
-			throw new Socks5ProtocolErrorException($@"UDP packet too short: {buffer.Length} bytes, minimum 4.", Socks5Reply.GeneralFailure);
+			throw new Socks5ProtocolErrorException($@"UDP packet too short: {buffer.Length} bytes, minimum 8.", Socks5Reply.GeneralFailure);
 		}
 
-		Socks5UdpReceivePacket res = new();
-
-		// UDP RSV bytes are skipped for interoperability.
-
-		res.Fragment = span[2];
-
-		res.Type = (AddressType)span[3];
+		Socks5UdpReceivePacket res = new()
+		{
+			// UDP RSV bytes are skipped for interoperability.
+			Fragment = span[2],
+			Type = (AddressType)span[3]
+		};
 
 		if (!Enum.IsDefined(res.Type))
 		{
@@ -156,6 +162,7 @@ internal static class Unpack
 		{
 			throw new Socks5ProtocolErrorException($@"UDP packet truncated before port: need {offset + 2} bytes, got {buffer.Length}.", Socks5Reply.GeneralFailure);
 		}
+
 		res.Port = BinaryPrimitives.ReadUInt16BigEndian(span.Slice(offset));
 		res.Data = buffer.Slice(offset + 2);
 

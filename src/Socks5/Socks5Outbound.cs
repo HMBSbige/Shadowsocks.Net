@@ -166,7 +166,17 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 				while (true)
 				{
 					int length = await udpSocket.ReceiveAsync(receiveBuffer.AsMemory(), SocketFlags.None, cancellationToken);
-					Socks5UdpReceivePacket packet = Unpack.Udp(receiveBuffer.AsMemory(0, length));
+
+					Socks5UdpReceivePacket packet;
+
+					try
+					{
+						packet = Unpack.Udp(receiveBuffer.AsMemory(0, length));
+					}
+					catch (Socks5ProtocolErrorException)
+					{
+						continue;
+					}
 
 					if (packet.Fragment is not 0x00)
 					{
