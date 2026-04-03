@@ -99,7 +99,6 @@ public sealed partial class Socks5Inbound : IStreamInbound
 				SocketError.HostNotFound or SocketError.HostUnreachable => Socks5Reply.HostUnreachable,
 				SocketError.ConnectionRefused => Socks5Reply.ConnectionRefused,
 				SocketError.NetworkUnreachable => Socks5Reply.NetworkUnreachable,
-				SocketError.TimedOut => Socks5Reply.TtlExpired,
 				_ => Socks5Reply.GeneralFailure,
 			},
 			_ => Socks5Reply.GeneralFailure,

@@ -1139,8 +1139,8 @@ public class Socks5InboundTest
 	}
 
 	[Test]
-	[DisplayName("CONNECT: SocketError.TimedOut maps to TtlExpired reply")]
-	public async Task Connect_TimedOut_RepliesToTtlExpired(CancellationToken cancellationToken)
+	[DisplayName("CONNECT: SocketError.TimedOut maps to GeneralFailure reply")]
+	public async Task Connect_TimedOut_RepliesToGeneralFailure(CancellationToken cancellationToken)
 	{
 		Socks5Inbound inbound = new();
 		SocketExceptionThrowingOutbound outbound = new(SocketError.TimedOut);
@@ -1155,7 +1155,7 @@ public class Socks5InboundTest
 
 		await Assert.That(read).IsGreaterThan(0);
 		await Assert.That(reply[0]).IsEqualTo(Constants.ProtocolVersion);
-		await Assert.That(reply[1]).IsEqualTo((byte)Socks5Reply.TtlExpired);
+		await Assert.That(reply[1]).IsEqualTo((byte)Socks5Reply.GeneralFailure);
 	}
 
 	[Test]
