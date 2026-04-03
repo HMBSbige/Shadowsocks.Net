@@ -161,6 +161,180 @@ public class Socks5InboundTest
 		return getCount() >= expected;
 	}
 
+	private static async Task<bool> TryReceiveUdpPayloadAsync(Socket socket, byte[] expectedPayload, CancellationToken cancellationToken)
+	{
+		byte[]? receivedPayload = await TryReceiveUdpPayloadBytesAsync(socket, cancellationToken);
+		return receivedPayload is not null && receivedPayload.AsSpan().SequenceEqual(expectedPayload);
+	}
+
+	private static async Task<byte[]?> TryReceiveUdpPayloadBytesAsync(Socket socket, CancellationToken cancellationToken)
+	{
+		using CancellationTokenSource recvCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+		recvCts.CancelAfter(500);
+
+		byte[] buffer = new byte[256];
+
+		try
+		{
+			SocketReceiveFromResult result = await socket.ReceiveFromAsync
+			(
+				buffer,
+				SocketFlags.None,
+				new IPEndPoint(IPAddress.Any, 0),
+				recvCts.Token
+			);
+
+			Socks5UdpReceivePacket packet = Unpack.Udp(buffer.AsMemory(0, result.ReceivedBytes));
+			return packet.Data.ToArray();
+		}
+		catch (OperationCanceledException)
+		{
+			return null;
+		}
+	}
+
+	private sealed class ProxyTestSession : IAsyncDisposable
+	{
+		public required TcpListener Listener { get; init; }
+		public required CancellationTokenSource Cts { get; init; }
+		public required TcpClient Client { get; init; }
+		public required NetworkStream Stream { get; init; }
+
+		public async ValueTask DisposeAsync()
+		{
+			await Cts.CancelAsync();
+			Client.Dispose();
+			Listener.Dispose();
+			Cts.Dispose();
+		}
+	}
+
+	private static async Task<ProxyTestSession> StartProxySessionAsync(
+		Socks5Inbound inbound,
+		IOutbound outbound,
+		CancellationToken cancellationToken,
+		IPAddress? bindAddress = null)
+	{
+		bindAddress ??= IPAddress.Loopback;
+
+		TcpListener listener = new(bindAddress, 0);
+		listener.Start();
+		ushort port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
+
+		CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+		_ = TestAcceptLoop.RunAsync(listener, inbound, outbound, cts.Token);
+
+		TcpClient client = new();
+		IPAddress connectAddress = bindAddress.Equals(IPAddress.Any) || bindAddress.Equals(IPAddress.IPv6Any)
+			? IPAddress.Loopback
+			: bindAddress;
+		await client.ConnectAsync(connectAddress, port, cancellationToken);
+		NetworkStream stream = client.GetStream();
+
+		await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, cancellationToken);
+		byte[] methodReply = new byte[2];
+		await stream.ReadExactlyAsync(methodReply, cancellationToken);
+
+		return new ProxyTestSession
+		{
+			Listener = listener,
+			Cts = cts,
+			Client = client,
+			Stream = stream,
+		};
+	}
+
+	private static async Task<ServerBound> NegotiateUdpAssociateAsync(
+		NetworkStream stream,
+		CancellationToken cancellationToken)
+	{
+		byte[] cmd = new byte[Constants.MaxCommandLength];
+		int cmdLen = Pack.ClientCommand(Command.UdpAssociate, "0.0.0.0"u8, 0, cmd);
+		await stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
+
+		byte[] replyBuf = new byte[Constants.MaxCommandLength];
+		int replyRead = await stream.ReadAsync(replyBuf, cancellationToken);
+		ReadOnlySequence<byte> seq = new(replyBuf.AsMemory(0, replyRead));
+		bool parsed = Unpack.ReadServerReplyCommand(ref seq, out ServerBound bound);
+		await Assert.That(parsed).IsTrue();
+
+		return bound;
+	}
+
+	private static async Task SendUdpRelayPacketAsync(
+		Socket sender,
+		IPEndPoint relayEndPoint,
+		byte[] host,
+		ushort port,
+		byte[] payload,
+		CancellationToken cancellationToken)
+	{
+		byte[] packet = new byte[Constants.MaxUdpHandshakeHeaderLength + payload.Length];
+		int packetLength = Pack.Udp(packet, host, port, payload);
+		await sender.SendToAsync(packet.AsMemory(0, packetLength), SocketFlags.None, relayEndPoint, cancellationToken);
+	}
+
+	private sealed class ScriptedPacketOutbound : IPacketOutbound
+	{
+		public ScriptedPacketConnection PacketConnection { get; } = new();
+
+		public ValueTask<IPacketConnection> CreatePacketConnectionAsync(CancellationToken cancellationToken = default)
+		{
+			return ValueTask.FromResult<IPacketConnection>(PacketConnection);
+		}
+	}
+
+	private sealed class ScriptedPacketConnection : IPacketConnection
+	{
+		private readonly Queue<QueuedPacket> _receiveQueue = new();
+		private readonly SemaphoreSlim _receiveSignal = new(0);
+		public int SendToCallCount;
+
+		public ValueTask<int> SendToAsync(ReadOnlyMemory<byte> data, ProxyDestination destination, CancellationToken cancellationToken = default)
+		{
+			Interlocked.Increment(ref SendToCallCount);
+			return ValueTask.FromResult(data.Length);
+		}
+
+		public void EnqueueReceive(byte[] host, ushort port, byte[] payload)
+		{
+			lock (_receiveQueue)
+			{
+				_receiveQueue.Enqueue(new QueuedPacket(host, port, payload));
+			}
+
+			_receiveSignal.Release();
+		}
+
+		public async ValueTask<PacketReceiveResult> ReceiveFromAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+		{
+			await _receiveSignal.WaitAsync(cancellationToken);
+
+			QueuedPacket packet;
+
+			lock (_receiveQueue)
+			{
+				packet = _receiveQueue.Dequeue();
+			}
+
+			packet.Payload.CopyTo(buffer.Span);
+
+			return new PacketReceiveResult
+			{
+				BytesReceived = packet.Payload.Length,
+				RemoteDestination = new ProxyDestination(packet.Host, packet.Port)
+			};
+		}
+
+		public ValueTask DisposeAsync()
+		{
+			_receiveSignal.Dispose();
+			return ValueTask.CompletedTask;
+		}
+
+		private sealed record QueuedPacket(byte[] Host, ushort Port, byte[] Payload);
+	}
+
 	[Test]
 	[DisplayName("Constructor: empty username credential throws ArgumentException")]
 	public async Task Constructor_EmptyUsername_Throws(CancellationToken cancellationToken)
@@ -556,23 +730,13 @@ public class Socks5InboundTest
 	}
 
 	[Test]
-	[DisplayName("UDP relay: DST=127.0.0.1:P accepts matching address+port")]
-	public async Task UdpRelay_MatchingAddr_MatchingPort_Forwards(CancellationToken cancellationToken)
-	{
-		using Socket udp = CreateBoundUdpSocket();
-		ushort senderPort = (ushort)((IPEndPoint)udp.LocalEndPoint!).Port;
-		int count = await SendUdpAndCountForwardsAsync("127.0.0.1"u8.ToArray(), senderPort, udp, cancellationToken);
-		await Assert.That(count).IsEqualTo(1);
-	}
-
-	[Test]
-	[DisplayName("UDP relay: DST=127.0.0.1:P+1 drops non-matching port")]
-	public async Task UdpRelay_MatchingAddr_NonMatchingPort_Drops(CancellationToken cancellationToken)
+	[DisplayName("UDP relay: DST=127.0.0.1:P still accepts matching address with a different sender port")]
+	public async Task UdpRelay_MatchingAddr_NonZeroPort_Forwards(CancellationToken cancellationToken)
 	{
 		using Socket udp = CreateBoundUdpSocket();
 		ushort senderPort = (ushort)((IPEndPoint)udp.LocalEndPoint!).Port;
 		int count = await SendUdpAndCountForwardsAsync("127.0.0.1"u8.ToArray(), (ushort)(senderPort + 1), udp, cancellationToken);
-		await Assert.That(count).IsEqualTo(0);
+		await Assert.That(count).IsEqualTo(1);
 	}
 
 	[Test]
@@ -678,37 +842,10 @@ public class Socks5InboundTest
 		Socks5Inbound inbound = new();
 		DirectOutbound outbound = new();
 
-		using TcpListener listener = new(IPAddress.Any, 0);
-		listener.Start();
-		ushort port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
+		await using ProxyTestSession session = await StartProxySessionAsync(inbound, outbound, cancellationToken, IPAddress.Any);
+		ServerBound bound = await NegotiateUdpAssociateAsync(session.Stream, cancellationToken);
 
-		using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-		_ = TestAcceptLoop.RunAsync(listener, inbound, outbound, cts.Token);
-
-		using TcpClient client = new();
-		await client.ConnectAsync(IPAddress.Loopback, port, cancellationToken);
-		NetworkStream stream = client.GetStream();
-
-		// Method negotiation
-		await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, cancellationToken);
-		byte[] methodReply = new byte[2];
-		await stream.ReadExactlyAsync(methodReply, cancellationToken);
-
-		// UDP ASSOCIATE command
-		byte[] cmd = new byte[Constants.MaxCommandLength];
-		int cmdLen = Pack.ClientCommand(Command.UdpAssociate, "0.0.0.0"u8, 0, cmd);
-		await stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
-
-		// Read reply — BND.ADDR must be concrete, not wildcard
-		byte[] replyBuf = new byte[Constants.MaxCommandLength];
-		int read = await stream.ReadAsync(replyBuf, cancellationToken);
-		ReadOnlySequence<byte> seq = new(replyBuf.AsMemory(0, read));
-		bool parsed = Unpack.ReadServerReplyCommand(ref seq, out ServerBound bound);
-
-		await Assert.That(parsed).IsTrue();
 		await Assert.That(bound.Host.Span.SequenceEqual("127.0.0.1"u8)).IsTrue();
-
-		await cts.CancelAsync();
 	}
 
 	[Test]
@@ -734,27 +871,15 @@ public class Socks5InboundTest
 
 		Socks5Inbound inbound = new();
 		DirectOutbound outbound = new();
-		using TcpListener proxy = new(loopback, 0);
-		proxy.Start();
-		ushort proxyPort = (ushort)((IPEndPoint)proxy.LocalEndpoint).Port;
-		using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-		_ = TestAcceptLoop.RunAsync(proxy, inbound, outbound, cts.Token);
-
-		using TcpClient client = new();
-		await client.ConnectAsync(loopback, proxyPort, cancellationToken);
-		NetworkStream stream = client.GetStream();
-
-		await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, cancellationToken);
-		byte[] methodReply = new byte[2];
-		await stream.ReadExactlyAsync(methodReply, cancellationToken);
+		await using ProxyTestSession session = await StartProxySessionAsync(inbound, outbound, cancellationToken, loopback);
 
 		byte[] cmd = new byte[Constants.MaxCommandLength];
 		byte[] hostBytes = System.Text.Encoding.ASCII.GetBytes(loopback.ToString());
 		int cmdLen = Pack.ClientCommand(Command.Connect, hostBytes, targetPort, cmd);
-		await stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
+		await session.Stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
 
 		byte[] replyBuf = new byte[Constants.MaxCommandLength];
-		int read = await stream.ReadAsync(replyBuf, cancellationToken);
+		int read = await session.Stream.ReadAsync(replyBuf, cancellationToken);
 		ReadOnlySequence<byte> seq = new(replyBuf.AsMemory(0, read));
 		bool parsed = Unpack.ReadServerReplyCommand(ref seq, out ServerBound bound);
 		await Assert.That(parsed).IsTrue();
@@ -770,7 +895,6 @@ public class Socks5InboundTest
 			System.Text.Encoding.ASCII.GetBytes(outboundEp.Address.ToString()))).IsTrue();
 		await Assert.That(bound.Port).IsEqualTo((ushort)outboundEp.Port);
 
-		await cts.CancelAsync();
 		target.Stop();
 	}
 
@@ -804,50 +928,25 @@ public class Socks5InboundTest
 	{
 		SpyPacketOutbound outbound = new();
 		Socks5Inbound inbound = new();
-		using TcpListener listener = new(IPAddress.Loopback, 0);
-		listener.Start();
-		ushort port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
 
-		using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-		_ = TestAcceptLoop.RunAsync(listener, inbound, outbound, cts.Token);
-
-		using TcpClient client = new();
-		await client.ConnectAsync(IPAddress.Loopback, port, cancellationToken);
-		NetworkStream stream = client.GetStream();
-
-		await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, cancellationToken);
-		byte[] methodReply = new byte[2];
-		await stream.ReadExactlyAsync(methodReply, cancellationToken);
-
-		byte[] cmd = new byte[Constants.MaxCommandLength];
-		int cmdLen = Pack.ClientCommand(Command.UdpAssociate, "0.0.0.0"u8, 0, cmd);
-		await stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
-
-		byte[] replyBuf = new byte[Constants.MaxCommandLength];
-		int replyRead = await stream.ReadAsync(replyBuf, cancellationToken);
-		ReadOnlySequence<byte> seq = new(replyBuf.AsMemory(0, replyRead));
-		bool parsed = Unpack.ReadServerReplyCommand(ref seq, out ServerBound bound);
-		await Assert.That(parsed).IsTrue();
+		await using ProxyTestSession session = await StartProxySessionAsync(inbound, outbound, cancellationToken);
+		ServerBound bound = await NegotiateUdpAssociateAsync(session.Stream, cancellationToken);
 
 		using Socket udp = CreateBoundUdpSocket();
+		IPEndPoint relayEp = new(IPAddress.Loopback, bound.Port);
+
 		byte[] payload1 = "first"u8.ToArray();
-		byte[] pkt1 = new byte[Constants.MaxUdpHandshakeHeaderLength + payload1.Length];
-		int pkt1Len = Pack.Udp(pkt1, "127.0.0.1"u8, 9999, payload1);
-		await udp.SendToAsync(pkt1.AsMemory(0, pkt1Len), SocketFlags.None, new IPEndPoint(IPAddress.Loopback, bound.Port), cancellationToken);
+		await SendUdpRelayPacketAsync(udp, relayEp, "127.0.0.1"u8.ToArray(), 9999, payload1, cancellationToken);
 
 		await Assert.That(await WaitForSendCountAsync(outbound.PacketConnection, 1, cancellationToken)).IsTrue();
 
-		await stream.WriteAsync(new byte[] { 0x00 }, cancellationToken);
+		await session.Stream.WriteAsync(new byte[] { 0x00 }, cancellationToken);
 		await Task.Delay(100, cancellationToken);
 
 		byte[] payload2 = "second"u8.ToArray();
-		byte[] pkt2 = new byte[Constants.MaxUdpHandshakeHeaderLength + payload2.Length];
-		int pkt2Len = Pack.Udp(pkt2, "127.0.0.1"u8, 9999, payload2);
-		await udp.SendToAsync(pkt2.AsMemory(0, pkt2Len), SocketFlags.None, new IPEndPoint(IPAddress.Loopback, bound.Port), cancellationToken);
+		await SendUdpRelayPacketAsync(udp, relayEp, "127.0.0.1"u8.ToArray(), 9999, payload2, cancellationToken);
 
 		await Assert.That(await WaitForSendCountAsync(outbound.PacketConnection, 2, cancellationToken)).IsTrue();
-
-		await cts.CancelAsync();
 	}
 
 	[Test]
@@ -856,30 +955,9 @@ public class Socks5InboundTest
 	{
 		SpyPacketOutbound outbound = new();
 		Socks5Inbound inbound = new();
-		using TcpListener listener = new(IPAddress.Loopback, 0);
-		listener.Start();
-		ushort port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
 
-		using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-		_ = TestAcceptLoop.RunAsync(listener, inbound, outbound, cts.Token);
-
-		using TcpClient client = new();
-		await client.ConnectAsync(IPAddress.Loopback, port, cancellationToken);
-		NetworkStream stream = client.GetStream();
-
-		await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, cancellationToken);
-		byte[] methodReply = new byte[2];
-		await stream.ReadExactlyAsync(methodReply, cancellationToken);
-
-		byte[] cmd = new byte[Constants.MaxCommandLength];
-		int cmdLen = Pack.ClientCommand(Command.UdpAssociate, "0.0.0.0"u8, 0, cmd);
-		await stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
-
-		byte[] replyBuf = new byte[Constants.MaxCommandLength];
-		int replyRead = await stream.ReadAsync(replyBuf, cancellationToken);
-		ReadOnlySequence<byte> seq = new(replyBuf.AsMemory(0, replyRead));
-		bool parsed = Unpack.ReadServerReplyCommand(ref seq, out ServerBound bound);
-		await Assert.That(parsed).IsTrue();
+		await using ProxyTestSession session = await StartProxySessionAsync(inbound, outbound, cancellationToken);
+		ServerBound bound = await NegotiateUdpAssociateAsync(session.Stream, cancellationToken);
 
 		using Socket udp = CreateBoundUdpSocket();
 		IPEndPoint relayEp = new(IPAddress.Loopback, bound.Port);
@@ -890,13 +968,78 @@ public class Socks5InboundTest
 
 		// Send a valid packet — relay must still be alive.
 		byte[] payload = "after-malformed"u8.ToArray();
-		byte[] pkt = new byte[Constants.MaxUdpHandshakeHeaderLength + payload.Length];
-		int pktLen = Pack.Udp(pkt, "127.0.0.1"u8, 9999, payload);
-		await udp.SendToAsync(pkt.AsMemory(0, pktLen), SocketFlags.None, relayEp, cancellationToken);
+		await SendUdpRelayPacketAsync(udp, relayEp, "127.0.0.1"u8.ToArray(), 9999, payload, cancellationToken);
 
 		await Assert.That(await WaitForSendCountAsync(outbound.PacketConnection, 1, cancellationToken)).IsTrue();
+	}
 
-		await cts.CancelAsync();
+	[Test]
+	[DisplayName("UDP relay: malformed packet from same IP must not capture reply port")]
+	public async Task UdpRelay_MalformedPacket_DoesNotCaptureReplyPort(CancellationToken cancellationToken)
+	{
+		using MockUdpEchoServer echo = new();
+		echo.Start();
+
+		Socks5Inbound inbound = new();
+		DirectOutbound outbound = new();
+
+		await using ProxyTestSession session = await StartProxySessionAsync(inbound, outbound, cancellationToken);
+		ServerBound bound = await NegotiateUdpAssociateAsync(session.Stream, cancellationToken);
+
+		using Socket badSender = CreateBoundUdpSocket();
+		using Socket goodSender = CreateBoundUdpSocket();
+		IPEndPoint relayEp = new(IPAddress.Loopback, bound.Port);
+
+		await badSender.SendToAsync(new byte[] { 0xFF, 0xFF }, SocketFlags.None, relayEp, cancellationToken);
+		await Task.Delay(50, cancellationToken);
+
+		byte[] payload = "hello"u8.ToArray();
+		await SendUdpRelayPacketAsync(goodSender, relayEp, "127.0.0.1"u8.ToArray(), (ushort)echo.Port, payload, cancellationToken);
+
+		bool badGotReply = await TryReceiveUdpPayloadAsync(badSender, payload, cancellationToken);
+		bool goodGotReply = await TryReceiveUdpPayloadAsync(goodSender, payload, cancellationToken);
+
+		await Assert.That(badGotReply).IsFalse();
+		await Assert.That(goodGotReply).IsTrue();
+	}
+
+	[Test]
+	[DisplayName("UDP relay: replies follow the most recent valid client datagram source port")]
+	public async Task UdpRelay_MostRecentValidClientDatagram_WinsReplyRouting(CancellationToken cancellationToken)
+	{
+		ScriptedPacketOutbound outbound = new();
+		Socks5Inbound inbound = new();
+
+		await using ProxyTestSession session = await StartProxySessionAsync(inbound, outbound, cancellationToken);
+		ServerBound bound = await NegotiateUdpAssociateAsync(session.Stream, cancellationToken);
+
+		using Socket senderA = CreateBoundUdpSocket();
+		using Socket senderB = CreateBoundUdpSocket();
+		IPEndPoint relayEp = new(IPAddress.Loopback, bound.Port);
+
+		await SendUdpRelayPacketAsync(senderA, relayEp, "127.0.0.1"u8.ToArray(), 10001, "from-a"u8.ToArray(), cancellationToken);
+		await Assert.That(await WaitForCountAsync(() => Volatile.Read(ref outbound.PacketConnection.SendToCallCount), 1, cancellationToken)).IsTrue();
+
+		await SendUdpRelayPacketAsync(senderB, relayEp, "127.0.0.1"u8.ToArray(), 10002, "from-b"u8.ToArray(), cancellationToken);
+		await Assert.That(await WaitForCountAsync(() => Volatile.Read(ref outbound.PacketConnection.SendToCallCount), 2, cancellationToken)).IsTrue();
+
+		byte[] firstReply = "reply-1"u8.ToArray();
+		byte[] secondReply = "reply-2"u8.ToArray();
+		outbound.PacketConnection.EnqueueReceive("203.0.113.1"u8.ToArray(), 20001, firstReply);
+		outbound.PacketConnection.EnqueueReceive("203.0.113.2"u8.ToArray(), 20002, secondReply);
+
+		Task<byte[]?> senderAReplyTask = TryReceiveUdpPayloadBytesAsync(senderA, cancellationToken);
+		Task<byte[]?> senderBFirstReplyTask = TryReceiveUdpPayloadBytesAsync(senderB, cancellationToken);
+
+		byte[]? senderAReply = await senderAReplyTask;
+		byte[]? senderBFirstReply = await senderBFirstReplyTask;
+		byte[]? senderBSecondReply = await TryReceiveUdpPayloadBytesAsync(senderB, cancellationToken);
+
+		await Assert.That(senderAReply).IsNull();
+		await Assert.That(senderBFirstReply).IsNotNull();
+		await Assert.That(senderBFirstReply!.AsSpan().SequenceEqual(firstReply)).IsTrue();
+		await Assert.That(senderBSecondReply).IsNotNull();
+		await Assert.That(senderBSecondReply!.AsSpan().SequenceEqual(secondReply)).IsTrue();
 	}
 
 	[Test]
@@ -905,50 +1048,21 @@ public class Socks5InboundTest
 	{
 		FailOnceSendPacketOutbound outbound = new();
 		Socks5Inbound inbound = new();
-		using TcpListener listener = new(IPAddress.Loopback, 0);
-		listener.Start();
-		ushort port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
 
-		using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-		_ = TestAcceptLoop.RunAsync(listener, inbound, outbound, cts.Token);
-
-		using TcpClient client = new();
-		await client.ConnectAsync(IPAddress.Loopback, port, cancellationToken);
-		NetworkStream stream = client.GetStream();
-
-		await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, cancellationToken);
-		byte[] methodReply = new byte[2];
-		await stream.ReadExactlyAsync(methodReply, cancellationToken);
-
-		byte[] cmd = new byte[Constants.MaxCommandLength];
-		int cmdLen = Pack.ClientCommand(Command.UdpAssociate, "0.0.0.0"u8, 0, cmd);
-		await stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
-
-		byte[] replyBuf = new byte[Constants.MaxCommandLength];
-		int replyRead = await stream.ReadAsync(replyBuf, cancellationToken);
-		ReadOnlySequence<byte> seq = new(replyBuf.AsMemory(0, replyRead));
-		bool parsed = Unpack.ReadServerReplyCommand(ref seq, out ServerBound bound);
-		await Assert.That(parsed).IsTrue();
+		await using ProxyTestSession session = await StartProxySessionAsync(inbound, outbound, cancellationToken);
+		ServerBound bound = await NegotiateUdpAssociateAsync(session.Stream, cancellationToken);
 
 		using Socket udp = CreateBoundUdpSocket();
 		IPEndPoint relayEp = new(IPAddress.Loopback, bound.Port);
 
 		// First valid packet — SendToAsync will throw, should be silently dropped.
-		byte[] payload1 = "will-fail"u8.ToArray();
-		byte[] pkt1 = new byte[Constants.MaxUdpHandshakeHeaderLength + payload1.Length];
-		int pkt1Len = Pack.Udp(pkt1, "127.0.0.1"u8, 9999, payload1);
-		await udp.SendToAsync(pkt1.AsMemory(0, pkt1Len), SocketFlags.None, relayEp, cancellationToken);
+		await SendUdpRelayPacketAsync(udp, relayEp, "127.0.0.1"u8.ToArray(), 9999, "will-fail"u8.ToArray(), cancellationToken);
 		await Task.Delay(50, cancellationToken);
 
 		// Second valid packet — relay must still be alive.
-		byte[] payload2 = "will-succeed"u8.ToArray();
-		byte[] pkt2 = new byte[Constants.MaxUdpHandshakeHeaderLength + payload2.Length];
-		int pkt2Len = Pack.Udp(pkt2, "127.0.0.1"u8, 9999, payload2);
-		await udp.SendToAsync(pkt2.AsMemory(0, pkt2Len), SocketFlags.None, relayEp, cancellationToken);
+		await SendUdpRelayPacketAsync(udp, relayEp, "127.0.0.1"u8.ToArray(), 9999, "will-succeed"u8.ToArray(), cancellationToken);
 
 		await Assert.That(await WaitForCountAsync(() => Volatile.Read(ref outbound.PacketConnection.SuccessfulSendCount), 1, cancellationToken)).IsTrue();
-
-		await cts.CancelAsync();
 	}
 
 	[Test]
@@ -957,39 +1071,15 @@ public class Socks5InboundTest
 	{
 		OversizedThenNormalPacketOutbound outbound = new();
 		Socks5Inbound inbound = new();
-		using TcpListener listener = new(IPAddress.Loopback, 0);
-		listener.Start();
-		ushort port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
 
-		using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-		_ = TestAcceptLoop.RunAsync(listener, inbound, outbound, cts.Token);
-
-		using TcpClient client = new();
-		await client.ConnectAsync(IPAddress.Loopback, port, cancellationToken);
-		NetworkStream stream = client.GetStream();
-
-		await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, cancellationToken);
-		byte[] methodReply = new byte[2];
-		await stream.ReadExactlyAsync(methodReply, cancellationToken);
-
-		byte[] cmd = new byte[Constants.MaxCommandLength];
-		int cmdLen = Pack.ClientCommand(Command.UdpAssociate, "0.0.0.0"u8, 0, cmd);
-		await stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
-
-		byte[] replyBuf = new byte[Constants.MaxCommandLength];
-		int replyRead = await stream.ReadAsync(replyBuf, cancellationToken);
-		ReadOnlySequence<byte> seq = new(replyBuf.AsMemory(0, replyRead));
-		bool parsed = Unpack.ReadServerReplyCommand(ref seq, out ServerBound bound);
-		await Assert.That(parsed).IsTrue();
+		await using ProxyTestSession session = await StartProxySessionAsync(inbound, outbound, cancellationToken);
+		ServerBound bound = await NegotiateUdpAssociateAsync(session.Stream, cancellationToken);
 
 		using Socket udp = CreateBoundUdpSocket();
 		IPEndPoint relayEp = new(IPAddress.Loopback, bound.Port);
 
 		// Send a normal client->remote packet to establish clientSa in the relay.
-		byte[] trigger = "trigger"u8.ToArray();
-		byte[] triggerPkt = new byte[Constants.MaxUdpHandshakeHeaderLength + trigger.Length];
-		int triggerLen = Pack.Udp(triggerPkt, "127.0.0.1"u8, 9999, trigger);
-		await udp.SendToAsync(triggerPkt.AsMemory(0, triggerLen), SocketFlags.None, relayEp, cancellationToken);
+		await SendUdpRelayPacketAsync(udp, relayEp, "127.0.0.1"u8.ToArray(), 9999, "trigger"u8.ToArray(), cancellationToken);
 
 		// The outbound's ReceiveFromAsync returns an oversized packet first (relay send throws),
 		// then a normal packet second (relay send succeeds).
@@ -1003,8 +1093,6 @@ public class Socks5InboundTest
 
 		// Verify both ReceiveFromAsync calls completed (oversized + normal).
 		await Assert.That(Volatile.Read(ref outbound.PacketConnection.ReceiveReturnCount)).IsGreaterThanOrEqualTo(2);
-
-		await cts.CancelAsync();
 	}
 
 	[Test]
@@ -1012,33 +1100,19 @@ public class Socks5InboundTest
 	public async Task UdpAssociate_SetupFailure_RepliesGeneralFailure(CancellationToken cancellationToken)
 	{
 		Socks5Inbound inbound = new();
-		using TcpListener listener = new(IPAddress.Loopback, 0);
-		listener.Start();
-		ushort port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
 
-		using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-		_ = TestAcceptLoop.RunAsync(listener, inbound, new ThrowingPacketOutbound(), cts.Token);
-
-		using TcpClient client = new();
-		await client.ConnectAsync(IPAddress.Loopback, port, cancellationToken);
-		NetworkStream stream = client.GetStream();
-
-		await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, cancellationToken);
-		byte[] methodReply = new byte[2];
-		await stream.ReadExactlyAsync(methodReply, cancellationToken);
+		await using ProxyTestSession session = await StartProxySessionAsync(inbound, new ThrowingPacketOutbound(), cancellationToken);
 
 		byte[] cmd = new byte[Constants.MaxCommandLength];
 		int cmdLen = Pack.ClientCommand(Command.UdpAssociate, "0.0.0.0"u8, 0, cmd);
-		await stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
+		await session.Stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
 
 		byte[] reply = new byte[Constants.MaxCommandLength];
-		int read = await stream.ReadAsync(reply, cancellationToken);
+		int read = await session.Stream.ReadAsync(reply, cancellationToken);
 
 		await Assert.That(read).IsGreaterThan(0);
 		await Assert.That(reply[0]).IsEqualTo(Constants.ProtocolVersion);
 		await Assert.That(reply[1]).IsEqualTo((byte)Socks5Reply.GeneralFailure);
-
-		await cts.CancelAsync();
 	}
 
 	[Test]
@@ -1046,27 +1120,14 @@ public class Socks5InboundTest
 	public async Task Connect_NullLocalEndPoint_SucceedsWithUnspecifiedBound(CancellationToken cancellationToken)
 	{
 		Socks5Inbound inbound = new();
-		using TcpListener listener = new(IPAddress.Loopback, 0);
-		listener.Start();
-		ushort port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
-
-		using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-		_ = TestAcceptLoop.RunAsync(listener, inbound, new NullLocalEndPointOutbound(), cts.Token);
-
-		using TcpClient client = new();
-		await client.ConnectAsync(IPAddress.Loopback, port, cancellationToken);
-		NetworkStream stream = client.GetStream();
-
-		await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, cancellationToken);
-		byte[] methodReply = new byte[2];
-		await stream.ReadExactlyAsync(methodReply, cancellationToken);
+		await using ProxyTestSession session = await StartProxySessionAsync(inbound, new NullLocalEndPointOutbound(), cancellationToken);
 
 		byte[] cmd = new byte[Constants.MaxCommandLength];
 		int cmdLen = Pack.ClientCommand(Command.Connect, "127.0.0.1"u8, 80, cmd);
-		await stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
+		await session.Stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
 
 		byte[] replyBuf = new byte[Constants.MaxCommandLength];
-		int read = await stream.ReadAsync(replyBuf, cancellationToken);
+		int read = await session.Stream.ReadAsync(replyBuf, cancellationToken);
 		ReadOnlySequence<byte> seq = new(replyBuf.AsMemory(0, read));
 		bool parsed = Unpack.ReadServerReplyCommand(ref seq, out ServerBound bound);
 
@@ -1075,8 +1136,6 @@ public class Socks5InboundTest
 		await Assert.That(bound.Type).IsEqualTo(AddressType.IPv4);
 		await Assert.That(bound.Port).IsEqualTo((ushort)0);
 		await Assert.That(bound.Host.Span.SequenceEqual("0.0.0.0"u8)).IsTrue();
-
-		await cts.CancelAsync();
 	}
 
 	[Test]
@@ -1085,34 +1144,18 @@ public class Socks5InboundTest
 	{
 		Socks5Inbound inbound = new();
 		SocketExceptionThrowingOutbound outbound = new(SocketError.TimedOut);
-
-		using TcpListener listener = new(IPAddress.Loopback, 0);
-		listener.Start();
-		ushort port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
-
-		using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-		_ = TestAcceptLoop.RunAsync(listener, inbound, outbound, cts.Token);
-
-		using TcpClient client = new();
-		await client.ConnectAsync(IPAddress.Loopback, port, cancellationToken);
-		NetworkStream stream = client.GetStream();
-
-		await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, cancellationToken);
-		byte[] methodReply = new byte[2];
-		await stream.ReadExactlyAsync(methodReply, cancellationToken);
+		await using ProxyTestSession session = await StartProxySessionAsync(inbound, outbound, cancellationToken);
 
 		byte[] cmd = new byte[Constants.MaxCommandLength];
 		int cmdLen = Pack.ClientCommand(Command.Connect, "127.0.0.1"u8, 80, cmd);
-		await stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
+		await session.Stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
 
 		byte[] reply = new byte[Constants.MaxCommandLength];
-		int read = await stream.ReadAsync(reply, cancellationToken);
+		int read = await session.Stream.ReadAsync(reply, cancellationToken);
 
 		await Assert.That(read).IsGreaterThan(0);
 		await Assert.That(reply[0]).IsEqualTo(Constants.ProtocolVersion);
 		await Assert.That(reply[1]).IsEqualTo((byte)Socks5Reply.TtlExpired);
-
-		await cts.CancelAsync();
 	}
 
 	[Test]
@@ -1121,34 +1164,18 @@ public class Socks5InboundTest
 	{
 		Socks5Inbound inbound = new();
 		Socks5ReplyThrowingOutbound outbound = new(Socks5Reply.ConnectionRefused);
-
-		using TcpListener listener = new(IPAddress.Loopback, 0);
-		listener.Start();
-		ushort port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
-
-		using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-		_ = TestAcceptLoop.RunAsync(listener, inbound, outbound, cts.Token);
-
-		using TcpClient client = new();
-		await client.ConnectAsync(IPAddress.Loopback, port, cancellationToken);
-		NetworkStream stream = client.GetStream();
-
-		await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, cancellationToken);
-		byte[] methodReply = new byte[2];
-		await stream.ReadExactlyAsync(methodReply, cancellationToken);
+		await using ProxyTestSession session = await StartProxySessionAsync(inbound, outbound, cancellationToken);
 
 		byte[] cmd = new byte[Constants.MaxCommandLength];
 		int cmdLen = Pack.ClientCommand(Command.Connect, "127.0.0.1"u8, 80, cmd);
-		await stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
+		await session.Stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
 
 		byte[] reply = new byte[Constants.MaxCommandLength];
-		int read = await stream.ReadAsync(reply, cancellationToken);
+		int read = await session.Stream.ReadAsync(reply, cancellationToken);
 
 		await Assert.That(read).IsGreaterThan(0);
 		await Assert.That(reply[0]).IsEqualTo(Constants.ProtocolVersion);
 		await Assert.That(reply[1]).IsEqualTo((byte)Socks5Reply.ConnectionRefused);
-
-		await cts.CancelAsync();
 	}
 
 	[Test]
@@ -1157,34 +1184,18 @@ public class Socks5InboundTest
 	{
 		Socks5Inbound inbound = new();
 		Socks5ReplyThrowingOutbound outbound = new(Socks5Reply.HostUnreachable);
-
-		using TcpListener listener = new(IPAddress.Loopback, 0);
-		listener.Start();
-		ushort port = (ushort)((IPEndPoint)listener.LocalEndpoint).Port;
-
-		using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-		_ = TestAcceptLoop.RunAsync(listener, inbound, outbound, cts.Token);
-
-		using TcpClient client = new();
-		await client.ConnectAsync(IPAddress.Loopback, port, cancellationToken);
-		NetworkStream stream = client.GetStream();
-
-		await stream.WriteAsync(new byte[] { 0x05, 0x01, 0x00 }, cancellationToken);
-		byte[] methodReply = new byte[2];
-		await stream.ReadExactlyAsync(methodReply, cancellationToken);
+		await using ProxyTestSession session = await StartProxySessionAsync(inbound, outbound, cancellationToken);
 
 		byte[] cmd = new byte[Constants.MaxCommandLength];
 		int cmdLen = Pack.ClientCommand(Command.UdpAssociate, "0.0.0.0"u8, 0, cmd);
-		await stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
+		await session.Stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
 
 		byte[] reply = new byte[Constants.MaxCommandLength];
-		int read = await stream.ReadAsync(reply, cancellationToken);
+		int read = await session.Stream.ReadAsync(reply, cancellationToken);
 
 		await Assert.That(read).IsGreaterThan(0);
 		await Assert.That(reply[0]).IsEqualTo(Constants.ProtocolVersion);
 		await Assert.That(reply[1]).IsEqualTo((byte)Socks5Reply.HostUnreachable);
-
-		await cts.CancelAsync();
 	}
 
 }

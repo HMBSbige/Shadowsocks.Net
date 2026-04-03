@@ -1,5 +1,4 @@
 using Proxy.Abstractions;
-using System.Buffers.Binary;
 using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
@@ -19,7 +18,7 @@ public sealed partial class Socks5Inbound
 			? context.LocalAddress.AddressFamily
 			: _udpRelayBindAddress.AddressFamily;
 
-		if (!TryCreateExpectedUdpSource(effectiveFamily, target.Port, context.ClientAddress, out SocketAddress expectedUdpSource))
+		if (!TryCreateExpectedUdpSource(effectiveFamily, context.ClientAddress, out SocketAddress expectedUdpSource))
 		{
 			await Socks5Utils.SendReplyAsync(clientPipe.Output, Socks5Reply.AddressTypeNotSupported, ServerBound.Unspecified, cancellationToken);
 			return;
@@ -84,17 +83,41 @@ public sealed partial class Socks5Inbound
 		}
 	}
 
-	private async ValueTask RunUdpAssociateSessionAsync(
+	private static async ValueTask RunUdpAssociateSessionAsync(
 		PipeReader controlInput,
 		UdpAssociateSession session,
 		SocketAddress expectedUdpSource,
 		CancellationToken cancellationToken)
 	{
 		using CancellationTokenSource linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-		TaskCompletionSource<SocketAddress> clientSaTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+		SocketAddress? lastClientSa = null;
+		TaskCompletionSource lastClientSaReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-		Task clientToRemote = Socks5Utils.RelayClientToRemoteAsync(session.RelaySocket, session.PacketConnection, clientSaTcs, expectedUdpSource, linkedCts.Token);
-		Task remoteToClient = Socks5Utils.RelayRemoteToClientAsync(session.RelaySocket, session.PacketConnection, clientSaTcs, linkedCts.Token);
+		Task clientToRemote = Socks5Utils.RelayClientToRemoteAsync(
+			session.RelaySocket,
+			session.PacketConnection,
+			expectedUdpSource,
+			senderSa =>
+			{
+				SocketAddress? current = Volatile.Read(ref lastClientSa);
+
+				if (current is null || !senderSa.Buffer.Span.SequenceEqual(current.Buffer.Span))
+				{
+					Volatile.Write(ref lastClientSa, Socks5Utils.CloneSocketAddress(senderSa));
+
+					if (current is null)
+					{
+						lastClientSaReady.TrySetResult();
+					}
+				}
+			},
+			linkedCts.Token);
+		Task remoteToClient = Socks5Utils.RelayRemoteToClientAsync(
+			session.RelaySocket,
+			session.PacketConnection,
+			lastClientSaReady.Task,
+			() => Volatile.Read(ref lastClientSa)!,
+			linkedCts.Token);
 		Task controlMonitor = Socks5Utils.MonitorControlChannelAsync(controlInput, linkedCts);
 
 		await Task.WhenAny(controlMonitor, Task.WhenAll(clientToRemote, remoteToClient));
@@ -119,7 +142,7 @@ public sealed partial class Socks5Inbound
 		catch (OperationCanceledException) { }
 	}
 
-	private static bool TryCreateExpectedUdpSource(AddressFamily relayFamily, ushort targetPort, IPAddress clientAddress, out SocketAddress expectedUdpSource)
+	private static bool TryCreateExpectedUdpSource(AddressFamily relayFamily, IPAddress clientAddress, out SocketAddress expectedUdpSource)
 	{
 		if (clientAddress.AddressFamily != relayFamily)
 		{
@@ -128,8 +151,6 @@ public sealed partial class Socks5Inbound
 		}
 
 		expectedUdpSource = new SocketAddress(relayFamily);
-
-		BinaryPrimitives.WriteUInt16BigEndian(expectedUdpSource.Buffer.Span.Slice(2), targetPort);
 
 		(int addrOffset, _) = Socks5Utils.SockAddrSlice(expectedUdpSource.Family);
 		return clientAddress.TryWriteBytes(expectedUdpSource.Buffer.Span.Slice(addrOffset), out _);

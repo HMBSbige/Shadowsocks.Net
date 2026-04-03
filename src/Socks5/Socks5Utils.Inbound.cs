@@ -162,6 +162,13 @@ public static partial class Socks5Utils
 		return new ProxyDestination(rentedBuffer.AsMemory(0, target.Host.Length), target.Port);
 	}
 
+	internal static SocketAddress CloneSocketAddress(SocketAddress socketAddress)
+	{
+		SocketAddress clone = new(socketAddress.Family, socketAddress.Size);
+		socketAddress.Buffer.CopyTo(clone.Buffer);
+		return clone;
+	}
+
 	/// <summary>
 	/// sockaddr layout: port at bytes [2..4], address at IPv4 [4..8] / IPv6 [8..24].
 	/// </summary>
@@ -216,8 +223,8 @@ public static partial class Socks5Utils
 	internal static async Task RelayClientToRemoteAsync(
 		Socket relaySocket,
 		IPacketConnection packetConnection,
-		TaskCompletionSource<SocketAddress> clientSaTcs,
 		SocketAddress expectedUdpSource,
+		Action<SocketAddress> onPacketAccepted,
 		CancellationToken cancellationToken)
 	{
 		byte[] buffer = ArrayPool<byte>.Shared.Rent(0x10000);
@@ -239,14 +246,6 @@ public static partial class Socks5Utils
 					continue;
 				}
 
-				// Copy on first accepted packet — senderSa is mutated by the next ReceiveFromAsync.
-				if (!clientSaTcs.Task.IsCompleted)
-				{
-					SocketAddress snapshot = new(senderSa.Family);
-					senderSa.Buffer.CopyTo(snapshot.Buffer);
-					clientSaTcs.TrySetResult(snapshot);
-				}
-
 				// RFC 1928 §7: a UDP relay server MUST drop any datagram it
 				// cannot or will not relay — never let a single bad packet
 				// tear down the entire relay loop.
@@ -265,6 +264,8 @@ public static partial class Socks5Utils
 				{
 					continue;
 				}
+
+				onPacketAccepted(senderSa);
 
 				byte[] hostBytes = new byte[packet.Host.Length];
 				packet.Host.Span.CopyTo(hostBytes);
@@ -289,10 +290,11 @@ public static partial class Socks5Utils
 	internal static async Task RelayRemoteToClientAsync(
 		Socket relaySocket,
 		IPacketConnection packetConnection,
-		TaskCompletionSource<SocketAddress> clientSaTcs,
+		Task firstClientReady,
+		Func<SocketAddress> getClientSa,
 		CancellationToken cancellationToken)
 	{
-		SocketAddress clientSa = await clientSaTcs.Task.WaitAsync(cancellationToken);
+		await firstClientReady.WaitAsync(cancellationToken);
 
 		byte[] receiveBuffer = ArrayPool<byte>.Shared.Rent(0x10000);
 		byte[] sendBuffer = ArrayPool<byte>.Shared.Rent(Constants.MaxUdpHandshakeHeaderLength + 0x10000);
@@ -316,7 +318,7 @@ public static partial class Socks5Utils
 					await relaySocket.SendToAsync(
 						sendBuffer.AsMemory(0, packedLength),
 						SocketFlags.None,
-						clientSa,
+						getClientSa(),
 						cancellationToken);
 				}
 				catch (Exception ex) when (ex is not OperationCanceledException)
