@@ -9,8 +9,18 @@ using System.Text;
 
 namespace Socks5;
 
+/// <summary>
+/// Connects to an upstream SOCKS5 server and creates proxied TCP or UDP connections through it.
+/// </summary>
+/// <param name="option">Configuration for the upstream SOCKS5 server and optional credentials.</param>
 public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound, IPacketOutbound
 {
+	/// <summary>
+	/// Opens a TCP connection to <paramref name="destination"/> through the configured SOCKS5 server.
+	/// </summary>
+	/// <param name="destination">The remote host and port to connect to.</param>
+	/// <param name="cancellationToken">Cancellation token for the connect operation.</param>
+	/// <returns>A proxied TCP connection.</returns>
 	public async ValueTask<IConnection> ConnectAsync(ProxyDestination destination, CancellationToken cancellationToken = default)
 	{
 		(Socket socket, IDuplexPipe pipe) = await HandshakeAsync(cancellationToken);
@@ -27,6 +37,11 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 		}
 	}
 
+	/// <summary>
+	/// Creates a UDP association with the configured SOCKS5 server.
+	/// </summary>
+	/// <param name="cancellationToken">Cancellation token for the setup operation.</param>
+	/// <returns>A packet connection that relays UDP datagrams through the SOCKS5 server.</returns>
 	public async ValueTask<IPacketConnection> CreatePacketConnectionAsync(CancellationToken cancellationToken = default)
 	{
 		(Socket controlSocket, IDuplexPipe pipe) = await HandshakeAsync(cancellationToken);
@@ -120,7 +135,7 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 				await Socks5Utils.AuthAsync(pipe, credential, cancellationToken);
 				break;
 			default:
-				throw new MethodUnsupportedException($@"Error method: {replyMethod}", replyMethod);
+				throw new Socks5MethodUnsupportedException($@"Error method: {replyMethod}", replyMethod);
 		}
 	}
 

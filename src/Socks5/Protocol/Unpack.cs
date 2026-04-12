@@ -69,7 +69,7 @@ internal static class Unpack
 
 		if (status is not 0x00)
 		{
-			throw new AuthenticationFailureException($@"Authentication failed: {status}.", status);
+			throw new Socks5AuthenticationFailureException($@"Authentication failed: {status}.", status);
 		}
 
 		buffer = buffer.Slice(2);

@@ -36,7 +36,7 @@ public static partial class Socks5Utils
 
 		if (!found)
 		{
-			throw new MethodUnsupportedException($@"Server sent an unsupported method ({method}:0x{(byte)method:X2}).", method);
+			throw new Socks5MethodUnsupportedException($@"Server sent an unsupported method ({method}:0x{(byte)method:X2}).", method);
 		}
 
 		return method;

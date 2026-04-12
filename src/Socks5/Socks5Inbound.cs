@@ -7,6 +7,12 @@ using System.Net.Sockets;
 
 namespace Socks5;
 
+/// <summary>
+/// Handles incoming SOCKS5 requests from clients and proxies them through a configured outbound.
+/// </summary>
+/// <remarks>
+/// Supports CONNECT and UDP ASSOCIATE commands and enforces optional username/password authentication (RFC 1928/1929).
+/// </remarks>
 public sealed partial class Socks5Inbound : IStreamInbound
 {
 	private readonly UserPassAuth? _credential;
@@ -14,6 +20,14 @@ public sealed partial class Socks5Inbound : IStreamInbound
 	private readonly IPAddress _udpRelayBindAddress;
 	private readonly bool _isWildcardBind;
 
+	/// <summary>
+	/// Creates a new SOCKS5 inbound handler.
+	/// </summary>
+	/// <param name="credential">Optional username/password credential to enforce.</param>
+	/// <param name="logger">Logger instance used for connection diagnostics.</param>
+	/// <param name="udpRelayBindAddress">
+	/// Address that the UDP relay socket will bind to for UDP ASSOCIATE requests; defaults to <see cref="IPAddress.Any"/>.
+	/// </param>
 	public Socks5Inbound(
 		UserPassAuth? credential = null,
 		ILogger<Socks5Inbound>? logger = null,
@@ -39,6 +53,13 @@ public sealed partial class Socks5Inbound : IStreamInbound
 	[LoggerMessage(Level = LogLevel.Error, Message = "Unexpected error handling SOCKS5 request")]
 	private partial void LogUnexpectedError(Exception exception);
 
+	/// <summary>
+	/// Processes a single SOCKS5 request from a client, authenticating, replying, and relaying traffic as needed.
+	/// </summary>
+	/// <param name="context">Metadata about the inbound request.</param>
+	/// <param name="clientPipe">The pipe connected to the client.</param>
+	/// <param name="outbound">The outbound provider used to establish remote connections or UDP relays.</param>
+	/// <param name="cancellationToken">Cancellation token for the request lifetime.</param>
 	public async ValueTask HandleAsync(InboundContext context, IDuplexPipe clientPipe, IOutbound outbound, CancellationToken cancellationToken = default)
 	{
 		try

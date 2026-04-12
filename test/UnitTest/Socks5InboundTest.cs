@@ -740,7 +740,7 @@ public class Socks5InboundTest
 	}
 
 	[Test]
-	[DisplayName("UDP ASSOCIATE: default wildcard bind + IPv6 context succeeds (RFC 1928 §4)")]
+	[DisplayName("UDP ASSOCIATE: default wildcard bind + IPv6 context succeeds (RFC 1928 §6)")]
 	public async Task UdpAssociate_DefaultWildcardBind_IPv6Context_Succeeds(CancellationToken cancellationToken)
 	{
 		// Default Socks5Inbound uses IPAddress.Any (IPv4 wildcard) as _udpRelayBindAddress,
@@ -807,7 +807,7 @@ public class Socks5InboundTest
 	}
 
 	[Test]
-	[DisplayName("UDP ASSOCIATE: default bind replies with TCP local address, not wildcard (RFC 1928 §4)")]
+	[DisplayName("UDP ASSOCIATE: default bind replies with TCP local address, not wildcard (RFC 1928 §6)")]
 	public async Task UdpAssociate_DefaultBind_RepliesWithTcpLocalAddress(CancellationToken cancellationToken)
 	{
 		Socks5Inbound inbound = new();

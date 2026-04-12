@@ -709,9 +709,9 @@ public class HttpTest
 	}
 
 	[Test]
-	public async Task RelativeFormRequest_UsesHostHeader(CancellationToken cancellationToken)
+	public async Task OriginFormRequest_UsesHostHeader(CancellationToken cancellationToken)
 	{
-		// GET /echo-request-line (relative-form) with Host pointing to the mock server.
+		// GET /echo-request-line (origin-form) with Host pointing to the mock server.
 		// Proxy MUST use Host header as target (not "/echo-request-line" as authority).
 		string response = await SendRawRequestAsync
 		(
@@ -723,10 +723,10 @@ public class HttpTest
 	}
 
 	[Test]
-	public async Task RelativeFormRequest_QueryContainsScheme_UsesHostHeader(CancellationToken cancellationToken)
+	public async Task OriginFormRequest_QueryContainsScheme_UsesHostHeader(CancellationToken cancellationToken)
 	{
 		// GET /echo-request-line?next=http://a/b (origin-form with "://" in query).
-		// Proxy MUST treat this as relative-form: use Host header, preserve path+query as-is.
+		// Proxy MUST treat this as origin-form: use Host header, preserve path+query as-is.
 		string response = await SendRawRequestAsync
 		(
 			$"GET /echo-request-line?next=http://a/b HTTP/1.1\r\nHost: localhost:{F.MockHttp.Port}\r\n\r\n",

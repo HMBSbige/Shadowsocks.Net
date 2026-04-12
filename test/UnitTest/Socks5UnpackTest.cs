@@ -94,11 +94,11 @@ public class Socks5UnpackTest
 	{
 		byte[] data = [Constants.AuthVersion, 0x01];
 
-		AuthenticationFailureException? ex = await Assert.That(() =>
+		Socks5AuthenticationFailureException? ex = await Assert.That(() =>
 		{
 			ReadOnlySequence<byte> local = new(data);
 			Unpack.ReadResponseAuthReply(ref local);
-		}).Throws<AuthenticationFailureException>();
+		}).Throws<Socks5AuthenticationFailureException>();
 
 		await Assert.That(ex?.StatusCode).IsEqualTo((byte)0x01);
 	}

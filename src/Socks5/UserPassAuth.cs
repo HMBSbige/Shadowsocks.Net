@@ -3,6 +3,8 @@ namespace Socks5;
 /// <summary>
 /// Represents a username/password credential for SOCKS5 authentication (RFC 1929).
 /// </summary>
+/// <param name="UserName">The username bytes for SOCKS5 authentication.</param>
+/// <param name="Password">The password bytes for SOCKS5 authentication.</param>
 public readonly record struct UserPassAuth(ReadOnlyMemory<byte> UserName, ReadOnlyMemory<byte> Password)
 {
 	/// <summary>

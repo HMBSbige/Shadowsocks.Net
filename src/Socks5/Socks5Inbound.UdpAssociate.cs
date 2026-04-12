@@ -52,7 +52,7 @@ public sealed partial class Socks5Inbound
 		{
 			packetConnection = await outbound.CreatePacketConnectionAsync(cancellationToken);
 
-			// RFC 1928 §4: BND.ADDR/BND.PORT tells the client where to send UDP datagrams.
+			// RFC 1928 §6: BND.ADDR/BND.PORT tells the client where to send UDP datagrams.
 			// A wildcard address (0.0.0.0 / ::) is unusable as a destination, so fall back
 			// to the TCP control connection's local address — an address the client can reach.
 			IPAddress bindAddress = _isWildcardBind

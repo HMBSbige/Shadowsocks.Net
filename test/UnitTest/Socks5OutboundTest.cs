@@ -185,7 +185,7 @@ public class Socks5OutboundTest
 			}
 		};
 
-		AuthenticationFailureException? authEx = await Assert.That
+		Socks5AuthenticationFailureException? authEx = await Assert.That
 		(async () =>
 			{
 				await Socks5TestUtils.Socks5ConnectAsync
@@ -193,7 +193,7 @@ public class Socks5OutboundTest
 					option, "/status/204", "localhost", (ushort)F.MockHttp.Port, cancellationToken
 				);
 			}
-		).Throws<AuthenticationFailureException>();
+		).Throws<Socks5AuthenticationFailureException>();
 
 		await Assert.That(authEx?.StatusCode).IsNotEqualTo((byte)0x00);
 	}
@@ -464,7 +464,7 @@ public class Socks5OutboundTest
 			Port = F.AuthProxyPort,
 		};
 
-		MethodUnsupportedException? methodEx = await Assert.That
+		Socks5MethodUnsupportedException? methodEx = await Assert.That
 		(async () =>
 			{
 				await Socks5TestUtils.Socks5ConnectAsync
@@ -472,7 +472,7 @@ public class Socks5OutboundTest
 					option, "/status/204", "localhost", (ushort)F.MockHttp.Port, cancellationToken
 				);
 			}
-		).Throws<MethodUnsupportedException>();
+		).Throws<Socks5MethodUnsupportedException>();
 
 		await Assert.That(methodEx?.ServerReplyMethod).IsEqualTo(Method.NoAcceptable);
 	}

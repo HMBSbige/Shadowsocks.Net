@@ -121,27 +121,17 @@ internal static class Pack
 		// | 1  |  1   | 1 to 255 |  1   | 1 to 255 |
 		// +----+------+----------+------+----------+
 
+		credential.ThrowIfInvalid();
+
 		buffer[0] = Constants.AuthVersion;
 		int offset = 1;
 
 		ReadOnlySpan<byte> username = credential.UserName.Span;
-
-		if (username.Length is 0 or > byte.MaxValue)
-		{
-			throw new ArgumentException($"{nameof(credential.UserName)} must be 1–255 bytes.", nameof(credential));
-		}
-
 		buffer[offset++] = (byte)username.Length;
 		username.CopyTo(buffer.Slice(offset));
 		offset += username.Length;
 
 		ReadOnlySpan<byte> password = credential.Password.Span;
-
-		if (password.Length is 0 or > byte.MaxValue)
-		{
-			throw new ArgumentException($"{nameof(credential.Password)} must be 1–255 bytes.", nameof(credential));
-		}
-
 		buffer[offset++] = (byte)password.Length;
 		password.CopyTo(buffer.Slice(offset));
 		offset += password.Length;
