@@ -15,12 +15,12 @@ public readonly record struct UserPassAuth(ReadOnlyMemory<byte> UserName, ReadOn
 	{
 		if (UserName.Length is 0 or > byte.MaxValue)
 		{
-			throw new ArgumentException("UserName must be 1–255 bytes (RFC 1929 §2).");
+			throw new ArgumentException("UserName must be 1–255 bytes (RFC 1929 §2).", nameof(UserName));
 		}
 
 		if (Password.Length is 0 or > byte.MaxValue)
 		{
-			throw new ArgumentException("Password must be 1–255 bytes (RFC 1929 §2).");
+			throw new ArgumentException("Password must be 1–255 bytes (RFC 1929 §2).", nameof(Password));
 		}
 	}
 
