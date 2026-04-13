@@ -23,18 +23,7 @@ public static partial class Socks5Utils
 			throw new InvalidDataException(@"Incomplete SOCKS5 method reply.");
 		}
 
-		bool found = false;
-
-		foreach (Method m in clientMethods)
-		{
-			if (m == method)
-			{
-				found = true;
-				break;
-			}
-		}
-
-		if (!found)
+		if (!clientMethods.AsSpan().Contains(method))
 		{
 			throw new Socks5MethodUnsupportedException($@"Server sent an unsupported method ({method}:0x{(byte)method:X2}).", method);
 		}
