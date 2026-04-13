@@ -14,4 +14,5 @@ internal static class Constants
 	public const int MaxUsernamePasswordAuthLength = 1 + 1 + byte.MaxValue + 1 + byte.MaxValue;
 	public const int MaxHandshakeClientMethodLength = 1 + 1 + byte.MaxValue;
 	public const int MaxUdpHandshakeHeaderLength = 2 + 1 + MaxAddressPortLength;
+	public const int MaxUdpDatagramLength = 0x10000;
 }

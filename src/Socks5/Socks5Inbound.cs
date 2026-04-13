@@ -72,7 +72,7 @@ public sealed partial class Socks5Inbound : IStreamInbound
 					await HandleConnectAsync(clientPipe, stream, target, cancellationToken);
 					break;
 				case Command.UdpAssociate when outbound is IPacketOutbound packet:
-					await HandleUdpAssociateAsync(clientPipe, packet, target, context, cancellationToken);
+					await HandleUdpAssociateAsync(clientPipe, packet, context, cancellationToken);
 					break;
 				default:
 					await Socks5Utils.SendReplyAsync(clientPipe.Output, Socks5Reply.CommandNotSupported, ServerBound.Unspecified, cancellationToken);

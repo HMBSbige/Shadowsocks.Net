@@ -10,7 +10,6 @@ public sealed partial class Socks5Inbound
 	private async ValueTask HandleUdpAssociateAsync(
 		IDuplexPipe clientPipe,
 		IPacketOutbound outbound,
-		ServerBound target,
 		InboundContext context,
 		CancellationToken cancellationToken)
 	{

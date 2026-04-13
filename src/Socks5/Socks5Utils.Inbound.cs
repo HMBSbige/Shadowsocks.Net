@@ -227,7 +227,7 @@ public static partial class Socks5Utils
 		Action<SocketAddress> onPacketAccepted,
 		CancellationToken cancellationToken)
 	{
-		byte[] buffer = ArrayPool<byte>.Shared.Rent(0x10000);
+		byte[] buffer = ArrayPool<byte>.Shared.Rent(Constants.MaxUdpDatagramLength);
 
 		try
 		{
@@ -283,8 +283,8 @@ public static partial class Socks5Utils
 	{
 		await firstClientReady.WaitAsync(cancellationToken);
 
-		byte[] receiveBuffer = ArrayPool<byte>.Shared.Rent(0x10000);
-		byte[] sendBuffer = ArrayPool<byte>.Shared.Rent(Constants.MaxUdpHandshakeHeaderLength + 0x10000);
+		byte[] receiveBuffer = ArrayPool<byte>.Shared.Rent(Constants.MaxUdpDatagramLength);
+		byte[] sendBuffer = ArrayPool<byte>.Shared.Rent(Constants.MaxUdpHandshakeHeaderLength + Constants.MaxUdpDatagramLength);
 
 		try
 		{

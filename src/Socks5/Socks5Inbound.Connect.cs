@@ -19,15 +19,12 @@ public sealed partial class Socks5Inbound
 
 		try
 		{
-			string? host = null;
-
 			if (_logger.IsEnabled(LogLevel.Debug))
 			{
-				host = Encoding.ASCII.GetString(destination.Host.Span);
-				LogConnect(host, destination.Port);
+				LogConnect(Encoding.ASCII.GetString(destination.Host.Span), destination.Port);
 			}
 
-			ConnectionSession? session = await TryCreateConnectSessionAsync(clientPipe.Output, outbound, destination, host, cancellationToken);
+			ConnectionSession? session = await TryCreateConnectSessionAsync(clientPipe.Output, outbound, destination, cancellationToken);
 
 			if (session is null)
 			{
@@ -50,7 +47,6 @@ public sealed partial class Socks5Inbound
 		PipeWriter replyOutput,
 		IStreamOutbound outbound,
 		ProxyDestination destination,
-		string? host,
 		CancellationToken cancellationToken)
 	{
 		try
@@ -65,8 +61,7 @@ public sealed partial class Socks5Inbound
 		{
 			if (_logger.IsEnabled(LogLevel.Warning))
 			{
-				host ??= Encoding.ASCII.GetString(destination.Host.Span);
-				LogConnectionFailed(host, destination.Port, ex);
+				LogConnectionFailed(Encoding.ASCII.GetString(destination.Host.Span), destination.Port, ex);
 			}
 
 			await Socks5Utils.SendReplyAsync(replyOutput, MapExceptionToReply(ex), ServerBound.Unspecified, cancellationToken);

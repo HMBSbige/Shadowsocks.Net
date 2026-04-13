@@ -55,7 +55,6 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 
 			try
 			{
-				// Connect UDP socket to the relay endpoint
 				switch (bound.Type)
 				{
 					case AddressType.IPv4:
@@ -82,6 +81,8 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 						await udpSocket.ConnectAsync(domain, bound.Port, cancellationToken);
 						break;
 					}
+					default:
+						throw new Socks5ProtocolErrorException($"Unsupported address type in server reply: {bound.Type}", Socks5Reply.AddressTypeNotSupported);
 				}
 
 				return new Socks5PacketConnection(controlSocket, udpSocket);
@@ -135,7 +136,7 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 				await Socks5Utils.AuthAsync(pipe, credential, cancellationToken);
 				break;
 			default:
-				throw new Socks5MethodUnsupportedException($@"Error method: {replyMethod}", replyMethod);
+				throw new Socks5MethodUnsupportedException($"Error method: {replyMethod}", replyMethod);
 		}
 	}
 
@@ -174,7 +175,7 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 
 		public async ValueTask<PacketReceiveResult> ReceiveFromAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
 		{
-			byte[] receiveBuffer = ArrayPool<byte>.Shared.Rent(0x10000);
+			byte[] receiveBuffer = ArrayPool<byte>.Shared.Rent(Constants.MaxUdpDatagramLength);
 
 			try
 			{
