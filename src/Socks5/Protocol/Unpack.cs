@@ -197,29 +197,18 @@ internal static class Unpack
 	public static bool ReadDestinationAddress(ref SequenceReader<byte> reader, AddressType type, scoped Span<byte> hostBuffer, out int hostBytesWritten)
 	{
 		hostBytesWritten = 0;
+		int available;
 
 		switch (type)
 		{
 			case AddressType.IPv4:
+				available = Constants.IPv4AddressBytesLength;
+				break;
 			case AddressType.IPv6:
-			{
-				int length = type is AddressType.IPv4 ? Constants.IPv4AddressBytesLength : Constants.IPv6AddressBytesLength;
-
-				if (reader.Remaining < length)
-				{
-					return false;
-				}
-
-				Span<byte> temp = stackalloc byte[length];
-				reader.UnreadSequence.Slice(0, length).CopyTo(temp);
-				FormatIPAddress(temp, hostBuffer, out hostBytesWritten);
-
-				reader.Advance(length);
-				return true;
-			}
+				available = Constants.IPv6AddressBytesLength;
+				break;
 			case AddressType.Domain:
-			{
-				if (!reader.TryRead(out byte domainLength))
+				if (!reader.TryPeek(out byte domainLength))
 				{
 					return false;
 				}
@@ -229,23 +218,23 @@ internal static class Unpack
 					throw new Socks5ProtocolErrorException("Empty domain name (length 0) is not a valid FQDN (RFC 1928 §5).", Socks5Reply.GeneralFailure);
 				}
 
-				if (reader.Remaining < domainLength)
-				{
-					reader.Rewind(1);
-					return false;
-				}
-
-				reader.UnreadSequence.Slice(0, domainLength).CopyTo(hostBuffer);
-				hostBytesWritten = domainLength;
-
-				reader.Advance(domainLength);
-				return true;
-			}
+				available = 1 + domainLength;
+				break;
 			default:
-			{
 				throw new Socks5ProtocolErrorException($@"Server reply an unknown address type: {type}.", Socks5Reply.AddressTypeNotSupported);
-			}
 		}
+
+		if (reader.Remaining < available)
+		{
+			return false;
+		}
+
+		Span<byte> temp = stackalloc byte[Constants.MaxAddressLength];
+		Span<byte> addr = temp.Slice(0, available);
+		reader.UnreadSequence.Slice(0, available).CopyTo(addr);
+		int consumed = DestinationAddress(type, addr, hostBuffer, out hostBytesWritten);
+		reader.Advance(consumed);
+		return true;
 	}
 
 	public static bool ReadServerReplyCommand(ref ReadOnlySequence<byte> buffer, out ServerBound bound)
