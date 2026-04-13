@@ -128,6 +128,31 @@ internal static class Unpack
 		return offset;
 	}
 
+	/// <summary>
+	/// Tries to parse a valid, non-fragmented SOCKS5 UDP packet.
+	/// Returns <c>false</c> for malformed or fragmented datagrams.
+	/// </summary>
+	public static bool TryUdp(ReadOnlyMemory<byte> buffer, out Socks5UdpReceivePacket packet)
+	{
+		try
+		{
+			packet = Udp(buffer);
+		}
+		catch (Socks5ProtocolErrorException)
+		{
+			packet = default;
+			return false;
+		}
+
+		if (packet.Fragment is not 0x00)
+		{
+			packet = default;
+			return false;
+		}
+
+		return true;
+	}
+
 	public static Socks5UdpReceivePacket Udp(ReadOnlyMemory<byte> buffer)
 	{
 		// +----+------+------+----------+----------+----------+

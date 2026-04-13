@@ -249,27 +249,14 @@ public static partial class Socks5Utils
 				// RFC 1928 §7: a UDP relay server MUST drop any datagram it
 				// cannot or will not relay — never let a single bad packet
 				// tear down the entire relay loop.
-				Socks5UdpReceivePacket packet;
-
-				try
-				{
-					packet = Unpack.Udp(buffer.AsMemory(0, received));
-				}
-				catch (Socks5ProtocolErrorException)
-				{
-					continue;
-				}
-
-				if (packet.Fragment is not 0x00)
+				if (!Unpack.TryUdp(buffer.AsMemory(0, received), out Socks5UdpReceivePacket packet))
 				{
 					continue;
 				}
 
 				onPacketAccepted(senderSa);
 
-				byte[] hostBytes = new byte[packet.Host.Length];
-				packet.Host.Span.CopyTo(hostBytes);
-				ProxyDestination dest = new(hostBytes, packet.Port);
+				ProxyDestination dest = new(packet.Host.Span.ToArray(), packet.Port);
 
 				try
 				{

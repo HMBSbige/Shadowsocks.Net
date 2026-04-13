@@ -182,18 +182,7 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 				{
 					int length = await udpSocket.ReceiveAsync(receiveBuffer.AsMemory(), SocketFlags.None, cancellationToken);
 
-					Socks5UdpReceivePacket packet;
-
-					try
-					{
-						packet = Unpack.Udp(receiveBuffer.AsMemory(0, length));
-					}
-					catch (Socks5ProtocolErrorException)
-					{
-						continue;
-					}
-
-					if (packet.Fragment is not 0x00)
+					if (!Unpack.TryUdp(receiveBuffer.AsMemory(0, length), out Socks5UdpReceivePacket packet))
 					{
 						continue;
 					}
@@ -209,13 +198,10 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 
 					packet.Data.Span.CopyTo(buffer.Span);
 
-					byte[] hostBytes = new byte[packet.Host.Length];
-					packet.Host.Span.CopyTo(hostBytes);
-
 					return new PacketReceiveResult
 					{
 						BytesReceived = packet.Data.Length,
-						RemoteDestination = new ProxyDestination(hostBytes, packet.Port)
+						RemoteDestination = new ProxyDestination(packet.Host.Span.ToArray(), packet.Port)
 					};
 				}
 			}
