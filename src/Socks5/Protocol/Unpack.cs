@@ -194,6 +194,29 @@ internal static class Unpack
 		return res;
 	}
 
+	public static bool ReadAddressAndPort(ref SequenceReader<byte> reader, ref ServerBound bound)
+	{
+		if (!reader.TryRead(out byte type))
+		{
+			return false;
+		}
+
+		bound.Type = (AddressType)type;
+
+		if (!ReadDestinationAddress(ref reader, bound.Type, bound.Host.WriteBuffer, out bound.Host.Length))
+		{
+			return false;
+		}
+
+		if (!reader.TryReadBigEndian(out short port))
+		{
+			return false;
+		}
+
+		bound.Port = (ushort)port;
+		return true;
+	}
+
 	public static bool ReadDestinationAddress(ref SequenceReader<byte> reader, AddressType type, scoped Span<byte> hostBuffer, out int hostBytesWritten)
 	{
 		hostBytesWritten = 0;
@@ -270,20 +293,10 @@ internal static class Unpack
 
 		reader.TryRead(out _); // RSV (skipped for interoperability)
 
-		reader.TryRead(out byte b3);
-		bound.Type = (AddressType)b3;
-
-		if (!ReadDestinationAddress(ref reader, bound.Type, bound.Host.WriteBuffer, out bound.Host.Length))
+		if (!ReadAddressAndPort(ref reader, ref bound))
 		{
 			return false;
 		}
-
-		if (!reader.TryReadBigEndian(out short port))
-		{
-			return false;
-		}
-
-		bound.Port = (ushort)port;
 
 		buffer = buffer.Slice(reader.Consumed);
 		return true;

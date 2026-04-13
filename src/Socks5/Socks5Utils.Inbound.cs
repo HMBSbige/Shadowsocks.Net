@@ -120,24 +120,10 @@ public static partial class Socks5Utils
 				return ParseResult.NeedsMoreData;
 			}
 
-			if (!reader.TryRead(out byte type))
+			if (!Unpack.ReadAddressAndPort(ref reader, ref target))
 			{
 				return ParseResult.NeedsMoreData;
 			}
-
-			target.Type = (AddressType)type;
-
-			if (!Unpack.ReadDestinationAddress(ref reader, target.Type, target.Host.WriteBuffer, out target.Host.Length))
-			{
-				return ParseResult.NeedsMoreData;
-			}
-
-			if (!reader.TryReadBigEndian(out short port))
-			{
-				return ParseResult.NeedsMoreData;
-			}
-
-			target.Port = (ushort)port;
 
 			buffer = buffer.Slice(reader.Consumed);
 			return ParseResult.Success;
@@ -228,6 +214,7 @@ public static partial class Socks5Utils
 		CancellationToken cancellationToken)
 	{
 		byte[] buffer = ArrayPool<byte>.Shared.Rent(Constants.MaxUdpDatagramLength);
+		byte[] hostBuffer = ArrayPool<byte>.Shared.Rent(byte.MaxValue);
 
 		try
 		{
@@ -256,7 +243,8 @@ public static partial class Socks5Utils
 
 				onPacketAccepted(senderSa);
 
-				ProxyDestination dest = new(packet.Host.Span.ToArray(), packet.Port);
+				packet.Host.Span.CopyTo(hostBuffer);
+				ProxyDestination dest = new(hostBuffer.AsMemory(0, packet.Host.Length), packet.Port);
 
 				try
 				{
@@ -271,6 +259,7 @@ public static partial class Socks5Utils
 		finally
 		{
 			ArrayPool<byte>.Shared.Return(buffer);
+			ArrayPool<byte>.Shared.Return(hostBuffer);
 		}
 	}
 
