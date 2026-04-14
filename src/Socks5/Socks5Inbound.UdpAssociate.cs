@@ -61,7 +61,7 @@ public sealed partial class Socks5Inbound
 			relaySocket = new Socket(bindAddress.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
 			relaySocket.Bind(new IPEndPoint(bindAddress, 0));
 
-			if (!TryCreateServerBound(relaySocket.LocalEndPoint?.Serialize(), out ServerBound bound))
+			if (!ServerBound.TryFromSocketAddress(relaySocket.LocalEndPoint?.Serialize(), out ServerBound bound))
 			{
 				throw new InvalidOperationException("UDP relay socket did not expose a usable LocalEndPoint.");
 			}

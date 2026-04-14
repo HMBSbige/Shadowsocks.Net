@@ -19,21 +19,54 @@ internal struct ServerBound
 	public HostField Host;
 	public ushort Port;
 
-	internal static ServerBound FromSocketAddress(SocketAddress sa)
+	internal static bool TryFromSocketAddress(SocketAddress? socketAddress, out ServerBound bound)
 	{
-		(int off, int len) = Socks5Utils.SockAddrSlice(sa.Family);
-		IPAddress addr = new(sa.Buffer.Span.Slice(off, len));
+		bound = default;
 
-		if (addr.IsIPv4MappedToIPv6)
+		if (socketAddress is null)
 		{
-			addr = addr.MapToIPv4();
+			return false;
 		}
 
-		ServerBound b = default;
-		b.Type = addr.AddressFamily is AddressFamily.InterNetworkV6 ? AddressType.IPv6 : AddressType.IPv4;
-		addr.TryFormat(b.Host.WriteBuffer, out b.Host.Length);
-		b.Port = BinaryPrimitives.ReadUInt16BigEndian(sa.Buffer.Span.Slice(2));
-		return b;
+		AddressType type;
+
+		switch (socketAddress.Family)
+		{
+			case AddressFamily.InterNetwork:
+				type = AddressType.IPv4;
+				break;
+			case AddressFamily.InterNetworkV6:
+				type = AddressType.IPv6;
+				break;
+			default:
+				return false;
+		}
+
+		(int addressOffset, int addressLength) = Socks5Utils.SockAddrSlice(socketAddress.Family);
+
+		if (socketAddress.Size < addressOffset + addressLength)
+		{
+			return false;
+		}
+
+		IPAddress address = new(socketAddress.Buffer.Span.Slice(addressOffset, addressLength));
+
+		if (address.IsIPv4MappedToIPv6)
+		{
+			address = address.MapToIPv4();
+			type = AddressType.IPv4;
+		}
+
+		bound.Type = type;
+
+		if (!address.TryFormat(bound.Host.WriteBuffer, out bound.Host.Length))
+		{
+			bound = default;
+			return false;
+		}
+
+		bound.Port = BinaryPrimitives.ReadUInt16BigEndian(socketAddress.Buffer.Span.Slice(2));
+		return true;
 	}
 
 	private static ServerBound CreateUnspecified()

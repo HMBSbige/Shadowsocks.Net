@@ -90,26 +90,6 @@ public sealed partial class Socks5Inbound : IStreamInbound
 		}
 	}
 
-	private static bool TryCreateServerBound(SocketAddress? socketAddress, out ServerBound bound)
-	{
-		if (socketAddress is null)
-		{
-			bound = default;
-			return false;
-		}
-
-		try
-		{
-			bound = ServerBound.FromSocketAddress(socketAddress);
-			return true;
-		}
-		catch (ArgumentException)
-		{
-			bound = default;
-			return false;
-		}
-	}
-
 	private static Socks5Reply MapExceptionToReply(Exception ex)
 	{
 		return ex switch

@@ -12,7 +12,7 @@ public static partial class Socks5Utils
 {
 	internal static async ValueTask<(Command command, ServerBound target)> AcceptClientAsync(IDuplexPipe pipe, UserPassAuth? credential, CancellationToken cancellationToken)
 	{
-		Method desired = credential?.UserName.Length > 0
+		Method desired = credential is not null
 			? Method.UsernamePassword
 			: Method.NoAuthentication;
 
@@ -30,9 +30,17 @@ public static partial class Socks5Utils
 			throw new Socks5ProtocolErrorException("No acceptable authentication method (RFC 1928 §3).", Socks5Reply.ConnectionNotAllowed);
 		}
 
-		if (method is Method.UsernamePassword && !await UsernamePasswordAuthAsync(pipe, credential, cancellationToken))
+		if (method is Method.UsernamePassword)
 		{
-			throw new Socks5ProtocolErrorException(@"SOCKS5 auth username password error.", Socks5Reply.ConnectionNotAllowed);
+			if (credential is not { } expectedCredential)
+			{
+				throw new InvalidOperationException("Username/password auth requires configured credentials.");
+			}
+
+			if (!await UsernamePasswordAuthAsync(pipe, expectedCredential, cancellationToken))
+			{
+				throw new Socks5ProtocolErrorException(@"SOCKS5 auth username password error.", Socks5Reply.ConnectionNotAllowed);
+			}
 		}
 
 		try
@@ -56,16 +64,14 @@ public static partial class Socks5Utils
 		}
 	}
 
-	private static async ValueTask<bool> UsernamePasswordAuthAsync(IDuplexPipe pipe, UserPassAuth? credential, CancellationToken cancellationToken)
+	private static async ValueTask<bool> UsernamePasswordAuthAsync(IDuplexPipe pipe, UserPassAuth credential, CancellationToken cancellationToken)
 	{
-		UserPassAuth? clientCredential = null;
+		bool isAuth = false;
 
 		if (!await pipe.Input.ReadAsync(TryReadClientAuth, cancellationToken))
 		{
 			throw new Socks5ProtocolErrorException(@"Incomplete SOCKS5 auth request.", Socks5Reply.GeneralFailure);
 		}
-
-		bool isAuth = clientCredential == credential;
 
 		await pipe.Output.WriteAsync(2, PackReply, cancellationToken);
 
@@ -73,7 +79,7 @@ public static partial class Socks5Utils
 
 		ParseResult TryReadClientAuth(ref ReadOnlySequence<byte> buffer)
 		{
-			return Unpack.ReadClientAuth(ref buffer, ref clientCredential) ? ParseResult.Success : ParseResult.NeedsMoreData;
+			return Unpack.ReadClientAuth(ref buffer, credential, out isAuth) ? ParseResult.Success : ParseResult.NeedsMoreData;
 		}
 
 		int PackReply(Span<byte> span)

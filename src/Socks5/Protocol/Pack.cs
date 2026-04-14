@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Socks5.Protocol;
@@ -99,15 +100,8 @@ internal static class Pack
 
 		buffer[0] = Constants.ProtocolVersion;
 		buffer[1] = (byte)clientMethods.Length;
-
-		int outLength = 2;
-
-		foreach (Method method in clientMethods)
-		{
-			buffer[outLength++] = (byte)method;
-		}
-
-		return outLength;
+		MemoryMarshal.AsBytes(clientMethods).CopyTo(buffer.Slice(2));
+		return clientMethods.Length + 2;
 	}
 
 	/// <summary>
@@ -151,7 +145,7 @@ internal static class Pack
 		// +----+--------+
 
 		buffer[0] = Constants.AuthVersion;
-		buffer[1] = Convert.ToByte(!isSuccess);
+		buffer[1] = isSuccess ? (byte)0x00 : (byte)0x01;
 		return 2;
 	}
 

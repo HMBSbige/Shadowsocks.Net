@@ -55,7 +55,7 @@ public sealed partial class Socks5Inbound
 		{
 			IConnection connection = await outbound.ConnectAsync(destination, cancellationToken);
 
-			if (!TryCreateServerBound(connection.LocalEndPoint, out ServerBound bound))
+			if (!ServerBound.TryFromSocketAddress(connection.LocalEndPoint, out ServerBound bound))
 			{
 				bound = ServerBound.Unspecified;
 			}

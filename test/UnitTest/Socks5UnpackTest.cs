@@ -4,6 +4,7 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.Net;
 using System.Text;
+using UnitTest.TestBase;
 
 namespace UnitTest;
 
@@ -679,6 +680,21 @@ public class Socks5UnpackTest
 		}).Throws<Socks5ProtocolErrorException>();
 
 		await Assert.That(ex?.Socks5Reply).IsEqualTo(Socks5Reply.ConnectionNotAllowed);
+	}
+
+	[Test]
+	public async Task ReadClientAuth_ExpectedCredentialMatch_MultiSegment(CancellationToken cancellationToken)
+	{
+		byte[] buffer = new byte[Constants.MaxUsernamePasswordAuthLength];
+		UserPassAuth credential = new() { UserName = "user"u8.ToArray(), Password = "pass"u8.ToArray() };
+		int len = Pack.UsernamePasswordAuth(credential, buffer);
+
+		ReadOnlySequence<byte> seq = TestUtils.GetMultiSegmentSequence(buffer.AsMemory(0, len), 2, 7);
+		bool result = Unpack.ReadClientAuth(ref seq, credential, out bool isMatch);
+
+		await Assert.That(result).IsTrue();
+		await Assert.That(isMatch).IsTrue();
+		await Assert.That(seq.Length).IsEqualTo(0);
 	}
 
 	// --- Round-trip tests ---

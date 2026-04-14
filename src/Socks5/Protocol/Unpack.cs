@@ -361,12 +361,87 @@ internal static class Unpack
 
 	public static bool ReadClientAuth(ref ReadOnlySequence<byte> buffer, [NotNullWhen(true)] ref UserPassAuth? clientCredential)
 	{
+		if (!TryReadClientAuth(ref buffer, out ReadOnlySequence<byte> username, out ReadOnlySequence<byte> password))
+		{
+			return false;
+		}
+
+		clientCredential = new UserPassAuth
+		{
+			UserName = username.ToArray(),
+			Password = password.ToArray()
+		};
+		return true;
+	}
+
+	public static bool ReadClientAuth(ref ReadOnlySequence<byte> buffer, in UserPassAuth expectedCredential, out bool isMatch)
+	{
+		isMatch = false;
+
+		if (!TryReadClientAuth(ref buffer, out ReadOnlySequence<byte> username, out ReadOnlySequence<byte> password))
+		{
+			return false;
+		}
+
+		isMatch = username.Length == expectedCredential.UserName.Length
+			&& SequenceEqual(username, expectedCredential.UserName.Span)
+			&& password.Length == expectedCredential.Password.Length
+			&& SequenceEqual(password, expectedCredential.Password.Span);
+		return true;
+	}
+
+	private static void FormatIPAddress(ReadOnlySpan<byte> address, Span<byte> destination, out int bytesWritten)
+	{
+		if (!new IPAddress(address).TryFormat(destination, out bytesWritten))
+		{
+			throw new Socks5ProtocolErrorException(
+				"Failed to format IP address into host buffer.",
+				Socks5Reply.GeneralFailure);
+		}
+	}
+
+	private static bool SequenceEqual(ReadOnlySequence<byte> sequence, ReadOnlySpan<byte> expected)
+	{
+		if (sequence.Length != expected.Length)
+		{
+			return false;
+		}
+
+		if (sequence.IsSingleSegment)
+		{
+			return sequence.FirstSpan.SequenceEqual(expected);
+		}
+
+		int offset = 0;
+
+		foreach (ReadOnlyMemory<byte> segment in sequence)
+		{
+			ReadOnlySpan<byte> span = segment.Span;
+
+			if (!span.SequenceEqual(expected.Slice(offset, span.Length)))
+			{
+				return false;
+			}
+
+			offset += span.Length;
+		}
+
+		return true;
+	}
+
+	private static bool TryReadClientAuth(
+		ref ReadOnlySequence<byte> buffer,
+		out ReadOnlySequence<byte> username,
+		out ReadOnlySequence<byte> password)
+	{
 		// +----+------+----------+------+----------+
 		// |VER | ULEN |  UNAME   | PLEN |  PASSWD  |
 		// +----+------+----------+------+----------+
 		// | 1  |  1   | 1 to 255 |  1   | 1 to 255 |
 		// +----+------+----------+------+----------+
 
+		username = default;
+		password = default;
 		SequenceReader<byte> reader = new(buffer);
 
 		if (!reader.TryRead(out byte ver))
@@ -379,58 +454,43 @@ internal static class Unpack
 			throw new Socks5ProtocolErrorException($@"Client auth version is not 0x01: 0x{ver:X2}.", Socks5Reply.ConnectionNotAllowed);
 		}
 
-		if (!reader.TryRead(out byte uLen))
+		if (!reader.TryRead(out byte userNameLength))
 		{
 			return false;
 		}
 
-		if (uLen is 0)
+		if (userNameLength is 0)
 		{
 			throw new Socks5ProtocolErrorException("ULEN must be 1–255 (RFC 1929 §2).", Socks5Reply.ConnectionNotAllowed);
 		}
 
-		if (reader.Remaining < uLen)
+		if (reader.Remaining < userNameLength)
 		{
 			return false;
 		}
 
-		byte[] username = reader.UnreadSequence.Slice(0, uLen).ToArray();
-		reader.Advance(uLen);
+		username = reader.UnreadSequence.Slice(0, userNameLength);
+		reader.Advance(userNameLength);
 
-		if (!reader.TryRead(out byte pLen))
+		if (!reader.TryRead(out byte passwordLength))
 		{
 			return false;
 		}
 
-		if (pLen is 0)
+		if (passwordLength is 0)
 		{
 			throw new Socks5ProtocolErrorException("PLEN must be 1–255 (RFC 1929 §2).", Socks5Reply.ConnectionNotAllowed);
 		}
 
-		if (reader.Remaining < pLen)
+		if (reader.Remaining < passwordLength)
 		{
 			return false;
 		}
 
-		byte[] password = reader.UnreadSequence.Slice(0, pLen).ToArray();
-		reader.Advance(pLen);
+		password = reader.UnreadSequence.Slice(0, passwordLength);
+		reader.Advance(passwordLength);
 
-		clientCredential = new UserPassAuth
-		{
-			UserName = username,
-			Password = password
-		};
 		buffer = buffer.Slice(reader.Consumed);
 		return true;
-	}
-
-	private static void FormatIPAddress(ReadOnlySpan<byte> address, Span<byte> destination, out int bytesWritten)
-	{
-		if (!new IPAddress(address).TryFormat(destination, out bytesWritten))
-		{
-			throw new Socks5ProtocolErrorException(
-				"Failed to format IP address into host buffer.",
-				Socks5Reply.GeneralFailure);
-		}
 	}
 }
