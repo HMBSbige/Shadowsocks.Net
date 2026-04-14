@@ -63,3 +63,14 @@ public readonly record struct UserPassAuth(ReadOnlyMemory<byte> UserName, ReadOn
 ```
 
 Represents RFC 1929 username/password credentials as raw bytes.
+
+### `Socks5Utils`
+
+```csharp
+public static partial class Socks5Utils
+{
+    public static bool IsSocks5Header(this ReadOnlySequence<byte> buffer);
+}
+```
+
+Low-level SOCKS5 protocol detection utilities operating directly on byte sequences. `IsSocks5Header` is an extension method on `ReadOnlySequence<byte>` that checks whether the buffer starts with a syntactically valid SOCKS5 client greeting header (correct protocol version, non-zero method count, and sufficient remaining data).
