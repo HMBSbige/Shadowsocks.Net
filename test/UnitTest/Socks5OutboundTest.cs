@@ -294,7 +294,7 @@ public class Socks5OutboundTest
 		// This implementation uses an all-zero address in the control connection's family.
 		await using IPacketConnection pkt = await outbound.CreatePacketConnectionAsync(cancellationToken);
 
-		var (atyp, addr, port) = await capturedDst.Task;
+		(byte atyp, byte[] addr, ushort port) = await capturedDst.Task;
 
 		await Assert.That(atyp).IsEqualTo((byte)0x01);
 		await Assert.That(addr.SequenceEqual(new byte[4])).IsTrue();
@@ -326,7 +326,7 @@ public class Socks5OutboundTest
 		// This implementation uses an all-zero address in the control connection's family.
 		await using IPacketConnection pkt = await outbound.CreatePacketConnectionAsync(cancellationToken);
 
-		var (atyp, addr, port) = await capturedDst.Task;
+		(byte atyp, byte[] addr, ushort port) = await capturedDst.Task;
 
 		await Assert.That(atyp).IsEqualTo((byte)0x04);
 		await Assert.That(addr.SequenceEqual(new byte[16])).IsTrue();

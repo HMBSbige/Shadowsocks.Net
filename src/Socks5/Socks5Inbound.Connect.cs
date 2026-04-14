@@ -24,17 +24,19 @@ public sealed partial class Socks5Inbound
 				LogConnect(Encoding.ASCII.GetString(destination.Host.Span), destination.Port);
 			}
 
-			ConnectionSession? session = await TryCreateConnectSessionAsync(clientPipe.Output, outbound, destination, cancellationToken);
+			(IConnection Connection, ServerBound Bound)? result = await TryCreateConnectSessionAsync(clientPipe.Output, outbound, destination, cancellationToken);
 
-			if (session is null)
+			if (result is null)
 			{
 				return;
 			}
 
-			await using (session)
+			(IConnection connection, ServerBound bound) = result.Value;
+
+			await using (connection)
 			{
-				await Socks5Utils.SendReplyAsync(clientPipe.Output, Socks5Reply.Succeeded, session.Bound, cancellationToken);
-				await session.Connection.LinkToAsync(clientPipe, cancellationToken);
+				await Socks5Utils.SendReplyAsync(clientPipe.Output, Socks5Reply.Succeeded, bound, cancellationToken);
+				await connection.LinkToAsync(clientPipe, cancellationToken);
 			}
 		}
 		finally
@@ -43,7 +45,7 @@ public sealed partial class Socks5Inbound
 		}
 	}
 
-	private async ValueTask<ConnectionSession?> TryCreateConnectSessionAsync(
+	private async ValueTask<(IConnection Connection, ServerBound Bound)?> TryCreateConnectSessionAsync(
 		PipeWriter replyOutput,
 		IStreamOutbound outbound,
 		ProxyDestination destination,
@@ -53,9 +55,12 @@ public sealed partial class Socks5Inbound
 		{
 			IConnection connection = await outbound.ConnectAsync(destination, cancellationToken);
 
-			ServerBound bound = TryCreateServerBound(connection.LocalEndPoint, out ServerBound b) ? b : ServerBound.Unspecified;
+			if (!TryCreateServerBound(connection.LocalEndPoint, out ServerBound bound))
+			{
+				bound = ServerBound.Unspecified;
+			}
 
-			return new ConnectionSession(connection, bound);
+			return (connection, bound);
 		}
 		catch (Exception ex)
 		{
@@ -66,18 +71,6 @@ public sealed partial class Socks5Inbound
 
 			await Socks5Utils.SendReplyAsync(replyOutput, MapExceptionToReply(ex), ServerBound.Unspecified, cancellationToken);
 			return null;
-		}
-	}
-
-	private sealed class ConnectionSession(IConnection connection, ServerBound bound) : IAsyncDisposable
-	{
-		public IConnection Connection { get; } = connection;
-
-		public ServerBound Bound { get; } = bound;
-
-		public ValueTask DisposeAsync()
-		{
-			return Connection.DisposeAsync();
 		}
 	}
 }

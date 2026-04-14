@@ -17,26 +17,10 @@ public static partial class Socks5Utils
 	{
 		SequenceReader<byte> reader = new(buffer);
 
-		if (!reader.TryRead(out byte ver))
-		{
-			return false;
-		}
-
-		if (ver is not Constants.ProtocolVersion)
-		{
-			return false;
-		}
-
-		if (!reader.TryRead(out byte num) || num is 0)
-		{
-			return false;
-		}
-
-		if (reader.Remaining < num)
-		{
-			return false;
-		}
-
-		return true;
+		return reader.TryRead(out byte ver)
+			&& ver is Constants.ProtocolVersion
+			&& reader.TryRead(out byte num)
+			&& num is not 0
+			&& reader.Remaining >= num;
 	}
 }

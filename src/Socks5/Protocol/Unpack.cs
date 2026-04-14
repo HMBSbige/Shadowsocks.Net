@@ -220,17 +220,28 @@ internal static class Unpack
 	public static bool ReadDestinationAddress(ref SequenceReader<byte> reader, AddressType type, scoped Span<byte> hostBuffer, out int hostBytesWritten)
 	{
 		hostBytesWritten = 0;
-		int available;
 
 		switch (type)
 		{
 			case AddressType.IPv4:
-				available = Constants.IPv4AddressBytesLength;
-				break;
 			case AddressType.IPv6:
-				available = Constants.IPv6AddressBytesLength;
+			{
+				int addrLen = type is AddressType.IPv4 ? Constants.IPv4AddressBytesLength : Constants.IPv6AddressBytesLength;
+
+				if (reader.Remaining < addrLen)
+				{
+					return false;
+				}
+
+				Span<byte> raw = stackalloc byte[Constants.IPv6AddressBytesLength];
+				Span<byte> addr = raw.Slice(0, addrLen);
+				reader.UnreadSequence.Slice(0, addrLen).CopyTo(addr);
+				FormatIPAddress(addr, hostBuffer, out hostBytesWritten);
+				reader.Advance(addrLen);
 				break;
+			}
 			case AddressType.Domain:
+			{
 				if (!reader.TryPeek(out byte domainLength))
 				{
 					return false;
@@ -241,22 +252,22 @@ internal static class Unpack
 					throw new Socks5ProtocolErrorException("Empty domain name (length 0) is not a valid FQDN (RFC 1928 §5).", Socks5Reply.GeneralFailure);
 				}
 
-				available = 1 + domainLength;
+				if (reader.Remaining < 1 + domainLength)
+				{
+					return false;
+				}
+
+				reader.UnreadSequence.Slice(1, domainLength).CopyTo(hostBuffer);
+				hostBytesWritten = domainLength;
+				reader.Advance(1 + domainLength);
 				break;
+			}
 			default:
+			{
 				throw new Socks5ProtocolErrorException($@"Server reply an unknown address type: {type}.", Socks5Reply.AddressTypeNotSupported);
+			}
 		}
 
-		if (reader.Remaining < available)
-		{
-			return false;
-		}
-
-		Span<byte> temp = stackalloc byte[Constants.MaxAddressLength];
-		Span<byte> addr = temp.Slice(0, available);
-		reader.UnreadSequence.Slice(0, available).CopyTo(addr);
-		int consumed = DestinationAddress(type, addr, hostBuffer, out hostBytesWritten);
-		reader.Advance(consumed);
 		return true;
 	}
 

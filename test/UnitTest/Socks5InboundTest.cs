@@ -581,6 +581,32 @@ public class Socks5InboundTest
 	}
 
 	[Test]
+	[DisplayName("Malformed request (invalid VER byte only) terminates promptly without reply")]
+	public async Task MalformedRequest_InvalidVerOnly_TerminatesPromptly(CancellationToken cancellationToken)
+	{
+		Socks5Inbound inbound = new();
+
+		Pipe clientToServer = new();
+		Pipe serverToClient = new();
+		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		Task handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken).AsTask();
+
+		await NoAuthHandshakeAsync(clientToServer.Writer, serverToClient.Reader, cancellationToken);
+
+		await clientToServer.Writer.WriteAsync(new byte[] { 0x04 }, cancellationToken);
+
+		Task completed = await Task.WhenAny(handleTask, Task.Delay(300, cancellationToken));
+		await Assert.That(ReferenceEquals(completed, handleTask)).IsTrue();
+		await handleTask;
+
+		await clientToServer.Writer.CompleteAsync();
+		await serverToClient.Writer.CompleteAsync();
+
+		ReadResult result = await serverToClient.Reader.ReadAsync(cancellationToken);
+		await Assert.That(result.Buffer.IsEmpty).IsTrue();
+	}
+
+	[Test]
 	[DisplayName("AcceptClient: non-zero RSV in client request is accepted for interoperability")]
 	public async Task AcceptClient_ConnectCommand_RsvNonZero_Ignored(CancellationToken cancellationToken)
 	{
