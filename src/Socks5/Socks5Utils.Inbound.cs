@@ -136,15 +136,9 @@ public static partial class Socks5Utils
 		}
 	}
 
-	internal static async ValueTask SendReplyAsync(PipeWriter output, Socks5Reply reply, ServerBound bound, CancellationToken cancellationToken)
+	internal static ValueTask<FlushResult> SendReplyAsync(PipeWriter output, Socks5Reply reply, ServerBound bound, CancellationToken cancellationToken)
 	{
-		await output.WriteAsync(Constants.MaxCommandLength, PackCommand, cancellationToken);
-		return;
-
-		int PackCommand(Span<byte> span)
-		{
-			return Pack.ServerReply(reply, bound, span);
-		}
+		return output.WriteAsync(Constants.MaxCommandLength, span => Pack.ServerReply(reply, bound, span), cancellationToken);
 	}
 
 	internal static ProxyDestination RentDestination(in ServerBound target, out byte[] rentedBuffer)
