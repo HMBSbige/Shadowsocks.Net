@@ -2,7 +2,6 @@ using System.Buffers.Binary;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
-using System.Text;
 
 namespace Socks5.Protocol;
 
@@ -145,7 +144,7 @@ internal static class Pack
 		// +----+--------+
 
 		buffer[0] = Constants.AuthVersion;
-		buffer[1] = isSuccess ? (byte)0x00 : (byte)0x01;
+		buffer[1] = isSuccess ? Constants.AuthStatusSuccess : Constants.AuthStatusFailure;
 		return 2;
 	}
 
@@ -206,76 +205,5 @@ internal static class Pack
 		data.CopyTo(buffer.Slice(offset));
 
 		return offset + data.Length;
-	}
-
-	/// <summary>
-	/// Packs a domain name in DNS label format (length-prefixed labels terminated by a zero byte).
-	/// </summary>
-	public static int DnsDomain(ReadOnlySpan<char> domain, Span<byte> buffer)
-	{
-		if (!Ascii.IsValid(domain))
-		{
-			throw new ArgumentException("DNS labels must be ASCII.", nameof(domain));
-		}
-
-		if (domain.EndsWith("."))
-		{
-			domain = domain.Slice(0, domain.Length - 1);
-		}
-
-		if (domain.IsEmpty)
-		{
-			throw new ArgumentException("Domain must not be empty.", nameof(domain));
-		}
-
-		int wireLength = domain.Length + 2; // first length byte + null terminator; dots become length bytes in-place
-
-		if (wireLength > 255)
-		{
-			throw new ArgumentException($"DNS name wire length must be <= 255, got {wireLength}.", nameof(domain));
-		}
-
-		if (buffer.Length < wireLength)
-		{
-			throw new ArgumentException("Destination buffer is too small.", nameof(buffer));
-		}
-
-		// Bulk copy domain into buffer[1..], leaving buffer[0] for first label length.
-		Ascii.FromUtf16(domain, buffer.Slice(1), out _);
-
-		// Patch: replace each '.' (0x2E) with the preceding label's length.
-		int labelStart = 0;
-		int end = domain.Length + 1;
-
-		for (int i = 1; i < end; ++i)
-		{
-			if (buffer[i] is not (byte)'.')
-			{
-				continue;
-			}
-
-			int labelLen = i - labelStart - 1;
-
-			if (labelLen is 0 or > 63)
-			{
-				throw new ArgumentException($"DNS label length must be 1-63, got {labelLen}.", nameof(domain));
-			}
-
-			buffer[labelStart] = (byte)labelLen;
-			labelStart = i;
-		}
-
-		// Last label.
-		int lastLabelLen = end - labelStart - 1;
-
-		if (lastLabelLen is 0 or > 63)
-		{
-			throw new ArgumentException($"DNS label length must be 1-63, got {lastLabelLen}.", nameof(domain));
-		}
-
-		buffer[labelStart] = (byte)lastLabelLen;
-		buffer[end] = byte.MinValue;
-
-		return wireLength;
 	}
 }

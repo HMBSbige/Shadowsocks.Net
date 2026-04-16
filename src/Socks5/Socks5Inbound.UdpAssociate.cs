@@ -124,21 +124,11 @@ public sealed partial class Socks5Inbound
 
 		try
 		{
-			await clientToRemote;
+			await Task.WhenAll(clientToRemote, remoteToClient, controlMonitor);
 		}
-		catch (OperationCanceledException) { }
-
-		try
+		catch (OperationCanceledException)
 		{
-			await remoteToClient;
 		}
-		catch (OperationCanceledException) { }
-
-		try
-		{
-			await controlMonitor;
-		}
-		catch (OperationCanceledException) { }
 	}
 
 	private static bool TryCreateExpectedUdpSource(AddressFamily relayFamily, IPAddress clientAddress, out SocketAddress expectedUdpSource)

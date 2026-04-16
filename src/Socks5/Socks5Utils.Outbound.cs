@@ -9,8 +9,6 @@ public static partial class Socks5Utils
 {
 	internal static readonly Method[] MethodsNoAuth = [Method.NoAuthentication];
 	internal static readonly Method[] MethodsWithAuth = [Method.NoAuthentication, Method.UsernamePassword];
-	internal static readonly byte[] IPv4Unspecified = "0.0.0.0"u8.ToArray();
-	internal static readonly byte[] IPv6Unspecified = "::"u8.ToArray();
 
 	internal static async ValueTask<Method> HandshakeMethodAsync(IDuplexPipe pipe, Method[] clientMethods, CancellationToken cancellationToken)
 	{

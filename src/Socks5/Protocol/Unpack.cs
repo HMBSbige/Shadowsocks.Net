@@ -1,6 +1,5 @@
 using System.Buffers;
 using System.Buffers.Binary;
-using System.Diagnostics.CodeAnalysis;
 using System.Net;
 
 namespace Socks5.Protocol;
@@ -67,7 +66,7 @@ internal static class Unpack
 
 		reader.TryRead(out byte status);
 
-		if (status is not 0x00)
+		if (status is not Constants.AuthStatusSuccess)
 		{
 			throw new Socks5AuthenticationFailureException($@"Authentication failed: {status}.", status);
 		}
@@ -356,21 +355,6 @@ internal static class Unpack
 		}
 
 		buffer = buffer.Slice(reader.Consumed);
-		return true;
-	}
-
-	public static bool ReadClientAuth(ref ReadOnlySequence<byte> buffer, [NotNullWhen(true)] ref UserPassAuth? clientCredential)
-	{
-		if (!TryReadClientAuth(ref buffer, out ReadOnlySequence<byte> username, out ReadOnlySequence<byte> password))
-		{
-			return false;
-		}
-
-		clientCredential = new UserPassAuth
-		{
-			UserName = username.ToArray(),
-			Password = password.ToArray()
-		};
 		return true;
 	}
 

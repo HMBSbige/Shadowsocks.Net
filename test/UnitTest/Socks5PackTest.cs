@@ -195,7 +195,7 @@ public class Socks5PackTest
 
 		await Assert.That(len).IsEqualTo(2);
 		await Assert.That(buffer[0]).IsEqualTo(Constants.AuthVersion);
-		await Assert.That(buffer[1]).IsEqualTo((byte)0x00);
+		await Assert.That(buffer[1]).IsEqualTo(Constants.AuthStatusSuccess);
 	}
 
 	[Test]
@@ -206,7 +206,7 @@ public class Socks5PackTest
 
 		await Assert.That(len).IsEqualTo(2);
 		await Assert.That(buffer[0]).IsEqualTo(Constants.AuthVersion);
-		await Assert.That(buffer[1]).IsEqualTo((byte)0x01);
+		await Assert.That(buffer[1]).IsEqualTo(Constants.AuthStatusFailure);
 	}
 
 	[Test]
@@ -268,80 +268,4 @@ public class Socks5PackTest
 		await Assert.That(len).IsEqualTo(15);
 	}
 
-	[Test]
-	[Arguments("example.com")]
-	[Arguments("example.com.")]
-	public async Task DnsDomain_ExampleCom_EncodesExpectedWireFormat(string domain, CancellationToken cancellationToken)
-	{
-		byte[] buffer = new byte[64];
-		int len = Pack.DnsDomain(domain, buffer);
-
-		// "example"(7) + "com"(3) + 2 length bytes + 1 null terminator = 13
-		await Assert.That(len).IsEqualTo(13);
-		await Assert.That(buffer[0]).IsEqualTo((byte)7);
-		await Assert.That(buffer[8]).IsEqualTo((byte)3);
-		await Assert.That(buffer[len - 1]).IsEqualTo((byte)0);
-	}
-
-	[Test]
-	public async Task DnsDomain_TotalMaxLength(CancellationToken cancellationToken)
-	{
-		byte[] buffer = new byte[512];
-		// 3*(1+63) + (1+61) + 1 null = 255
-		string domain = string.Join(".", new string('a', 63), new string('b', 63), new string('c', 63), new string('d', 61));
-		int len = Pack.DnsDomain(domain, buffer);
-
-		await Assert.That(len).IsEqualTo(255);
-	}
-
-	[Test]
-	[Arguments("中国.cn")]
-	[Arguments(".example.com")]
-	[Arguments("example..com")]
-	[Arguments("example.com..")]
-	[Arguments("example..")]
-	public async Task DnsDomain_InvalidShape_Throws(string domain, CancellationToken cancellationToken)
-	{
-		byte[] buffer = new byte[64];
-
-		await Assert.That(() => Pack.DnsDomain(domain, buffer)).Throws<ArgumentException>();
-	}
-
-	[Test]
-	public async Task DnsDomain_LabelTooLong_Throws(CancellationToken cancellationToken)
-	{
-		byte[] buffer = new byte[512];
-		string longLabel = new string('a', 64) + ".com";
-
-		await Assert.That(() => Pack.DnsDomain(longLabel, buffer)).Throws<ArgumentException>();
-	}
-
-	[Test]
-	public async Task DnsDomain_TotalTooLong_Throws(CancellationToken cancellationToken)
-	{
-		byte[] buffer = new byte[512];
-		// 4 labels of 63 chars = 4*(1+63) + 1 null = 257 > 255
-		string domain = string.Join(".", new string('a', 63), new string('b', 63), new string('c', 63), new string('d', 63));
-
-		await Assert.That(() => Pack.DnsDomain(domain, buffer)).Throws<ArgumentException>();
-	}
-
-	[Test]
-	public async Task DnsDomain_BufferTooSmall_Throws(CancellationToken cancellationToken)
-	{
-		byte[] buffer = new byte[4]; // "a.b" needs wireLength 5
-
-		await Assert.That(() => Pack.DnsDomain("a.b", buffer)).Throws<ArgumentException>();
-	}
-
-	[Test]
-	public async Task DnsDomain_SingleLabel(CancellationToken cancellationToken)
-	{
-		byte[] buffer = new byte[64];
-		int len = Pack.DnsDomain("localhost", buffer);
-
-		await Assert.That(len).IsEqualTo(11); // 1 len + 9 chars + 1 null
-		await Assert.That(buffer[0]).IsEqualTo((byte)9);
-		await Assert.That(buffer[len - 1]).IsEqualTo((byte)0);
-	}
 }

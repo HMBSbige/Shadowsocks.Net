@@ -5,6 +5,8 @@ internal static class Constants
 	public const byte ProtocolVersion = 0x05;
 	public const byte Rsv = 0x00;
 	public const byte AuthVersion = 0x01;
+	public const byte AuthStatusSuccess = 0x00;
+	public const byte AuthStatusFailure = 0x01;
 	public const int IPv4AddressBytesLength = 4;
 	public const int IPv6AddressBytesLength = 16;
 	public const int MaxAddressLength = 1 + 1 + byte.MaxValue;

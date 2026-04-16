@@ -14,6 +14,9 @@ namespace Socks5;
 /// </summary>
 public sealed class Socks5Outbound : IStreamOutbound, IPacketOutbound
 {
+	private static readonly byte[] IPv4UnspecifiedHostText = "0.0.0.0"u8.ToArray();
+	private static readonly byte[] IPv6UnspecifiedHostText = "::"u8.ToArray();
+
 	private readonly IPAddress _address;
 	private readonly ushort _port;
 	private readonly UserPassAuth? _userPassAuth;
@@ -67,7 +70,7 @@ public sealed class Socks5Outbound : IStreamOutbound, IPacketOutbound
 
 		try
 		{
-			byte[] host = _address.AddressFamily is AddressFamily.InterNetworkV6 ? Socks5Utils.IPv6Unspecified : Socks5Utils.IPv4Unspecified;
+			ReadOnlyMemory<byte> host = _address.AddressFamily is AddressFamily.InterNetworkV6 ? IPv6UnspecifiedHostText : IPv4UnspecifiedHostText;
 			ServerBound bound = await Socks5Utils.SendCommandAsync(pipe, Command.UdpAssociate, host, 0, cancellationToken);
 
 			Socket udpSocket = new(AddressFamily.InterNetworkV6, SocketType.Dgram, ProtocolType.Udp) { DualMode = true };

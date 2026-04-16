@@ -586,53 +586,47 @@ public class Socks5UnpackTest
 	// --- ReadClientAuth ---
 
 	[Test]
-	public async Task ReadClientAuth_Normal(CancellationToken cancellationToken)
+	public async Task ReadClientAuth_ExpectedCredentialMatch_Normal(CancellationToken cancellationToken)
 	{
 		byte[] buffer = new byte[Constants.MaxUsernamePasswordAuthLength];
 		UserPassAuth cred = new() { UserName = "user"u8.ToArray(), Password = "pass"u8.ToArray() };
 		int len = Pack.UsernamePasswordAuth(cred, buffer);
 
 		ReadOnlySequence<byte> seq = new(buffer.AsMemory(0, len));
-		UserPassAuth? parsed = null;
-		bool result = Unpack.ReadClientAuth(ref seq, ref parsed);
+		bool result = Unpack.ReadClientAuth(ref seq, cred, out bool isMatch);
 
 		await Assert.That(result).IsTrue();
-		await Assert.That(parsed).IsNotNull();
-		UserPassAuth p = parsed.GetValueOrDefault();
-		await Assert.That(p.UserName.Span.SequenceEqual("user"u8)).IsTrue();
-		await Assert.That(p.Password.Span.SequenceEqual("pass"u8)).IsTrue();
+		await Assert.That(isMatch).IsTrue();
 	}
 
 	[Test]
-	public async Task ReadClientAuth_Unicode(CancellationToken cancellationToken)
+	[Arguments("user", "wrong")]
+	[Arguments("wrong", "pass")]
+	[Arguments("wrong", "wrong")]
+	public async Task ReadClientAuth_ExpectedCredentialMismatch_ReportsFalse(string suppliedUser, string suppliedPass, CancellationToken cancellationToken)
 	{
 		byte[] buffer = new byte[Constants.MaxUsernamePasswordAuthLength];
-		byte[] userBytes = "用户"u8.ToArray();
-		byte[] passBytes = "密码"u8.ToArray();
-		UserPassAuth cred = new() { UserName = userBytes, Password = passBytes };
-		int len = Pack.UsernamePasswordAuth(cred, buffer);
+		UserPassAuth supplied = new() { UserName = Encoding.UTF8.GetBytes(suppliedUser), Password = Encoding.UTF8.GetBytes(suppliedPass) };
+		int len = Pack.UsernamePasswordAuth(supplied, buffer);
 
+		UserPassAuth expected = new() { UserName = "user"u8.ToArray(), Password = "pass"u8.ToArray() };
 		ReadOnlySequence<byte> seq = new(buffer.AsMemory(0, len));
-		UserPassAuth? parsed = null;
-		bool result = Unpack.ReadClientAuth(ref seq, ref parsed);
+		bool result = Unpack.ReadClientAuth(ref seq, expected, out bool isMatch);
 
 		await Assert.That(result).IsTrue();
-		await Assert.That(parsed).IsNotNull();
-		UserPassAuth p = parsed.GetValueOrDefault();
-		await Assert.That(p.UserName.Span.SequenceEqual(userBytes)).IsTrue();
-		await Assert.That(p.Password.Span.SequenceEqual(passBytes)).IsTrue();
+		await Assert.That(isMatch).IsFalse();
 	}
 
 	[Test]
 	public async Task ReadClientAuth_WrongVersion(CancellationToken cancellationToken)
 	{
 		byte[] data = [0x02, 0x01, (byte)'a', 0x01, (byte)'b'];
+		UserPassAuth credential = new() { UserName = "a"u8.ToArray(), Password = "b"u8.ToArray() };
 
 		Socks5ProtocolErrorException? ex = await Assert.That(() =>
 		{
 			ReadOnlySequence<byte> local = new(data);
-			UserPassAuth? p = null;
-			Unpack.ReadClientAuth(ref local, ref p);
+			Unpack.ReadClientAuth(ref local, credential, out _);
 		}).Throws<Socks5ProtocolErrorException>();
 
 		await Assert.That(ex?.Socks5Reply).IsEqualTo(Socks5Reply.ConnectionNotAllowed);
@@ -643,9 +637,9 @@ public class Socks5UnpackTest
 	{
 		byte[] data = [Constants.AuthVersion, 0x04, (byte)'u']; // says ulen=4, only 1 byte
 		ReadOnlySequence<byte> seq = new(data);
-		UserPassAuth? parsed = null;
+		UserPassAuth credential = new() { UserName = "user"u8.ToArray(), Password = "pass"u8.ToArray() };
 
-		bool result = Unpack.ReadClientAuth(ref seq, ref parsed);
+		bool result = Unpack.ReadClientAuth(ref seq, credential, out _);
 
 		await Assert.That(result).IsFalse();
 	}
@@ -655,12 +649,12 @@ public class Socks5UnpackTest
 	{
 		// VER=0x01, ULEN=0, PLEN=1, PASSWD='p'
 		byte[] data = [Constants.AuthVersion, 0x00, 0x01, (byte)'p'];
+		UserPassAuth credential = new() { UserName = "u"u8.ToArray(), Password = "p"u8.ToArray() };
 
 		Socks5ProtocolErrorException? ex = await Assert.That(() =>
 		{
 			ReadOnlySequence<byte> local = new(data);
-			UserPassAuth? p = null;
-			Unpack.ReadClientAuth(ref local, ref p);
+			Unpack.ReadClientAuth(ref local, credential, out _);
 		}).Throws<Socks5ProtocolErrorException>();
 
 		await Assert.That(ex?.Socks5Reply).IsEqualTo(Socks5Reply.ConnectionNotAllowed);
@@ -671,12 +665,12 @@ public class Socks5UnpackTest
 	{
 		// VER=0x01, ULEN=1, UNAME='u', PLEN=0
 		byte[] data = [Constants.AuthVersion, 0x01, (byte)'u', 0x00];
+		UserPassAuth credential = new() { UserName = "u"u8.ToArray(), Password = "p"u8.ToArray() };
 
 		Socks5ProtocolErrorException? ex = await Assert.That(() =>
 		{
 			ReadOnlySequence<byte> local = new(data);
-			UserPassAuth? p = null;
-			Unpack.ReadClientAuth(ref local, ref p);
+			Unpack.ReadClientAuth(ref local, credential, out _);
 		}).Throws<Socks5ProtocolErrorException>();
 
 		await Assert.That(ex?.Socks5Reply).IsEqualTo(Socks5Reply.ConnectionNotAllowed);
@@ -785,9 +779,9 @@ public class Socks5UnpackTest
 		int packLen = Pack.UsernamePasswordAuth(original, packBuf);
 
 		ReadOnlySequence<byte> seq = new(packBuf.AsMemory(0, packLen));
-		UserPassAuth? parsed = null;
-		Unpack.ReadClientAuth(ref seq, ref parsed);
+		bool parsed = Unpack.ReadClientAuth(ref seq, original, out bool isMatch);
 
-		await Assert.That(parsed).IsEqualTo(original);
+		await Assert.That(parsed).IsTrue();
+		await Assert.That(isMatch).IsTrue();
 	}
 }
