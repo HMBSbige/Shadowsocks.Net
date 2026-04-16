@@ -12,9 +12,28 @@ namespace Socks5;
 /// <summary>
 /// Connects to an upstream SOCKS5 server and creates proxied TCP or UDP connections through it.
 /// </summary>
-/// <param name="option">Configuration for the upstream SOCKS5 server and optional credentials.</param>
-public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound, IPacketOutbound
+public sealed class Socks5Outbound : IStreamOutbound, IPacketOutbound
 {
+	private readonly IPAddress _address;
+	private readonly ushort _port;
+	private readonly UserPassAuth? _userPassAuth;
+
+	/// <summary>
+	/// Creates a new outbound SOCKS5 client with validated connection settings.
+	/// </summary>
+	/// <param name="option">Configuration for the upstream SOCKS5 server and optional credentials.</param>
+	public Socks5Outbound(Socks5CreateOption option)
+	{
+		ArgumentNullException.ThrowIfNull(option);
+		ArgumentNullException.ThrowIfNull(option.Address);
+
+		option.UserPassAuth?.ThrowIfInvalid();
+
+		_address = option.Address;
+		_port = option.Port;
+		_userPassAuth = option.UserPassAuth;
+	}
+
 	/// <summary>
 	/// Opens a TCP connection to <paramref name="destination"/> through the configured SOCKS5 server.
 	/// </summary>
@@ -48,7 +67,7 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 
 		try
 		{
-			byte[] host = option.Address?.AddressFamily is AddressFamily.InterNetworkV6 ? Socks5Utils.IPv6Unspecified : Socks5Utils.IPv4Unspecified;
+			byte[] host = _address.AddressFamily is AddressFamily.InterNetworkV6 ? Socks5Utils.IPv6Unspecified : Socks5Utils.IPv4Unspecified;
 			ServerBound bound = await Socks5Utils.SendCommandAsync(pipe, Command.UdpAssociate, host, 0, cancellationToken);
 
 			Socket udpSocket = new(AddressFamily.InterNetworkV6, SocketType.Dgram, ProtocolType.Udp) { DualMode = true };
@@ -69,7 +88,7 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 
 						if (Equals(boundAddr, unspecified))
 						{
-							boundAddr = option.Address!;
+							boundAddr = _address;
 						}
 
 						await udpSocket.ConnectAsync(boundAddr, bound.Port, cancellationToken);
@@ -102,15 +121,11 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 
 	private async ValueTask<(Socket socket, IDuplexPipe pipe)> HandshakeAsync(CancellationToken cancellationToken)
 	{
-		ArgumentNullException.ThrowIfNull(option.Address);
-
-		option.UserPassAuth?.ThrowIfInvalid();
-
-		Socket socket = new(option.Address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+		Socket socket = new(_address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
 
 		try
 		{
-			await socket.ConnectAsync(option.Address, option.Port, cancellationToken);
+			await socket.ConnectAsync(_address, _port, cancellationToken);
 			IDuplexPipe pipe = socket.AsDuplexPipe();
 			await HandshakeWithAuthAsync(pipe, cancellationToken);
 			return (socket, pipe);
@@ -124,7 +139,7 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 
 	private async ValueTask HandshakeWithAuthAsync(IDuplexPipe pipe, CancellationToken cancellationToken)
 	{
-		Method[] clientMethods = option.UserPassAuth is not null ? Socks5Utils.MethodsWithAuth : Socks5Utils.MethodsNoAuth;
+		Method[] clientMethods = _userPassAuth is not null ? Socks5Utils.MethodsWithAuth : Socks5Utils.MethodsNoAuth;
 
 		Method replyMethod = await Socks5Utils.HandshakeMethodAsync(pipe, clientMethods, cancellationToken);
 
@@ -132,7 +147,7 @@ public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound,
 		{
 			case Method.NoAuthentication:
 				return;
-			case Method.UsernamePassword when option.UserPassAuth is { } credential:
+			case Method.UsernamePassword when _userPassAuth is { } credential:
 				await Socks5Utils.AuthAsync(pipe, credential, cancellationToken);
 				break;
 			default:

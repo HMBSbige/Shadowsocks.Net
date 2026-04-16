@@ -14,15 +14,15 @@ public record Socks5CreateOption
 	/// <summary>
 	/// The SOCKS5 server IP address to connect to.
 	/// </summary>
-	public IPAddress? Address { get; set; }
+	public required IPAddress Address { get; init; }
 
 	/// <summary>
 	/// The port of the SOCKS5 server.
 	/// </summary>
-	public ushort Port { get; set; }
+	public required ushort Port { get; init; }
 
 	/// <summary>
 	/// The optional username/password credential for the SOCKS5 server (RFC 1929).
 	/// </summary>
-	public UserPassAuth? UserPassAuth { get; set; }
+	public UserPassAuth? UserPassAuth { get; init; }
 }

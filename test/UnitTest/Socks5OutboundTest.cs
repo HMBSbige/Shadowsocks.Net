@@ -376,10 +376,10 @@ public class Socks5OutboundTest
 	}
 
 	[Test]
-	[DisplayName("ConnectAsync: empty username in UserPassAuth throws before network I/O")]
-	public async Task ConnectAsync_EmptyUsername_Throws(CancellationToken cancellationToken)
+	[DisplayName("Constructor: empty username in UserPassAuth throws")]
+	public async Task Constructor_EmptyUsername_Throws(CancellationToken cancellationToken)
 	{
-		Socks5Outbound outbound = new(new Socks5CreateOption
+		await Assert.That(() => new Socks5Outbound(new Socks5CreateOption
 		{
 			Address = IPAddress.Loopback,
 			Port = 1,
@@ -388,18 +388,14 @@ public class Socks5OutboundTest
 				UserName = Array.Empty<byte>(),
 				Password = "p"u8.ToArray()
 			}
-		});
-
-		await Assert.That(async () =>
-			await outbound.ConnectAsync(new ProxyDestination("127.0.0.1"u8.ToArray(), 80), cancellationToken)
-		).Throws<ArgumentException>();
+		})).Throws<ArgumentException>();
 	}
 
 	[Test]
-	[DisplayName("ConnectAsync: username > 255 bytes in UserPassAuth throws before network I/O")]
-	public async Task ConnectAsync_UsernameTooLong_Throws(CancellationToken cancellationToken)
+	[DisplayName("Constructor: username > 255 bytes in UserPassAuth throws")]
+	public async Task Constructor_UsernameTooLong_Throws(CancellationToken cancellationToken)
 	{
-		Socks5Outbound outbound = new(new Socks5CreateOption
+		await Assert.That(() => new Socks5Outbound(new Socks5CreateOption
 		{
 			Address = IPAddress.Loopback,
 			Port = 1,
@@ -408,18 +404,14 @@ public class Socks5OutboundTest
 				UserName = new byte[256],
 				Password = "p"u8.ToArray()
 			}
-		});
-
-		await Assert.That(async () =>
-			await outbound.ConnectAsync(new ProxyDestination("127.0.0.1"u8.ToArray(), 80), cancellationToken)
-		).Throws<ArgumentException>();
+		})).Throws<ArgumentException>();
 	}
 
 	[Test]
-	[DisplayName("ConnectAsync: password > 255 bytes in UserPassAuth throws before network I/O")]
-	public async Task ConnectAsync_PasswordTooLong_Throws(CancellationToken cancellationToken)
+	[DisplayName("Constructor: password > 255 bytes in UserPassAuth throws")]
+	public async Task Constructor_PasswordTooLong_Throws(CancellationToken cancellationToken)
 	{
-		Socks5Outbound outbound = new(new Socks5CreateOption
+		await Assert.That(() => new Socks5Outbound(new Socks5CreateOption
 		{
 			Address = IPAddress.Loopback,
 			Port = 1,
@@ -428,18 +420,14 @@ public class Socks5OutboundTest
 				UserName = "u"u8.ToArray(),
 				Password = new byte[256]
 			}
-		});
-
-		await Assert.That(async () =>
-			await outbound.ConnectAsync(new ProxyDestination("127.0.0.1"u8.ToArray(), 80), cancellationToken)
-		).Throws<ArgumentException>();
+		})).Throws<ArgumentException>();
 	}
 
 	[Test]
-	[DisplayName("ConnectAsync: empty password in UserPassAuth throws before network I/O")]
-	public async Task ConnectAsync_EmptyPassword_Throws(CancellationToken cancellationToken)
+	[DisplayName("Constructor: empty password in UserPassAuth throws")]
+	public async Task Constructor_EmptyPassword_Throws(CancellationToken cancellationToken)
 	{
-		Socks5Outbound outbound = new(new Socks5CreateOption
+		await Assert.That(() => new Socks5Outbound(new Socks5CreateOption
 		{
 			Address = IPAddress.Loopback,
 			Port = 1,
@@ -448,11 +436,18 @@ public class Socks5OutboundTest
 				UserName = "u"u8.ToArray(),
 				Password = Array.Empty<byte>()
 			}
-		});
+		})).Throws<ArgumentException>();
+	}
 
-		await Assert.That(async () =>
-			await outbound.ConnectAsync(new ProxyDestination("127.0.0.1"u8.ToArray(), 80), cancellationToken)
-		).Throws<ArgumentException>();
+	[Test]
+	[DisplayName("Constructor: null address throws")]
+	public async Task Constructor_NullAddress_Throws(CancellationToken cancellationToken)
+	{
+		await Assert.That(() => new Socks5Outbound(new Socks5CreateOption
+		{
+			Address = null!,
+			Port = 1,
+		})).Throws<ArgumentNullException>();
 	}
 
 	[Test]

@@ -34,8 +34,9 @@ Handles incoming SOCKS5 requests from clients. Uses `IStreamOutbound` for `CONNE
 ### `Socks5Outbound`
 
 ```csharp
-public sealed class Socks5Outbound(Socks5CreateOption option) : IStreamOutbound, IPacketOutbound
+public sealed class Socks5Outbound : IStreamOutbound, IPacketOutbound
 {
+    public Socks5Outbound(Socks5CreateOption option);
     public ValueTask<IConnection> ConnectAsync(ProxyDestination destination, CancellationToken cancellationToken = default);
     public ValueTask<IPacketConnection> CreatePacketConnectionAsync(CancellationToken cancellationToken = default);
 }
@@ -48,9 +49,9 @@ Connects to an upstream SOCKS5 server. Use `ConnectAsync` for proxied TCP connec
 ```csharp
 public record Socks5CreateOption
 {
-    public IPAddress? Address { get; set; }
-    public ushort Port { get; set; }
-    public UserPassAuth? UserPassAuth { get; set; }
+    public required IPAddress Address { get; init; }
+    public required ushort Port { get; init; }
+    public UserPassAuth? UserPassAuth { get; init; }
 }
 ```
 
