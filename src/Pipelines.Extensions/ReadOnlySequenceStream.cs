@@ -25,7 +25,7 @@ internal class ReadOnlySequenceStream : Stream
 		get
 		{
 			ObjectDisposedException.ThrowIf(IsDisposed, this);
-			return _readOnlySequence.Slice(0, _position).Length;
+			return _readOnlySequence.GetOffset(_position);
 		}
 		set
 		{

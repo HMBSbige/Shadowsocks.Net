@@ -11,16 +11,19 @@ public static partial class Socks5Utils
 
 	internal static async ValueTask<Method> HandshakeMethodAsync(IDuplexPipe pipe, Method[] clientMethods, CancellationToken cancellationToken)
 	{
-		await pipe.Output.WriteAsync(
+		await pipe.Output.WriteAndFlushAsync<ReadOnlySpan<Method>>(
 			Constants.MaxHandshakeClientMethodLength,
 			clientMethods,
-			static (methods, span) => Pack.Handshake(methods, span),
+			Pack.Handshake,
 			cancellationToken);
 
 		(bool ok, Method method) = await pipe.Input.ReadAsync<byte, Method>(
 			0,
-			static (_, out method, ref buf) =>
-				Unpack.ReadResponseMethod(ref buf, out method) ? ParseResult.Success : ParseResult.NeedsMoreData,
+			static (_, ref buf) =>
+			{
+				bool ok = Unpack.ReadResponseMethod(ref buf, out Method m);
+				return (ok, m);
+			},
 			cancellationToken);
 
 		if (!ok)
@@ -38,7 +41,7 @@ public static partial class Socks5Utils
 
 	internal static async ValueTask AuthAsync(IDuplexPipe pipe, UserPassAuth credential, CancellationToken cancellationToken)
 	{
-		await pipe.Output.WriteAsync(
+		await pipe.Output.WriteAndFlushAsync(
 			Constants.MaxUsernamePasswordAuthLength,
 			credential,
 			Pack.UsernamePasswordAuth,
@@ -46,8 +49,7 @@ public static partial class Socks5Utils
 
 		bool ok = await pipe.Input.ReadAsync<byte>(
 			0,
-			static (_, ref buf) =>
-				Unpack.ReadResponseAuthReply(ref buf) ? ParseResult.Success : ParseResult.NeedsMoreData,
+			static (_, ref buf) => Unpack.ReadResponseAuthReply(ref buf),
 			cancellationToken);
 
 		if (!ok)
@@ -61,17 +63,19 @@ public static partial class Socks5Utils
 		ReadOnlyMemory<byte> host, ushort port,
 		CancellationToken cancellationToken)
 	{
-		await pipe.Output.WriteAsync(
+		await pipe.Output.WriteAndFlushAsync(
 			Constants.MaxCommandLength,
 			(command, host, port),
-			static (state, span) =>
-				Pack.ClientCommand(state.command, state.host.Span, state.port, span),
+			static (state, span) => Pack.ClientCommand(state.command, state.host.Span, state.port, span),
 			cancellationToken);
 
 		(bool ok, ServerBound bound) = await pipe.Input.ReadAsync<byte, ServerBound>(
 			0,
-			static (_, out bound, ref buf) =>
-				Unpack.ReadServerReplyCommand(ref buf, out bound) ? ParseResult.Success : ParseResult.NeedsMoreData,
+			static (_, ref buf) =>
+			{
+				bool ok = Unpack.ReadServerReplyCommand(ref buf, out ServerBound b);
+				return (ok, b);
+			},
 			cancellationToken);
 
 		if (!ok)

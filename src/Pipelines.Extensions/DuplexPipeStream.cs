@@ -115,8 +115,14 @@ internal class DuplexPipeStream : Stream
 
 		IsDisposed = true;
 
-		_readStream.Dispose();
-		_writeStream.Dispose();
+		try
+		{
+			_readStream.Dispose();
+		}
+		finally
+		{
+			_writeStream.Dispose();
+		}
 
 		base.Dispose(disposing);
 	}

@@ -1,8 +1,6 @@
 using System.Buffers;
 using System.IO.Pipelines;
 using System.Net.Sockets;
-using System.Runtime.CompilerServices;
-using System.Text;
 
 namespace Pipelines.Extensions;
 
@@ -31,24 +29,28 @@ public static class PipelinesExtensions
 			{
 				ReadResult result = await reader.ReadAndCheckIsCanceledAsync(cancellationToken);
 				ReadOnlySequence<byte> buffer = result.Buffer;
+				bool success;
 
 				try
 				{
-					ParseResult readResult = func(state, ref buffer);
-
-					if (readResult is ParseResult.Success)
-					{
-						return true;
-					}
-
-					if (readResult is not ParseResult.NeedsMoreData || result.IsCompleted)
-					{
-						return false;
-					}
+					success = func(state, ref buffer);
 				}
-				finally
+				catch
 				{
-					reader.AdvanceTo(buffer.Start, buffer.End);
+					reader.AdvanceTo(result.Buffer.Start, result.Buffer.End);
+					throw;
+				}
+
+				reader.AdvanceTo(buffer.Start, buffer.End);
+
+				if (success)
+				{
+					return true;
+				}
+
+				if (result.IsCompleted)
+				{
+					return false;
 				}
 			}
 		}
@@ -72,24 +74,29 @@ public static class PipelinesExtensions
 			{
 				ReadResult result = await reader.ReadAndCheckIsCanceledAsync(cancellationToken);
 				ReadOnlySequence<byte> buffer = result.Buffer;
+				bool success;
+				TOutput output;
 
 				try
 				{
-					ParseResult readResult = func(state, out TOutput output, ref buffer);
-
-					if (readResult is ParseResult.Success)
-					{
-						return (true, output);
-					}
-
-					if (readResult is not ParseResult.NeedsMoreData || result.IsCompleted)
-					{
-						return (false, default!);
-					}
+					(success, output) = func(state, ref buffer);
 				}
-				finally
+				catch
 				{
-					reader.AdvanceTo(buffer.Start, buffer.End);
+					reader.AdvanceTo(result.Buffer.Start, result.Buffer.End);
+					throw;
+				}
+
+				reader.AdvanceTo(buffer.Start, buffer.End);
+
+				if (success)
+				{
+					return (true, output);
+				}
+
+				if (result.IsCompleted)
+				{
+					return (false, default!);
 				}
 			}
 		}
@@ -150,7 +157,6 @@ public static class PipelinesExtensions
 		/// </summary>
 		/// <param name="cancellationToken">The cancellation token.</param>
 		/// <returns>The read result.</returns>
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public async ValueTask<ReadResult> ReadAndCheckIsCanceledAsync(CancellationToken cancellationToken = default)
 		{
 			ReadResult result = await reader.ReadAsync(cancellationToken);
@@ -165,7 +171,6 @@ public static class PipelinesExtensions
 		/// Throws <see cref="OperationCanceledException"/> if the <see cref="ReadResult"/> is canceled.
 		/// </summary>
 		/// <param name="cancellationToken">The cancellation token to check.</param>
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public void ThrowIfCanceled(CancellationToken cancellationToken = default)
 		{
 			if (!result.IsCanceled)
@@ -181,53 +186,23 @@ public static class PipelinesExtensions
 	extension(PipeWriter writer)
 	{
 		/// <summary>
-		/// Writes data to the <see cref="PipeWriter"/> using a <see cref="CopyToSpan{TState}"/> delegate with caller-supplied state.
+		/// Packs bytes into a rented span via <paramref name="write"/> and flushes the writer.
 		/// </summary>
-		/// <typeparam name="TState">Type of the state passed to <paramref name="copyTo"/>.</typeparam>
-		/// <param name="maxBufferSize">The minimum buffer size to request.</param>
-		/// <param name="state">State forwarded to <paramref name="copyTo"/>.</param>
-		/// <param name="copyTo">The delegate that writes data into the buffer span.</param>
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public void Write<TState>(int maxBufferSize, TState state, CopyToSpan<TState> copyTo)
-		{
-			Span<byte> memory = writer.GetSpan(maxBufferSize);
-			int length = copyTo(state, memory);
-			writer.Advance(length);
-		}
-
-		/// <summary>
-		/// Writes data to the <see cref="PipeWriter"/> using a <see cref="CopyToSpan{TState}"/> delegate with caller-supplied state and flushes.
-		/// </summary>
-		/// <typeparam name="TState">Type of the state passed to <paramref name="copyTo"/>.</typeparam>
-		/// <param name="maxBufferSize">The minimum buffer size to request.</param>
-		/// <param name="state">State forwarded to <paramref name="copyTo"/>.</param>
-		/// <param name="copyTo">The delegate that writes data into the buffer span.</param>
-		/// <param name="cancellationToken">The cancellation token.</param>
-		/// <returns>The flush result.</returns>
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public async ValueTask<FlushResult> WriteAsync<TState>(
-			int maxBufferSize,
+		/// <remarks>
+		/// Non-async by design: GetSpan/Advance run eagerly so <typeparamref name="TState"/> —
+		/// which may be a ref struct — never enters the async state machine.
+		/// </remarks>
+		public ValueTask<FlushResult> WriteAndFlushAsync<TState>(
+			int sizeHint,
 			TState state,
-			CopyToSpan<TState> copyTo,
+			SpanWriter<TState> write,
 			CancellationToken cancellationToken = default)
+			where TState : allows ref struct
 		{
-			writer.Write(maxBufferSize, state, copyTo);
-			return await writer.FlushAndCheckIsCanceledAsync(cancellationToken);
-		}
-
-		/// <summary>
-		/// Writes a string to the <see cref="PipeWriter"/> using the specified encoding.
-		/// </summary>
-		/// <param name="str">The string to write.</param>
-		/// <param name="encoding">The encoding to use. Defaults to <see cref="Encoding.UTF8"/>.</param>
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public void Write(string str, Encoding? encoding = null)
-		{
-			encoding ??= Encoding.UTF8;
-
-			Span<byte> span = writer.GetSpan(encoding.GetMaxByteCount(str.Length));
-			int length = encoding.GetBytes(str, span);
+			Span<byte> span = writer.GetSpan(sizeHint);
+			int length = write(state, span);
 			writer.Advance(length);
+			return writer.FlushAndCheckIsCanceledAsync(cancellationToken);
 		}
 
 		/// <summary>
@@ -271,7 +246,6 @@ public static class PipelinesExtensions
 		/// </summary>
 		/// <param name="cancellationToken">The cancellation token.</param>
 		/// <returns>The flush result.</returns>
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public async ValueTask<FlushResult> FlushAndCheckIsCanceledAsync(CancellationToken cancellationToken = default)
 		{
 			FlushResult flushResult = await writer.FlushAsync(cancellationToken);
@@ -286,7 +260,6 @@ public static class PipelinesExtensions
 		/// Throws <see cref="OperationCanceledException"/> if the <see cref="FlushResult"/> is canceled.
 		/// </summary>
 		/// <param name="cancellationToken">The cancellation token to check.</param>
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public void ThrowIfCanceled(CancellationToken cancellationToken = default)
 		{
 			if (!flushResult.IsCanceled)
@@ -302,34 +275,11 @@ public static class PipelinesExtensions
 	extension(Stream stream)
 	{
 		/// <summary>
-		/// Creates a <see cref="PipeReader"/> that wraps the <see cref="Stream"/>.
-		/// </summary>
-		/// <param name="options">Options for the stream pipe reader.</param>
-		/// <returns>A <see cref="PipeReader"/> reading from the stream.</returns>
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public PipeReader AsPipeReader(StreamPipeReaderOptions? options = null)
-		{
-			return PipeReader.Create(stream, options);
-		}
-
-		/// <summary>
-		/// Creates a <see cref="PipeWriter"/> that wraps the <see cref="Stream"/>.
-		/// </summary>
-		/// <param name="options">Options for the stream pipe writer.</param>
-		/// <returns>A <see cref="PipeWriter"/> writing to the stream.</returns>
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public PipeWriter AsPipeWriter(StreamPipeWriterOptions? options = null)
-		{
-			return PipeWriter.Create(stream, options);
-		}
-
-		/// <summary>
 		/// Creates an <see cref="IDuplexPipe"/> that wraps the <see cref="Stream"/> for both reading and writing.
 		/// </summary>
 		/// <param name="readerOptions">Options for the reader side. Defaults to <c>LeaveOpen = true</c>; the caller owns the stream.</param>
 		/// <param name="writerOptions">Options for the writer side. Defaults to <c>LeaveOpen = true</c>; the caller owns the stream.</param>
 		/// <returns>A duplex pipe backed by the stream.</returns>
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public IDuplexPipe AsDuplexPipe(
 			StreamPipeReaderOptions? readerOptions = null,
 			StreamPipeWriterOptions? writerOptions = null)
@@ -350,7 +300,7 @@ public static class PipelinesExtensions
 			PipeReader reader = PipeReader.Create(stream, readerOptions);
 			PipeWriter writer = PipeWriter.Create(stream, writerOptions);
 
-			return DefaultDuplexPipe.Create(reader, writer);
+			return new DefaultDuplexPipe(reader, writer);
 		}
 	}
 
@@ -360,7 +310,6 @@ public static class PipelinesExtensions
 		/// Wraps the <see cref="ReadOnlySequence{T}"/> as a readable <see cref="Stream"/>.
 		/// </summary>
 		/// <returns>A read-only stream over the sequence.</returns>
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public Stream AsStream()
 		{
 			return new ReadOnlySequenceStream(sequence);
@@ -392,17 +341,15 @@ public static class PipelinesExtensions
 	extension(IDuplexPipe pipe)
 	{
 		/// <summary>
-		/// Links two <see cref="IDuplexPipe"/> instances by copying data bidirectionally until both complete.
+		/// Bridges two <see cref="IDuplexPipe"/> instances by copying data bidirectionally until both sides complete.
 		/// </summary>
-		/// <param name="pipe2">The other duplex pipe to link to.</param>
+		/// <param name="pipe2">The other duplex pipe to bridge with.</param>
 		/// <param name="cancellationToken">The cancellation token.</param>
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public async ValueTask LinkToAsync(IDuplexPipe pipe2, CancellationToken cancellationToken = default)
+		public Task BridgeAsync(IDuplexPipe pipe2, CancellationToken cancellationToken = default)
 		{
-			Task a = pipe.Input.CopyToAsync(pipe2.Output, cancellationToken);
-			Task b = pipe2.Input.CopyToAsync(pipe.Output, cancellationToken);
-
-			await Task.WhenAll(a, b);
+			return Task.WhenAll(
+				pipe.Input.CopyToAsync(pipe2.Output, cancellationToken),
+				pipe2.Input.CopyToAsync(pipe.Output, cancellationToken));
 		}
 
 		/// <summary>
@@ -410,7 +357,6 @@ public static class PipelinesExtensions
 		/// </summary>
 		/// <param name="leaveOpen">If <see langword="true"/>, the pipe is not completed when the stream is disposed.</param>
 		/// <returns>A stream backed by the duplex pipe.</returns>
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public Stream AsStream(bool leaveOpen = false)
 		{
 			return new DuplexPipeStream(pipe, leaveOpen);

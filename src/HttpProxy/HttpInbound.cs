@@ -149,7 +149,7 @@ public partial class HttpInbound(HttpProxyCredential? credential = null, ILogger
 					if (httpHeaders.IsConnect)
 					{
 						await clientPipe.Output.SendConnectSuccessAsync(cancellationToken);
-						await connection.LinkToAsync(clientPipe, cancellationToken);
+						await connection.BridgeAsync(clientPipe, cancellationToken);
 					}
 					else
 					{

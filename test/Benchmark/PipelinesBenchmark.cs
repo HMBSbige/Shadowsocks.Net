@@ -1,5 +1,4 @@
 using BenchmarkDotNet.Attributes;
-using Pipelines.Extensions;
 using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
@@ -38,7 +37,7 @@ public class PipelinesBenchmark
 			async () =>
 			{
 				using TcpClient tcpClient = await _server.AcceptTcpClientAsync();
-				PipeReader reader = tcpClient.GetStream().AsPipeReader();
+				PipeReader reader = PipeReader.Create(tcpClient.GetStream());
 				long read = 0L;
 				while (read < Length)
 				{
@@ -52,7 +51,7 @@ public class PipelinesBenchmark
 		using TcpClient client = new();
 		await client.ConnectAsync(IPAddress.Loopback, _serverPort);
 
-		PipeWriter writer = client.GetStream().AsPipeWriter();
+		PipeWriter writer = PipeWriter.Create(client.GetStream());
 		for (long i = 0L; i < Length; i += BufferSize)
 		{
 			await writer.WriteAsync(_buffer);
@@ -69,7 +68,7 @@ public class PipelinesBenchmark
 			{
 				using Socket socket = await _server.AcceptSocketAsync();
 				using NetworkStream stream = new(socket);
-				PipeReader reader = stream.AsPipeReader();
+				PipeReader reader = PipeReader.Create(stream);
 				long read = 0L;
 				while (read < Length)
 				{
@@ -84,7 +83,7 @@ public class PipelinesBenchmark
 		await client.ConnectAsync(IPAddress.Loopback, _serverPort);
 
 		using NetworkStream clientStream = new(client.Client);
-		PipeWriter writer = clientStream.AsPipeWriter();
+		PipeWriter writer = PipeWriter.Create(clientStream);
 		for (long i = 0L; i < Length; i += BufferSize)
 		{
 			await writer.WriteAsync(_buffer);

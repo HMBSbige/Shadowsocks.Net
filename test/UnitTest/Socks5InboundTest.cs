@@ -101,7 +101,7 @@ public class Socks5InboundTest
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
-		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		IDuplexPipe pipe = new DefaultDuplexPipe(clientToServer.Reader, serverToClient.Writer);
 		ValueTask handleTask = inbound.HandleAsync(context ?? LoopbackContext(), pipe, spy, cancellationToken);
 
 		await NoAuthHandshakeAsync(clientToServer.Writer, serverToClient.Reader, cancellationToken);
@@ -396,7 +396,7 @@ public class Socks5InboundTest
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
-		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		IDuplexPipe pipe = new DefaultDuplexPipe(clientToServer.Reader, serverToClient.Writer);
 		ValueTask handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken);
 
 		// 9 unique methods — NoAuthentication is last, beyond the old buffer[8] limit
@@ -430,7 +430,7 @@ public class Socks5InboundTest
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
-		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		IDuplexPipe pipe = new DefaultDuplexPipe(clientToServer.Reader, serverToClient.Writer);
 		ValueTask handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken);
 
 		// Send only VER byte, then EOF — incomplete greeting
@@ -453,7 +453,7 @@ public class Socks5InboundTest
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
-		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		IDuplexPipe pipe = new DefaultDuplexPipe(clientToServer.Reader, serverToClient.Writer);
 		ValueTask handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken);
 
 		// VER=0x05, NMETHODS=0x02, but only 1 method byte — incomplete greeting
@@ -475,7 +475,7 @@ public class Socks5InboundTest
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
-		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		IDuplexPipe pipe = new DefaultDuplexPipe(clientToServer.Reader, serverToClient.Writer);
 		ValueTask handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken);
 
 		// VER=0x05, NMETHODS=0x00 — malformed greeting per RFC 1928 §3
@@ -501,7 +501,7 @@ public class Socks5InboundTest
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
-		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		IDuplexPipe pipe = new DefaultDuplexPipe(clientToServer.Reader, serverToClient.Writer);
 		ValueTask handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken);
 
 		// Client offers only NoAuthentication — server needs UsernamePassword
@@ -536,7 +536,7 @@ public class Socks5InboundTest
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
-		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		IDuplexPipe pipe = new DefaultDuplexPipe(clientToServer.Reader, serverToClient.Writer);
 		ValueTask handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken);
 
 		// Handshake: offer UsernamePassword
@@ -564,7 +564,7 @@ public class Socks5InboundTest
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
-		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		IDuplexPipe pipe = new DefaultDuplexPipe(clientToServer.Reader, serverToClient.Writer);
 		ValueTask handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken);
 
 		await NoAuthHandshakeAsync(clientToServer.Writer, serverToClient.Reader, cancellationToken);
@@ -589,7 +589,7 @@ public class Socks5InboundTest
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
-		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		IDuplexPipe pipe = new DefaultDuplexPipe(clientToServer.Reader, serverToClient.Writer);
 		Task handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken).AsTask();
 
 		await NoAuthHandshakeAsync(clientToServer.Writer, serverToClient.Reader, cancellationToken);
@@ -613,7 +613,7 @@ public class Socks5InboundTest
 	{
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
-		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		IDuplexPipe pipe = new DefaultDuplexPipe(clientToServer.Reader, serverToClient.Writer);
 
 		Task<(Command command, ServerBound target)> acceptTask =
 			Socks5Utils.AcceptClientAsync(pipe, null, cancellationToken).AsTask();
@@ -648,7 +648,7 @@ public class Socks5InboundTest
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
-		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		IDuplexPipe pipe = new DefaultDuplexPipe(clientToServer.Reader, serverToClient.Writer);
 		ValueTask handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken);
 
 		await NoAuthHandshakeAsync(clientToServer.Writer, serverToClient.Reader, cancellationToken);
@@ -676,7 +676,7 @@ public class Socks5InboundTest
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
-		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		IDuplexPipe pipe = new DefaultDuplexPipe(clientToServer.Reader, serverToClient.Writer);
 		ValueTask handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken);
 
 		await NoAuthHandshakeAsync(clientToServer.Writer, serverToClient.Reader, cancellationToken);
@@ -704,7 +704,7 @@ public class Socks5InboundTest
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
-		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		IDuplexPipe pipe = new DefaultDuplexPipe(clientToServer.Reader, serverToClient.Writer);
 		ValueTask handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken);
 
 		await NoAuthHandshakeAsync(clientToServer.Writer, serverToClient.Reader, cancellationToken);
@@ -777,7 +777,7 @@ public class Socks5InboundTest
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
-		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		IDuplexPipe pipe = new DefaultDuplexPipe(clientToServer.Reader, serverToClient.Writer);
 		InboundContext ipv6Context = new()
 		{
 			ClientAddress = IPAddress.IPv6Loopback,
@@ -814,7 +814,7 @@ public class Socks5InboundTest
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
-		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		IDuplexPipe pipe = new DefaultDuplexPipe(clientToServer.Reader, serverToClient.Writer);
 		ValueTask handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken);
 
 		await NoAuthHandshakeAsync(clientToServer.Writer, serverToClient.Reader, cancellationToken);
@@ -841,7 +841,7 @@ public class Socks5InboundTest
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
-		IDuplexPipe pipe = DefaultDuplexPipe.Create(clientToServer.Reader, serverToClient.Writer);
+		IDuplexPipe pipe = new DefaultDuplexPipe(clientToServer.Reader, serverToClient.Writer);
 		ValueTask handleTask = inbound.HandleAsync(LoopbackContext(), pipe, new SpyPacketOutbound(), cancellationToken);
 
 		await NoAuthHandshakeAsync(clientToServer.Writer, serverToClient.Reader, cancellationToken);

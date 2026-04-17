@@ -1,4 +1,3 @@
-using Pipelines.Extensions;
 using Proxy.Abstractions;
 using Socks5;
 using System.Buffers;
@@ -29,7 +28,7 @@ public static class Socks5TestUtils
 
 		await using IConnection connection = await outbound.ConnectAsync(destination, cancellationToken);
 
-		connection.Output.Write(sendString);
+		Encoding.UTF8.GetBytes(sendString, connection.Output);
 		await connection.Output.FlushAsync(cancellationToken);
 
 		string? content;

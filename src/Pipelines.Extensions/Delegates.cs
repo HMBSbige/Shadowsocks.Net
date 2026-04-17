@@ -3,51 +3,19 @@ using System.Buffers;
 namespace Pipelines.Extensions;
 
 /// <summary>
-/// Handles parsing of a <see cref="ReadOnlySequence{T}"/> buffer with caller-supplied state and returns a <see cref="ParseResult"/>.
+/// Parses a buffer; returns <see langword="true"/> on success, <see langword="false"/> to request more data.
+/// The <paramref name="buffer"/> may be sliced to signal consumed data.
 /// </summary>
-/// <typeparam name="TState">Type of the state carried to the callback.</typeparam>
-/// <param name="state">State forwarded to the callback.</param>
-/// <param name="buffer">The buffer to parse. May be sliced to indicate consumed data.</param>
-/// <returns>The result of the parse operation.</returns>
-public delegate ParseResult HandleReadOnlySequence<in TState>(TState state, ref ReadOnlySequence<byte> buffer);
+public delegate bool HandleReadOnlySequence<in TState>(TState state, ref ReadOnlySequence<byte> buffer);
 
 /// <summary>
-/// Handles parsing of a <see cref="ReadOnlySequence{T}"/> buffer with caller-supplied state, yielding an output value, and returns a <see cref="ParseResult"/>.
+/// Parses a buffer and yields a value; returns <c>(true, value)</c> on success, <c>(false, default)</c> to request more data.
+/// The <paramref name="buffer"/> may be sliced to signal consumed data.
 /// </summary>
-/// <typeparam name="TState">Type of the state carried to the callback.</typeparam>
-/// <typeparam name="TOutput">Type of the parsed value produced on success.</typeparam>
-/// <param name="state">State forwarded to the callback.</param>
-/// <param name="output">Parsed value; must be assigned when <see cref="ParseResult.Success"/> is returned.</param>
-/// <param name="buffer">The buffer to parse. May be sliced to indicate consumed data.</param>
-/// <returns>The result of the parse operation.</returns>
-public delegate ParseResult HandleReadOnlySequence<in TState, TOutput>(TState state, out TOutput output, ref ReadOnlySequence<byte> buffer);
+public delegate (bool Success, TOutput Output) HandleReadOnlySequence<in TState, TOutput>(TState state, ref ReadOnlySequence<byte> buffer);
 
 /// <summary>
-/// Copies data into the provided <see cref="Span{T}"/> with caller-supplied state and returns the number of bytes written.
+/// Writes bytes into <paramref name="span"/> using caller-supplied state and returns the number of bytes written.
+/// <typeparamref name="TState"/> may be a <see langword="ref struct"/> (e.g. <see cref="ReadOnlySpan{T}"/>).
 /// </summary>
-/// <typeparam name="TState">Type of the state carried to the callback.</typeparam>
-/// <param name="state">State forwarded to the callback.</param>
-/// <param name="buffer">The destination span to write into.</param>
-/// <returns>The number of bytes written.</returns>
-public delegate int CopyToSpan<in TState>(TState state, Span<byte> buffer);
-
-/// <summary>
-/// Represents the result of a parse operation on a pipeline buffer.
-/// </summary>
-public enum ParseResult
-{
-	/// <summary>
-	/// The parse result is unknown or invalid.
-	/// </summary>
-	Unknown,
-
-	/// <summary>
-	/// More data is needed to complete parsing.
-	/// </summary>
-	NeedsMoreData,
-
-	/// <summary>
-	/// Parsing completed successfully.
-	/// </summary>
-	Success
-}
+public delegate int SpanWriter<in TState>(TState state, Span<byte> span) where TState : allows ref struct;

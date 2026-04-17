@@ -41,7 +41,7 @@ public class PipelinesTest
 			await client.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)server.LocalEndpoint).Port, cancellationToken);
 
 			await using NetworkStream clientStream = new(client.Client);
-			PipeWriter writer = clientStream.AsDuplexPipe().AsStream().AsPipeWriter();
+			PipeWriter writer = PipeWriter.Create(clientStream.AsDuplexPipe().AsStream());
 
 			for (long i = 0L; i < length; i += bufferSize)
 			{

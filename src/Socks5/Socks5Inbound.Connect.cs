@@ -36,7 +36,7 @@ public sealed partial class Socks5Inbound
 			await using (connection)
 			{
 				await Socks5Utils.SendReplyAsync(clientPipe.Output, Socks5Reply.Succeeded, bound, cancellationToken);
-				await connection.LinkToAsync(clientPipe, cancellationToken);
+				await connection.BridgeAsync(clientPipe, cancellationToken);
 			}
 		}
 		finally

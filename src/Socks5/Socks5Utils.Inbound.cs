@@ -16,10 +16,13 @@ public static partial class Socks5Utils
 			? Method.UsernamePassword
 			: Method.NoAuthentication;
 
-		(bool greetingOk, Method method) = await pipe.Input.ReadAsync<Method, Method>(
+		(bool greetingOk, Method method) = await pipe.Input.ReadAsync(
 			desired,
-			static (desired, out method, ref buf) =>
-				Unpack.ReadClientHandshake(ref buf, desired, out method) ? ParseResult.Success : ParseResult.NeedsMoreData,
+			static (desired, ref buf) =>
+			{
+				bool ok = Unpack.ReadClientHandshake(ref buf, desired, out Method m);
+				return (ok, m);
+			},
 			cancellationToken);
 
 		if (!greetingOk)
@@ -27,7 +30,11 @@ public static partial class Socks5Utils
 			throw new InvalidDataException(@"Incomplete SOCKS5 greeting.");
 		}
 
-		await pipe.Output.WriteAsync(2, method, Pack.Handshake, cancellationToken);
+		await pipe.Output.WriteAndFlushAsync(
+			2,
+			method,
+			Pack.Handshake,
+			cancellationToken);
 
 		if (method is Method.NoAcceptable)
 		{
@@ -60,10 +67,13 @@ public static partial class Socks5Utils
 
 	private static async ValueTask<bool> UsernamePasswordAuthAsync(IDuplexPipe pipe, UserPassAuth credential, CancellationToken cancellationToken)
 	{
-		(bool ok, bool isAuth) = await pipe.Input.ReadAsync<UserPassAuth, bool>(
+		(bool ok, bool isAuth) = await pipe.Input.ReadAsync(
 			credential,
-			static (credential, out isAuth, ref buf) =>
-				Unpack.ReadClientAuth(ref buf, credential, out isAuth) ? ParseResult.Success : ParseResult.NeedsMoreData,
+			static (credential, ref buf) =>
+			{
+				bool ok = Unpack.ReadClientAuth(ref buf, credential, out bool auth);
+				return (ok, auth);
+			},
 			cancellationToken);
 
 		if (!ok)
@@ -71,7 +81,11 @@ public static partial class Socks5Utils
 			throw new Socks5ProtocolErrorException(@"Incomplete SOCKS5 auth request.", Socks5Reply.GeneralFailure);
 		}
 
-		await pipe.Output.WriteAsync(2, isAuth, Pack.AuthReply, cancellationToken);
+		await pipe.Output.WriteAndFlushAsync(
+			2,
+			isAuth,
+			Pack.AuthReply,
+			cancellationToken);
 
 		return isAuth;
 	}
@@ -80,16 +94,10 @@ public static partial class Socks5Utils
 	{
 		(bool ok, (Command command, ServerBound target) result) = await pipe.Input.ReadAsync<byte, (Command, ServerBound)>(
 			0,
-			static (_, out parsed, ref buf) =>
+			static (_, ref buf) =>
 			{
-				if (!Unpack.ReadClientCommand(ref buf, out Command command, out ServerBound target))
-				{
-					parsed = default;
-					return ParseResult.NeedsMoreData;
-				}
-
-				parsed = (command, target);
-				return ParseResult.Success;
+				bool ok = Unpack.ReadClientCommand(ref buf, out Command command, out ServerBound target);
+				return (ok, (command, target));
 			},
 			cancellationToken);
 
@@ -103,7 +111,7 @@ public static partial class Socks5Utils
 
 	internal static ValueTask<FlushResult> SendReplyAsync(PipeWriter output, Socks5Reply reply, ServerBound bound, CancellationToken cancellationToken)
 	{
-		return output.WriteAsync(
+		return output.WriteAndFlushAsync(
 			Constants.MaxCommandLength,
 			(reply, bound),
 			static (state, span) => Pack.ServerReply(state.reply, state.bound, span),
