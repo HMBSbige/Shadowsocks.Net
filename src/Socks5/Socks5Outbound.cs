@@ -45,12 +45,12 @@ public sealed class Socks5Outbound : IStreamOutbound, IPacketOutbound
 	/// <returns>A proxied TCP connection.</returns>
 	public async ValueTask<IConnection> ConnectAsync(ProxyDestination destination, CancellationToken cancellationToken = default)
 	{
-		(Socket socket, IDuplexPipe pipe) = await HandshakeAsync(cancellationToken);
+		(Socket socket, NetworkStream stream, IDuplexPipe pipe) = await HandshakeAsync(cancellationToken);
 
 		try
 		{
 			await Socks5Utils.SendCommandAsync(pipe, Command.Connect, destination.Host, destination.Port, cancellationToken);
-			return new SocketConnection(socket, pipe);
+			return new SocketConnection(socket, stream, pipe);
 		}
 		catch
 		{
@@ -66,12 +66,14 @@ public sealed class Socks5Outbound : IStreamOutbound, IPacketOutbound
 	/// <returns>A packet connection that relays UDP datagrams through the SOCKS5 server.</returns>
 	public async ValueTask<IPacketConnection> CreatePacketConnectionAsync(CancellationToken cancellationToken = default)
 	{
-		(Socket controlSocket, IDuplexPipe pipe) = await HandshakeAsync(cancellationToken);
+		(Socket controlSocket, NetworkStream stream, IDuplexPipe pipe) = await HandshakeAsync(cancellationToken);
 
 		try
 		{
 			ReadOnlyMemory<byte> host = _address.AddressFamily is AddressFamily.InterNetworkV6 ? IPv6UnspecifiedHostText : IPv4UnspecifiedHostText;
 			ServerBound bound = await Socks5Utils.SendCommandAsync(pipe, Command.UdpAssociate, host, 0, cancellationToken);
+
+			await stream.DisposeAsync();
 
 			Socket udpSocket = new(AddressFamily.InterNetworkV6, SocketType.Dgram, ProtocolType.Udp) { DualMode = true };
 
@@ -122,16 +124,17 @@ public sealed class Socks5Outbound : IStreamOutbound, IPacketOutbound
 		}
 	}
 
-	private async ValueTask<(Socket socket, IDuplexPipe pipe)> HandshakeAsync(CancellationToken cancellationToken)
+	private async ValueTask<(Socket socket, NetworkStream stream, IDuplexPipe pipe)> HandshakeAsync(CancellationToken cancellationToken)
 	{
 		Socket socket = new(_address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
 
 		try
 		{
 			await socket.ConnectAsync(_address, _port, cancellationToken);
-			IDuplexPipe pipe = socket.AsDuplexPipe();
+			NetworkStream stream = new(socket);
+			IDuplexPipe pipe = stream.AsDuplexPipe();
 			await HandshakeWithAuthAsync(pipe, cancellationToken);
-			return (socket, pipe);
+			return (socket, stream, pipe);
 		}
 		catch
 		{
@@ -158,7 +161,7 @@ public sealed class Socks5Outbound : IStreamOutbound, IPacketOutbound
 		}
 	}
 
-	private sealed class SocketConnection(Socket socket, IDuplexPipe pipe) : IConnection
+	private sealed class SocketConnection(Socket socket, NetworkStream stream, IDuplexPipe pipe) : IConnection
 	{
 		public SocketAddress? LocalEndPoint { get; } = socket.LocalEndPoint?.Serialize();
 
@@ -166,10 +169,10 @@ public sealed class Socks5Outbound : IStreamOutbound, IPacketOutbound
 
 		public PipeWriter Output => pipe.Output;
 
-		public ValueTask DisposeAsync()
+		public async ValueTask DisposeAsync()
 		{
+			await stream.DisposeAsync();
 			socket.FullClose();
-			return ValueTask.CompletedTask;
 		}
 	}
 

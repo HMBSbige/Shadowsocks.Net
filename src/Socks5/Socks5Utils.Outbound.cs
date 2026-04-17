@@ -1,6 +1,5 @@
 using Pipelines.Extensions;
 using Socks5.Protocol;
-using System.Buffers;
 using System.IO.Pipelines;
 
 namespace Socks5;
@@ -12,11 +11,19 @@ public static partial class Socks5Utils
 
 	internal static async ValueTask<Method> HandshakeMethodAsync(IDuplexPipe pipe, Method[] clientMethods, CancellationToken cancellationToken)
 	{
-		await pipe.Output.WriteAsync(Constants.MaxHandshakeClientMethodLength, PackHandshake, cancellationToken);
+		await pipe.Output.WriteAsync(
+			Constants.MaxHandshakeClientMethodLength,
+			clientMethods,
+			static (methods, span) => Pack.Handshake(methods, span),
+			cancellationToken);
 
-		Method method = Method.NoAuthentication;
+		(bool ok, Method method) = await pipe.Input.ReadAsync<byte, Method>(
+			0,
+			static (_, out method, ref buf) =>
+				Unpack.ReadResponseMethod(ref buf, out method) ? ParseResult.Success : ParseResult.NeedsMoreData,
+			cancellationToken);
 
-		if (!await pipe.Input.ReadAsync(HandleResponse, cancellationToken))
+		if (!ok)
 		{
 			throw new InvalidDataException(@"Incomplete SOCKS5 method reply.");
 		}
@@ -27,37 +34,25 @@ public static partial class Socks5Utils
 		}
 
 		return method;
-
-		int PackHandshake(Span<byte> span)
-		{
-			return Pack.Handshake(clientMethods, span);
-		}
-
-		ParseResult HandleResponse(ref ReadOnlySequence<byte> buffer)
-		{
-			return Unpack.ReadResponseMethod(ref buffer, out method) ? ParseResult.Success : ParseResult.NeedsMoreData;
-		}
 	}
 
 	internal static async ValueTask AuthAsync(IDuplexPipe pipe, UserPassAuth credential, CancellationToken cancellationToken)
 	{
-		await pipe.Output.WriteAsync(Constants.MaxUsernamePasswordAuthLength, PackUsernamePassword, cancellationToken);
+		await pipe.Output.WriteAsync(
+			Constants.MaxUsernamePasswordAuthLength,
+			credential,
+			Pack.UsernamePasswordAuth,
+			cancellationToken);
 
-		if (!await pipe.Input.ReadAsync(HandleResponse, cancellationToken))
+		bool ok = await pipe.Input.ReadAsync<byte>(
+			0,
+			static (_, ref buf) =>
+				Unpack.ReadResponseAuthReply(ref buf) ? ParseResult.Success : ParseResult.NeedsMoreData,
+			cancellationToken);
+
+		if (!ok)
 		{
 			throw new InvalidDataException("Incomplete SOCKS5 auth reply.");
-		}
-
-		return;
-
-		int PackUsernamePassword(Span<byte> span)
-		{
-			return Pack.UsernamePasswordAuth(credential, span);
-		}
-
-		static ParseResult HandleResponse(ref ReadOnlySequence<byte> buffer)
-		{
-			return Unpack.ReadResponseAuthReply(ref buffer) ? ParseResult.Success : ParseResult.NeedsMoreData;
 		}
 	}
 
@@ -66,25 +61,24 @@ public static partial class Socks5Utils
 		ReadOnlyMemory<byte> host, ushort port,
 		CancellationToken cancellationToken)
 	{
-		await pipe.Output.WriteAsync(Constants.MaxCommandLength, PackClientCommand, cancellationToken);
+		await pipe.Output.WriteAsync(
+			Constants.MaxCommandLength,
+			(command, host, port),
+			static (state, span) =>
+				Pack.ClientCommand(state.command, state.host.Span, state.port, span),
+			cancellationToken);
 
-		ServerBound bound = new();
+		(bool ok, ServerBound bound) = await pipe.Input.ReadAsync<byte, ServerBound>(
+			0,
+			static (_, out bound, ref buf) =>
+				Unpack.ReadServerReplyCommand(ref buf, out bound) ? ParseResult.Success : ParseResult.NeedsMoreData,
+			cancellationToken);
 
-		if (!await pipe.Input.ReadAsync(HandleResponse, cancellationToken))
+		if (!ok)
 		{
 			throw new InvalidDataException("Incomplete SOCKS5 command reply.");
 		}
 
 		return bound;
-
-		int PackClientCommand(Span<byte> span)
-		{
-			return Pack.ClientCommand(command, host.Span, port, span);
-		}
-
-		ParseResult HandleResponse(ref ReadOnlySequence<byte> buffer)
-		{
-			return Unpack.ReadServerReplyCommand(ref buffer, out bound) ? ParseResult.Success : ParseResult.NeedsMoreData;
-		}
 	}
 }

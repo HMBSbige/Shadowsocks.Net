@@ -7,6 +7,7 @@ using System.Buffers.Binary;
 using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 using UnitTest.TestBase;
 
 namespace UnitTest;
@@ -900,7 +901,7 @@ public class Socks5InboundTest
 		await using ProxyTestSession session = await StartProxySessionAsync(inbound, outbound, cancellationToken, loopback);
 
 		byte[] cmd = new byte[Constants.MaxCommandLength];
-		byte[] hostBytes = System.Text.Encoding.ASCII.GetBytes(loopback.ToString());
+		byte[] hostBytes = Encoding.ASCII.GetBytes(loopback.ToString());
 		int cmdLen = Pack.ClientCommand(Command.Connect, hostBytes, targetPort, cmd);
 		await session.Stream.WriteAsync(cmd.AsMemory(0, cmdLen), cancellationToken);
 
@@ -918,7 +919,7 @@ public class Socks5InboundTest
 		IPEndPoint outboundEp = (IPEndPoint)accepted.RemoteEndPoint!;
 
 		await Assert.That(bound.Host.Span.SequenceEqual(
-			System.Text.Encoding.ASCII.GetBytes(outboundEp.Address.ToString()))).IsTrue();
+			Encoding.ASCII.GetBytes(outboundEp.Address.ToString()))).IsTrue();
 		await Assert.That(bound.Port).IsEqualTo((ushort)outboundEp.Port);
 
 		target.Stop();

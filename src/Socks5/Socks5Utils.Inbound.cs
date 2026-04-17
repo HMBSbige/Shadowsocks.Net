@@ -16,14 +16,18 @@ public static partial class Socks5Utils
 			? Method.UsernamePassword
 			: Method.NoAuthentication;
 
-		Method method = Method.NoAcceptable;
+		(bool greetingOk, Method method) = await pipe.Input.ReadAsync<Method, Method>(
+			desired,
+			static (desired, out method, ref buf) =>
+				Unpack.ReadClientHandshake(ref buf, desired, out method) ? ParseResult.Success : ParseResult.NeedsMoreData,
+			cancellationToken);
 
-		if (!await pipe.Input.ReadAsync(TryReadClientHandshake, cancellationToken))
+		if (!greetingOk)
 		{
 			throw new InvalidDataException(@"Incomplete SOCKS5 greeting.");
 		}
 
-		await pipe.Output.WriteAsync(2, PackMethod, cancellationToken);
+		await pipe.Output.WriteAsync(2, method, Pack.Handshake, cancellationToken);
 
 		if (method is Method.NoAcceptable)
 		{
@@ -52,93 +56,58 @@ public static partial class Socks5Utils
 			await SendReplyAsync(pipe.Output, ex.Socks5Reply, ServerBound.Unspecified, cancellationToken);
 			throw;
 		}
-
-		ParseResult TryReadClientHandshake(ref ReadOnlySequence<byte> buffer)
-		{
-			return Unpack.ReadClientHandshake(ref buffer, desired, out method) ? ParseResult.Success : ParseResult.NeedsMoreData;
-		}
-
-		int PackMethod(Span<byte> span)
-		{
-			return Pack.Handshake(method, span);
-		}
 	}
 
 	private static async ValueTask<bool> UsernamePasswordAuthAsync(IDuplexPipe pipe, UserPassAuth credential, CancellationToken cancellationToken)
 	{
-		bool isAuth = false;
+		(bool ok, bool isAuth) = await pipe.Input.ReadAsync<UserPassAuth, bool>(
+			credential,
+			static (credential, out isAuth, ref buf) =>
+				Unpack.ReadClientAuth(ref buf, credential, out isAuth) ? ParseResult.Success : ParseResult.NeedsMoreData,
+			cancellationToken);
 
-		if (!await pipe.Input.ReadAsync(TryReadClientAuth, cancellationToken))
+		if (!ok)
 		{
 			throw new Socks5ProtocolErrorException(@"Incomplete SOCKS5 auth request.", Socks5Reply.GeneralFailure);
 		}
 
-		await pipe.Output.WriteAsync(2, PackReply, cancellationToken);
+		await pipe.Output.WriteAsync(2, isAuth, Pack.AuthReply, cancellationToken);
 
 		return isAuth;
-
-		ParseResult TryReadClientAuth(ref ReadOnlySequence<byte> buffer)
-		{
-			return Unpack.ReadClientAuth(ref buffer, credential, out isAuth) ? ParseResult.Success : ParseResult.NeedsMoreData;
-		}
-
-		int PackReply(Span<byte> span)
-		{
-			return Pack.AuthReply(isAuth, span);
-		}
 	}
 
 	private static async ValueTask<(Command command, ServerBound target)> ReadTargetAsync(IDuplexPipe pipe, CancellationToken cancellationToken)
 	{
-		Command command = default;
-		ServerBound target = default;
+		(bool ok, (Command command, ServerBound target) result) = await pipe.Input.ReadAsync<byte, (Command, ServerBound)>(
+			0,
+			static (_, out parsed, ref buf) =>
+			{
+				if (!Unpack.ReadClientCommand(ref buf, out Command command, out ServerBound target))
+				{
+					parsed = default;
+					return ParseResult.NeedsMoreData;
+				}
 
-		if (!await pipe.Input.ReadAsync(TryReadCommand, cancellationToken))
+				parsed = (command, target);
+				return ParseResult.Success;
+			},
+			cancellationToken);
+
+		if (!ok)
 		{
 			throw new Socks5ProtocolErrorException(@"Incomplete SOCKS5 request.", Socks5Reply.GeneralFailure);
 		}
 
-		return (command, target);
-
-		ParseResult TryReadCommand(ref ReadOnlySequence<byte> buffer)
-		{
-			SequenceReader<byte> reader = new(buffer);
-
-			if (!reader.TryRead(out byte ver))
-			{
-				return ParseResult.NeedsMoreData;
-			}
-
-			if (ver is not Constants.ProtocolVersion)
-			{
-				throw new Socks5ProtocolErrorException($@"client version is not 0x05: 0x{ver:X2}.", Socks5Reply.GeneralFailure);
-			}
-
-			if (!reader.TryRead(out byte cmd))
-			{
-				return ParseResult.NeedsMoreData;
-			}
-
-			command = (Command)cmd;
-
-			if (!reader.TryRead(out _)) // RSV (skipped for interoperability)
-			{
-				return ParseResult.NeedsMoreData;
-			}
-
-			if (!Unpack.ReadAddressAndPort(ref reader, ref target))
-			{
-				return ParseResult.NeedsMoreData;
-			}
-
-			buffer = buffer.Slice(reader.Consumed);
-			return ParseResult.Success;
-		}
+		return result;
 	}
 
 	internal static ValueTask<FlushResult> SendReplyAsync(PipeWriter output, Socks5Reply reply, ServerBound bound, CancellationToken cancellationToken)
 	{
-		return output.WriteAsync(Constants.MaxCommandLength, span => Pack.ServerReply(reply, bound, span), cancellationToken);
+		return output.WriteAsync(
+			Constants.MaxCommandLength,
+			(reply, bound),
+			static (state, span) => Pack.ServerReply(state.reply, state.bound, span),
+			cancellationToken);
 	}
 
 	internal static ProxyDestination RentDestination(in ServerBound target, out byte[] rentedBuffer)

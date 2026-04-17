@@ -36,7 +36,8 @@ public static class TestAcceptLoop
 					LocalAddress = local.Address,
 					LocalPort = (ushort)local.Port,
 				};
-				IDuplexPipe pipe = socket.AsDuplexPipe();
+				await using NetworkStream stream = new(socket);
+				IDuplexPipe pipe = stream.AsDuplexPipe();
 				await inbound.HandleAsync(context, pipe, outbound, cancellationToken);
 			}
 			finally

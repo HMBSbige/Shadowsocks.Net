@@ -29,7 +29,8 @@ public sealed class DirectOutbound : IStreamOutbound, IPacketOutbound
 				await socket.ConnectAsync(Encoding.ASCII.GetString(destination.Host.Span), destination.Port, cancellationToken);
 			}
 
-			return new SocketConnection(socket);
+			NetworkStream stream = new(socket);
+			return new SocketConnection(socket, stream, stream.AsDuplexPipe());
 		}
 		catch
 		{
@@ -44,20 +45,18 @@ public sealed class DirectOutbound : IStreamOutbound, IPacketOutbound
 		return ValueTask.FromResult<IPacketConnection>(new DirectPacketConnection());
 	}
 
-	private sealed class SocketConnection(Socket socket) : IConnection
+	private sealed class SocketConnection(Socket socket, NetworkStream stream, IDuplexPipe pipe) : IConnection
 	{
-		private readonly IDuplexPipe _pipe = socket.AsDuplexPipe();
-
 		public SocketAddress? LocalEndPoint { get; } = socket.LocalEndPoint?.Serialize();
 
-		public PipeReader Input => _pipe.Input;
+		public PipeReader Input => pipe.Input;
 
-		public PipeWriter Output => _pipe.Output;
+		public PipeWriter Output => pipe.Output;
 
-		public ValueTask DisposeAsync()
+		public async ValueTask DisposeAsync()
 		{
+			await stream.DisposeAsync();
 			socket.FullClose();
-			return ValueTask.CompletedTask;
 		}
 	}
 

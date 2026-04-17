@@ -367,10 +367,50 @@ internal static class Unpack
 			return false;
 		}
 
-		isMatch = username.Length == expectedCredential.UserName.Length
-			&& SequenceEqual(username, expectedCredential.UserName.Span)
-			&& password.Length == expectedCredential.Password.Length
+		isMatch = SequenceEqual(username, expectedCredential.UserName.Span)
 			&& SequenceEqual(password, expectedCredential.Password.Span);
+		return true;
+	}
+
+	public static bool ReadClientCommand(ref ReadOnlySequence<byte> buffer, out Command command, out ServerBound target)
+	{
+		// +----+-----+-------+------+----------+----------+
+		// |VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
+		// +----+-----+-------+------+----------+----------+
+		// | 1  |  1  | X'00' |  1   | Variable |    2     |
+		// +----+-----+-------+------+----------+----------+
+
+		command = default;
+		target = default;
+		SequenceReader<byte> reader = new(buffer);
+
+		if (!reader.TryRead(out byte ver))
+		{
+			return false;
+		}
+
+		if (ver is not Constants.ProtocolVersion)
+		{
+			throw new Socks5ProtocolErrorException($@"Client version is not 0x05: 0x{ver:X2}.", Socks5Reply.GeneralFailure);
+		}
+
+		if (!reader.TryRead(out byte cmd))
+		{
+			return false;
+		}
+
+		if (!reader.TryRead(out _)) // RSV (skipped for interoperability)
+		{
+			return false;
+		}
+
+		if (!ReadAddressAndPort(ref reader, ref target))
+		{
+			return false;
+		}
+
+		command = (Command)cmd;
+		buffer = buffer.Slice(reader.Consumed);
 		return true;
 	}
 

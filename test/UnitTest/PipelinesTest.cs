@@ -23,7 +23,8 @@ public class PipelinesTest
 			Task t = Task.Run(async () =>
 				{
 					using Socket socket = await server.AcceptSocketAsync(cancellationToken);
-					IDuplexPipe pipe = socket.AsDuplexPipe();
+					await using NetworkStream stream = new(socket);
+					IDuplexPipe pipe = stream.AsDuplexPipe();
 					PipeReader reader = pipe.Input;
 					long read = 0L;
 
@@ -39,7 +40,8 @@ public class PipelinesTest
 			using TcpClient client = new();
 			await client.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)server.LocalEndpoint).Port, cancellationToken);
 
-			PipeWriter writer = client.Client.AsDuplexPipe().AsStream().AsPipeWriter();
+			await using NetworkStream clientStream = new(client.Client);
+			PipeWriter writer = clientStream.AsDuplexPipe().AsStream().AsPipeWriter();
 
 			for (long i = 0L; i < length; i += bufferSize)
 			{
@@ -56,71 +58,6 @@ public class PipelinesTest
 		finally
 		{
 			server.Stop();
-		}
-	}
-
-	[Test]
-	public async Task SocketStreamDisposeWithOwnsSocketClosesSocketAsync(CancellationToken cancellationToken)
-	{
-		(TcpListener listener, TcpClient client, Socket serverSocket) = await CreateConnectedSocketPairAsync(cancellationToken);
-
-		try
-		{
-			SocketStream stream = new(client.Client, ownsSocket: true);
-			await stream.DisposeAsync();
-
-			await Assert.That(client.Client.Connected).IsFalse();
-		}
-		finally
-		{
-			serverSocket.Dispose();
-			client.Dispose();
-			listener.Stop();
-		}
-	}
-
-	[Test]
-	public async Task SocketStreamDisposeWithoutOwnsSocketLeavesSocketOpenAsync(CancellationToken cancellationToken)
-	{
-		(TcpListener listener, TcpClient client, Socket serverSocket) = await CreateConnectedSocketPairAsync(cancellationToken);
-
-		try
-		{
-			SocketStream stream = new(client.Client);
-			await stream.DisposeAsync();
-
-			byte[] payload = [0x01];
-			int sent = await client.Client.SendAsync(payload);
-
-			await Assert.That(sent).IsEqualTo(1);
-		}
-		finally
-		{
-			serverSocket.Dispose();
-			client.Dispose();
-			listener.Stop();
-		}
-	}
-
-	private static async Task<(TcpListener Listener, TcpClient Client, Socket ServerSocket)> CreateConnectedSocketPairAsync(CancellationToken cancellationToken = default)
-	{
-		TcpListener listener = TcpListener.Create(default);
-		listener.Start();
-
-		TcpClient client = new();
-
-		try
-		{
-			ValueTask<Socket> acceptTask = listener.AcceptSocketAsync(cancellationToken);
-			await client.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port, cancellationToken);
-			Socket serverSocket = await acceptTask;
-			return (listener, client, serverSocket);
-		}
-		catch
-		{
-			client.Dispose();
-			listener.Stop();
-			throw;
 		}
 	}
 }

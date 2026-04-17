@@ -1,7 +1,6 @@
 using System.Buffers;
 using System.IO.Pipelines;
 using System.Net.Sockets;
-using System.Net.WebSockets;
 using System.Runtime.CompilerServices;
 using System.Text;
 
@@ -18,11 +17,14 @@ public static class PipelinesExtensions
 		/// Reads from the <see cref="PipeReader"/> in a loop, invoking <paramref name="func"/> on each read
 		/// until parsing succeeds, fails, or the pipe completes.
 		/// </summary>
+		/// <typeparam name="TState">Type of the state passed to <paramref name="func"/>.</typeparam>
+		/// <param name="state">State forwarded to <paramref name="func"/>.</param>
 		/// <param name="func">The delegate that parses the buffer.</param>
 		/// <param name="cancellationToken">The cancellation token.</param>
 		/// <returns><see langword="true"/> if parsing succeeded; otherwise <see langword="false"/>.</returns>
-		public async ValueTask<bool> ReadAsync(
-			HandleReadOnlySequence func,
+		public async ValueTask<bool> ReadAsync<TState>(
+			TState state,
+			HandleReadOnlySequence<TState> func,
 			CancellationToken cancellationToken = default)
 		{
 			while (true)
@@ -32,7 +34,7 @@ public static class PipelinesExtensions
 
 				try
 				{
-					ParseResult readResult = func(ref buffer);
+					ParseResult readResult = func(state, ref buffer);
 
 					if (readResult is ParseResult.Success)
 					{
@@ -42,6 +44,47 @@ public static class PipelinesExtensions
 					if (readResult is not ParseResult.NeedsMoreData || result.IsCompleted)
 					{
 						return false;
+					}
+				}
+				finally
+				{
+					reader.AdvanceTo(buffer.Start, buffer.End);
+				}
+			}
+		}
+
+		/// <summary>
+		/// Reads from the <see cref="PipeReader"/> in a loop, invoking <paramref name="func"/> on each read
+		/// until parsing succeeds (yielding a value), fails, or the pipe completes.
+		/// </summary>
+		/// <typeparam name="TState">Type of the state passed to <paramref name="func"/>.</typeparam>
+		/// <typeparam name="TOutput">Type of the parsed value.</typeparam>
+		/// <param name="state">State forwarded to <paramref name="func"/>.</param>
+		/// <param name="func">The delegate that parses the buffer and yields the value.</param>
+		/// <param name="cancellationToken">The cancellation token.</param>
+		/// <returns>A tuple of success flag and parsed value (<see langword="default"/> on failure).</returns>
+		public async ValueTask<(bool Success, TOutput Output)> ReadAsync<TState, TOutput>(
+			TState state,
+			HandleReadOnlySequence<TState, TOutput> func,
+			CancellationToken cancellationToken = default)
+		{
+			while (true)
+			{
+				ReadResult result = await reader.ReadAndCheckIsCanceledAsync(cancellationToken);
+				ReadOnlySequence<byte> buffer = result.Buffer;
+
+				try
+				{
+					ParseResult readResult = func(state, out TOutput output, ref buffer);
+
+					if (readResult is ParseResult.Success)
+					{
+						return (true, output);
+					}
+
+					if (readResult is not ParseResult.NeedsMoreData || result.IsCompleted)
+					{
+						return (false, default!);
 					}
 				}
 				finally
@@ -138,34 +181,37 @@ public static class PipelinesExtensions
 	extension(PipeWriter writer)
 	{
 		/// <summary>
-		/// Writes data to the <see cref="PipeWriter"/> using a <see cref="CopyToSpan"/> delegate.
+		/// Writes data to the <see cref="PipeWriter"/> using a <see cref="CopyToSpan{TState}"/> delegate with caller-supplied state.
 		/// </summary>
+		/// <typeparam name="TState">Type of the state passed to <paramref name="copyTo"/>.</typeparam>
 		/// <param name="maxBufferSize">The minimum buffer size to request.</param>
+		/// <param name="state">State forwarded to <paramref name="copyTo"/>.</param>
 		/// <param name="copyTo">The delegate that writes data into the buffer span.</param>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public void Write(int maxBufferSize, CopyToSpan copyTo)
+		public void Write<TState>(int maxBufferSize, TState state, CopyToSpan<TState> copyTo)
 		{
 			Span<byte> memory = writer.GetSpan(maxBufferSize);
-
-			int length = copyTo(memory);
-
+			int length = copyTo(state, memory);
 			writer.Advance(length);
 		}
 
 		/// <summary>
-		/// Writes data to the <see cref="PipeWriter"/> using a <see cref="CopyToSpan"/> delegate and flushes.
+		/// Writes data to the <see cref="PipeWriter"/> using a <see cref="CopyToSpan{TState}"/> delegate with caller-supplied state and flushes.
 		/// </summary>
+		/// <typeparam name="TState">Type of the state passed to <paramref name="copyTo"/>.</typeparam>
 		/// <param name="maxBufferSize">The minimum buffer size to request.</param>
+		/// <param name="state">State forwarded to <paramref name="copyTo"/>.</param>
 		/// <param name="copyTo">The delegate that writes data into the buffer span.</param>
 		/// <param name="cancellationToken">The cancellation token.</param>
 		/// <returns>The flush result.</returns>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public async ValueTask<FlushResult> WriteAsync(
+		public async ValueTask<FlushResult> WriteAsync<TState>(
 			int maxBufferSize,
-			CopyToSpan copyTo,
+			TState state,
+			CopyToSpan<TState> copyTo,
 			CancellationToken cancellationToken = default)
 		{
-			writer.Write(maxBufferSize, copyTo);
+			writer.Write(maxBufferSize, state, copyTo);
 			return await writer.FlushAndCheckIsCanceledAsync(cancellationToken);
 		}
 
@@ -280,8 +326,8 @@ public static class PipelinesExtensions
 		/// <summary>
 		/// Creates an <see cref="IDuplexPipe"/> that wraps the <see cref="Stream"/> for both reading and writing.
 		/// </summary>
-		/// <param name="readerOptions">Options for the reader side.</param>
-		/// <param name="writerOptions">Options for the writer side.</param>
+		/// <param name="readerOptions">Options for the reader side. Defaults to <c>LeaveOpen = true</c>; the caller owns the stream.</param>
+		/// <param name="writerOptions">Options for the writer side. Defaults to <c>LeaveOpen = true</c>; the caller owns the stream.</param>
 		/// <returns>A duplex pipe backed by the stream.</returns>
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public IDuplexPipe AsDuplexPipe(
@@ -297,6 +343,9 @@ public static class PipelinesExtensions
 			{
 				throw new InvalidOperationException(@"Stream is not writable.");
 			}
+
+			readerOptions ??= new StreamPipeReaderOptions(leaveOpen: true);
+			writerOptions ??= new StreamPipeWriterOptions(leaveOpen: true);
 
 			PipeReader reader = PipeReader.Create(stream, readerOptions);
 			PipeWriter writer = PipeWriter.Create(stream, writerOptions);
@@ -321,45 +370,6 @@ public static class PipelinesExtensions
 	extension(Socket socket)
 	{
 		/// <summary>
-		/// Creates a <see cref="PipeReader"/> backed by the <see cref="Socket"/>.
-		/// </summary>
-		/// <param name="options">Options for the stream pipe reader.</param>
-		/// <returns>A <see cref="PipeReader"/> reading from the socket.</returns>
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public PipeReader AsPipeReader(StreamPipeReaderOptions? options = null)
-		{
-			SocketStream stream = new(socket);
-			return PipeReader.Create(stream, options);
-		}
-
-		/// <summary>
-		/// Creates a <see cref="PipeWriter"/> backed by the <see cref="Socket"/>.
-		/// </summary>
-		/// <param name="options">Options for the stream pipe writer.</param>
-		/// <returns>A <see cref="PipeWriter"/> writing to the socket.</returns>
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public PipeWriter AsPipeWriter(StreamPipeWriterOptions? options = null)
-		{
-			SocketStream stream = new(socket);
-			return PipeWriter.Create(stream, options);
-		}
-
-		/// <summary>
-		/// Creates an <see cref="IDuplexPipe"/> backed by the <see cref="Socket"/>.
-		/// </summary>
-		/// <param name="readerOptions">Options for the reader side.</param>
-		/// <param name="writerOptions">Options for the writer side.</param>
-		/// <returns>A duplex pipe backed by the socket.</returns>
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public IDuplexPipe AsDuplexPipe(
-			StreamPipeReaderOptions? readerOptions = null,
-			StreamPipeWriterOptions? writerOptions = null)
-		{
-			SocketStream stream = new(socket);
-			return stream.AsDuplexPipe(readerOptions, writerOptions);
-		}
-
-		/// <summary>
 		/// Shuts down and disposes the <see cref="Socket"/>, ignoring errors if already disconnected.
 		/// </summary>
 		public void FullClose()
@@ -376,52 +386,6 @@ public static class PipelinesExtensions
 			{
 				socket.Dispose();
 			}
-		}
-	}
-
-	extension(WebSocket webSocket)
-	{
-		/// <summary>
-		/// Creates a <see cref="PipeReader"/> backed by the <see cref="WebSocket"/>.
-		/// </summary>
-		/// <param name="messageType">The WebSocket message type.</param>
-		/// <param name="options">Options for the stream pipe reader.</param>
-		/// <returns>A <see cref="PipeReader"/> reading from the WebSocket.</returns>
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public PipeReader AsPipeReader(WebSocketMessageType messageType = WebSocketMessageType.Binary, StreamPipeReaderOptions? options = null)
-		{
-			WebSocketStream stream = WebSocketStream.Create(webSocket, messageType);
-			return PipeReader.Create(stream, options);
-		}
-
-		/// <summary>
-		/// Creates a <see cref="PipeWriter"/> backed by the <see cref="WebSocket"/>.
-		/// </summary>
-		/// <param name="messageType">The WebSocket message type.</param>
-		/// <param name="options">Options for the stream pipe writer.</param>
-		/// <returns>A <see cref="PipeWriter"/> writing to the WebSocket.</returns>
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public PipeWriter AsPipeWriter(WebSocketMessageType messageType = WebSocketMessageType.Binary, StreamPipeWriterOptions? options = null)
-		{
-			WebSocketStream stream = WebSocketStream.Create(webSocket, messageType);
-			return PipeWriter.Create(stream, options);
-		}
-
-		/// <summary>
-		/// Creates an <see cref="IDuplexPipe"/> backed by the <see cref="WebSocket"/>.
-		/// </summary>
-		/// <param name="messageType">The WebSocket message type.</param>
-		/// <param name="readerOptions">Options for the reader side.</param>
-		/// <param name="writerOptions">Options for the writer side.</param>
-		/// <returns>A duplex pipe backed by the WebSocket.</returns>
-		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		public IDuplexPipe AsDuplexPipe(
-			WebSocketMessageType messageType = WebSocketMessageType.Binary,
-			StreamPipeReaderOptions? readerOptions = null,
-			StreamPipeWriterOptions? writerOptions = null)
-		{
-			WebSocketStream stream = WebSocketStream.Create(webSocket, messageType);
-			return stream.AsDuplexPipe(readerOptions, writerOptions);
 		}
 	}
 
