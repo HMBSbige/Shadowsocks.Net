@@ -1,6 +1,7 @@
 using Proxy.Abstractions;
 using Socks5;
 using System.Buffers;
+using System.Net;
 using System.Diagnostics.CodeAnalysis;
 using System.IO.Pipelines;
 using System.Text;
@@ -9,13 +10,37 @@ namespace UnitTest.TestBase;
 
 public static class Socks5TestUtils
 {
+	public static Socks5Inbound CreateInbound(UserPassAuth? userPassAuth = null, IPAddress? udpRelayBindAddress = null)
+	{
+		return new(new Socks5InboundOption
+		{
+			UserPassAuth = userPassAuth,
+			UdpRelayBindAddress = udpRelayBindAddress
+		});
+	}
+
+	public static Socks5Outbound CreateOutbound(ushort port, IPAddress? address = null, UserPassAuth? userPassAuth = null)
+	{
+		return new(CreateOutboundOption(port, address, userPassAuth));
+	}
+
+	public static Socks5OutboundOption CreateOutboundOption(ushort port, IPAddress? address = null, UserPassAuth? userPassAuth = null)
+	{
+		return new()
+		{
+			Address = address ?? IPAddress.Loopback,
+			Port = port,
+			UserPassAuth = userPassAuth
+		};
+	}
+
 	private static ReadOnlySpan<byte> Newline => "\r\n"u8;
 
 	/// <summary>
 	/// 使用 HTTP1.1 2xx 测试 SOCKS5 CONNECT (via IStreamOutbound)
 	/// </summary>
 	public static async ValueTask<bool> Socks5ConnectAsync(
-		Socks5CreateOption option,
+		Socks5OutboundOption option,
 		string target,
 		string targetHost,
 		ushort targetPort,
@@ -78,7 +103,7 @@ public static class Socks5TestUtils
 	/// 使用 UDP echo server 测试 SOCKS5 UDP ASSOCIATE (via IPacketOutbound)
 	/// </summary>
 	public static async ValueTask<bool> Socks5UdpAssociateAsync(
-		Socks5CreateOption option,
+		Socks5OutboundOption option,
 		string targetHost,
 		ushort targetPort,
 		CancellationToken cancellationToken = default)

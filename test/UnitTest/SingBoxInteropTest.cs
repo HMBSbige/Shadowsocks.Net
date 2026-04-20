@@ -4,6 +4,7 @@ using Socks5;
 using System.Net;
 using System.Net.Security;
 using UnitTest.TestBase;
+using static UnitTest.TestBase.Socks5TestUtils;
 
 namespace UnitTest;
 
@@ -25,7 +26,7 @@ public class SingBoxInteropTest
 	[Test]
 	public async Task Socks5Inbound_SingBoxSocksOutbound_HttpsConnectAsync(CancellationToken cancellationToken)
 	{
-		await AssertHttpsConnectViaSingBoxOutboundAsync(new Socks5Inbound(), SingBoxProtocol.Socks, cancellationToken);
+		await AssertHttpsConnectViaSingBoxOutboundAsync(CreateInbound(), SingBoxProtocol.Socks, cancellationToken);
 	}
 
 	[Test]
@@ -37,7 +38,7 @@ public class SingBoxInteropTest
 
 		await AssertSocks5ViaSingBoxSocksInboundAsync
 		(
-			(option, ct) => Socks5TestUtils.Socks5ConnectAsync(option, "/get", "localhost", targetPort, ct),
+			(option, ct) => Socks5ConnectAsync(option, "/get", "localhost", targetPort, ct),
 			cancellationToken
 		);
 	}
@@ -51,21 +52,17 @@ public class SingBoxInteropTest
 
 		await AssertSocks5ViaSingBoxSocksInboundAsync
 		(
-			(option, ct) => Socks5TestUtils.Socks5UdpAssociateAsync(option, IPAddress.Loopback.ToString(), targetPort, ct),
+			(option, ct) => Socks5UdpAssociateAsync(option, IPAddress.Loopback.ToString(), targetPort, ct),
 			cancellationToken
 		);
 	}
 
 	private static async Task AssertSocks5ViaSingBoxSocksInboundAsync(
-		Func<Socks5CreateOption, CancellationToken, ValueTask<bool>> sendRequestAsync,
+		Func<Socks5OutboundOption, CancellationToken, ValueTask<bool>> sendRequestAsync,
 		CancellationToken cancellationToken)
 	{
 		await using SingBoxInstance singBox = await SingBoxTestUtils.StartSocksInboundAsync(cancellationToken);
-		Socks5CreateOption proxyOptions = new()
-		{
-			Address = IPAddress.Loopback,
-			Port = singBox.Port
-		};
+		Socks5OutboundOption proxyOptions = CreateOutboundOption(singBox.Port);
 		bool requestSucceeded = await sendRequestAsync(proxyOptions, cancellationToken);
 
 		await Assert.That(requestSucceeded).IsTrue();

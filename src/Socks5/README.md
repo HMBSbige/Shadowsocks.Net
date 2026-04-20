@@ -16,10 +16,7 @@ An implementation of SOCKS5 inbound and outbound handlers built on [`Proxy.Abstr
 ```csharp
 public sealed partial class Socks5Inbound : IStreamInbound
 {
-    public Socks5Inbound(
-        UserPassAuth? credential = null,
-        ILogger<Socks5Inbound>? logger = null,
-        IPAddress? udpRelayBindAddress = null);
+    public Socks5Inbound(Socks5InboundOption option);
 
     public ValueTask HandleAsync(
         InboundContext context,
@@ -29,14 +26,27 @@ public sealed partial class Socks5Inbound : IStreamInbound
 }
 ```
 
-Handles incoming SOCKS5 requests from clients. Uses `IStreamOutbound` for `CONNECT` and `IPacketOutbound` for `UDP ASSOCIATE`. When `credential` is provided, the inbound requires username/password authentication.
+Handles incoming SOCKS5 requests from clients. Uses `IStreamOutbound` for `CONNECT` and `IPacketOutbound` for `UDP ASSOCIATE`. When `option.UserPassAuth` is provided, the inbound requires username/password authentication.
+
+### `Socks5InboundOption`
+
+```csharp
+public record Socks5InboundOption
+{
+    public UserPassAuth? UserPassAuth { get; init; }
+    public ILogger<Socks5Inbound>? Logger { get; init; }
+    public IPAddress? UdpRelayBindAddress { get; init; }
+}
+```
+
+Configures optional authentication, logging, and UDP relay binding for `Socks5Inbound`.
 
 ### `Socks5Outbound`
 
 ```csharp
 public sealed class Socks5Outbound : IStreamOutbound, IPacketOutbound
 {
-    public Socks5Outbound(Socks5CreateOption option);
+    public Socks5Outbound(Socks5OutboundOption option);
     public ValueTask<IConnection> ConnectAsync(ProxyDestination destination, CancellationToken cancellationToken = default);
     public ValueTask<IPacketConnection> CreatePacketConnectionAsync(CancellationToken cancellationToken = default);
 }
@@ -44,10 +54,10 @@ public sealed class Socks5Outbound : IStreamOutbound, IPacketOutbound
 
 Connects to an upstream SOCKS5 server. Use `ConnectAsync` for proxied TCP connections and `CreatePacketConnectionAsync` for UDP relay traffic.
 
-### `Socks5CreateOption`
+### `Socks5OutboundOption`
 
 ```csharp
-public record Socks5CreateOption
+public record Socks5OutboundOption
 {
     public required IPAddress Address { get; init; }
     public required ushort Port { get; init; }

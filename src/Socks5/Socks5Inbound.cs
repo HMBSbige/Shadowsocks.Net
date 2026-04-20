@@ -23,21 +23,16 @@ public sealed partial class Socks5Inbound : IStreamInbound
 	/// <summary>
 	/// Creates a new SOCKS5 inbound handler.
 	/// </summary>
-	/// <param name="credential">Optional username/password credential to enforce.</param>
-	/// <param name="logger">Logger instance used for connection diagnostics.</param>
-	/// <param name="udpRelayBindAddress">
-	/// Address that the UDP relay socket will bind to for UDP ASSOCIATE requests; defaults to <see cref="IPAddress.Any"/>.
-	/// </param>
-	public Socks5Inbound(
-		UserPassAuth? credential = null,
-		ILogger<Socks5Inbound>? logger = null,
-		IPAddress? udpRelayBindAddress = null)
+	/// <param name="option">Configuration for authentication, logging, and UDP relay binding.</param>
+	public Socks5Inbound(Socks5InboundOption option)
 	{
-		credential?.ThrowIfInvalid();
+		ArgumentNullException.ThrowIfNull(option);
 
-		_credential = credential;
-		_logger = logger ?? NullLogger<Socks5Inbound>.Instance;
-		_udpRelayBindAddress = udpRelayBindAddress ?? IPAddress.Any;
+		option.UserPassAuth?.ThrowIfInvalid();
+
+		_credential = option.UserPassAuth;
+		_logger = option.Logger ?? NullLogger<Socks5Inbound>.Instance;
+		_udpRelayBindAddress = option.UdpRelayBindAddress ?? IPAddress.Any;
 		_isWildcardBind = _udpRelayBindAddress.Equals(IPAddress.Any) || _udpRelayBindAddress.Equals(IPAddress.IPv6Any);
 	}
 

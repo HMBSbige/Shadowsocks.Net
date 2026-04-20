@@ -25,7 +25,7 @@ public sealed class Socks5Outbound : IStreamOutbound, IPacketOutbound
 	/// Creates a new outbound SOCKS5 client with validated connection settings.
 	/// </summary>
 	/// <param name="option">Configuration for the upstream SOCKS5 server and optional credentials.</param>
-	public Socks5Outbound(Socks5CreateOption option)
+	public Socks5Outbound(Socks5OutboundOption option)
 	{
 		ArgumentNullException.ThrowIfNull(option);
 		ArgumentNullException.ThrowIfNull(option.Address);

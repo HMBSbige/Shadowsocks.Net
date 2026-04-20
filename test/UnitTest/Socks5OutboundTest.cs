@@ -5,6 +5,7 @@ using System.Buffers.Binary;
 using System.Net;
 using System.Net.Sockets;
 using UnitTest.TestBase;
+using static UnitTest.TestBase.Socks5TestUtils;
 
 namespace UnitTest;
 
@@ -35,26 +36,22 @@ public class Socks5OutboundTest
 		DirectOutbound outbound = new();
 
 		// No-auth proxy via Socks5Inbound
-		Socks5Inbound noAuthInbound = new();
+		Socks5Inbound noAuthInbound = CreateInbound();
 		TcpListener proxyListener = new(IPAddress.Loopback, 0);
 		proxyListener.Start();
 		_ = TestAcceptLoop.RunAsync(proxyListener, noAuthInbound, outbound, cts.Token);
 		ushort proxyPort = (ushort)((IPEndPoint)proxyListener.LocalEndpoint).Port;
 
 		// Auth proxy via Socks5Inbound
-		UserPassAuth cred = new()
-		{
-			UserName = @"114514！"u8.ToArray(),
-			Password = @"1919810￥"u8.ToArray()
-		};
-		Socks5Inbound authInbound = new(cred);
+		UserPassAuth cred = CreateCredential();
+		Socks5Inbound authInbound = CreateInbound(cred);
 		TcpListener authProxyListener = new(IPAddress.Loopback, 0);
 		authProxyListener.Start();
 		_ = TestAcceptLoop.RunAsync(authProxyListener, authInbound, outbound, cts.Token);
 		ushort authProxyPort = (ushort)((IPEndPoint)authProxyListener.LocalEndpoint).Port;
 
 		// IPv6-relay proxy via Socks5Inbound (both TCP control and UDP relay on IPv6)
-		Socks5Inbound ipv6RelayInbound = new(udpRelayBindAddress: IPAddress.IPv6Loopback);
+		Socks5Inbound ipv6RelayInbound = CreateInbound(udpRelayBindAddress: IPAddress.IPv6Loopback);
 		TcpListener ipv6RelayProxyListener = new(IPAddress.IPv6Loopback, 0);
 		ipv6RelayProxyListener.Start();
 		_ = TestAcceptLoop.RunAsync(ipv6RelayProxyListener, ipv6RelayInbound, outbound, cts.Token);
@@ -79,17 +76,22 @@ public class Socks5OutboundTest
 		f.Cts.Dispose();
 	}
 
+	private static UserPassAuth CreateCredential(byte[]? userName = null, byte[]? password = null)
+	{
+		return new()
+		{
+			UserName = userName ?? @"114514！"u8.ToArray(),
+			Password = password ?? @"1919810￥"u8.ToArray()
+		};
+	}
+
 	[Test]
 	public async Task ConnectThroughProxy_Domain(CancellationToken cancellationToken)
 	{
-		Socks5CreateOption option = new()
-		{
-			Address = IPAddress.Loopback,
-			Port = F.ProxyPort,
-		};
+		Socks5OutboundOption option = CreateOutboundOption(F.ProxyPort);
 		await Assert.That
 		(
-			await Socks5TestUtils.Socks5ConnectAsync
+			await Socks5ConnectAsync
 			(
 				option, "/status/204", "localhost", (ushort)F.MockHttp.Port, cancellationToken
 			)
@@ -99,19 +101,10 @@ public class Socks5OutboundTest
 	[Test]
 	public async Task ConnectThroughProxy_WithAuth(CancellationToken cancellationToken)
 	{
-		Socks5CreateOption option = new()
-		{
-			Address = IPAddress.Loopback,
-			Port = F.AuthProxyPort,
-			UserPassAuth = new UserPassAuth
-			{
-				UserName = @"114514！"u8.ToArray(),
-				Password = @"1919810￥"u8.ToArray()
-			}
-		};
+		Socks5OutboundOption option = CreateOutboundOption(F.AuthProxyPort, userPassAuth: CreateCredential());
 		await Assert.That
 		(
-			await Socks5TestUtils.Socks5ConnectAsync
+			await Socks5ConnectAsync
 			(
 				option, "/status/204", "localhost", (ushort)F.MockHttp.Port, cancellationToken
 			)
@@ -121,23 +114,14 @@ public class Socks5OutboundTest
 	[Test]
 	public async Task UdpAssociate(CancellationToken cancellationToken)
 	{
-		Socks5CreateOption option = new()
-		{
-			Address = IPAddress.Loopback,
-			Port = F.AuthProxyPort,
-			UserPassAuth = new UserPassAuth
-			{
-				UserName = @"114514！"u8.ToArray(),
-				Password = @"1919810￥"u8.ToArray()
-			}
-		};
+		Socks5OutboundOption option = CreateOutboundOption(F.AuthProxyPort, userPassAuth: CreateCredential());
 
 		using MockUdpEchoServer echo = new();
 		echo.Start();
 
 		await Assert.That
 		(
-			await Socks5TestUtils.Socks5UdpAssociateAsync
+			await Socks5UdpAssociateAsync
 			(
 				option,
 				targetHost: IPAddress.Loopback.ToString(),
@@ -150,18 +134,14 @@ public class Socks5OutboundTest
 	[Test]
 	public async Task UdpAssociate_IPv6Relay(CancellationToken cancellationToken)
 	{
-		Socks5CreateOption option = new()
-		{
-			Address = IPAddress.IPv6Loopback,
-			Port = F.IPv6RelayProxyPort,
-		};
+		Socks5OutboundOption option = CreateOutboundOption(F.IPv6RelayProxyPort, IPAddress.IPv6Loopback);
 
 		using MockUdpEchoServer echo = new();
 		echo.Start();
 
 		await Assert.That
 		(
-			await Socks5TestUtils.Socks5UdpAssociateAsync
+			await Socks5UdpAssociateAsync
 			(
 				option,
 				targetHost: IPAddress.Loopback.ToString(),
@@ -174,21 +154,12 @@ public class Socks5OutboundTest
 	[Test]
 	public async Task AuthFailure_WrongPassword(CancellationToken cancellationToken)
 	{
-		Socks5CreateOption option = new()
-		{
-			Address = IPAddress.Loopback,
-			Port = F.AuthProxyPort,
-			UserPassAuth = new UserPassAuth
-			{
-				UserName = @"114514！"u8.ToArray(),
-				Password = "wrong"u8.ToArray()
-			}
-		};
+		Socks5OutboundOption option = CreateOutboundOption(F.AuthProxyPort, userPassAuth: CreateCredential(password: "wrong"u8.ToArray()));
 
 		Socks5AuthenticationFailureException? authEx = await Assert.That
 		(async () =>
 			{
-				await Socks5TestUtils.Socks5ConnectAsync
+				await Socks5ConnectAsync
 				(
 					option, "/status/204", "localhost", (ushort)F.MockHttp.Port, cancellationToken
 				);
@@ -241,11 +212,7 @@ public class Socks5OutboundTest
 
 		_ = FakeUdpAssociateServerAsync(tcp, relayPort, cancellationToken);
 
-		Socks5Outbound outbound = new(new Socks5CreateOption
-		{
-			Address = IPAddress.Loopback,
-			Port = tcpPort,
-		});
+		Socks5Outbound outbound = CreateOutbound(tcpPort);
 		await using IPacketConnection pkt = await outbound.CreatePacketConnectionAsync(cancellationToken);
 
 		await pkt.SendToAsync("probe"u8.ToArray(), new ProxyDestination("127.0.0.1"u8.ToArray(), 9999), cancellationToken);
@@ -285,11 +252,7 @@ public class Socks5OutboundTest
 		TaskCompletionSource<(byte Atyp, byte[] Addr, ushort Port)> capturedDst = new();
 		_ = FakeUdpAssociateServerAsync(tcp, relayPort, capturedDst, cancellationToken);
 
-		Socks5Outbound outbound = new(new Socks5CreateOption
-		{
-			Address = IPAddress.Loopback,
-			Port = tcpPort,
-		});
+		Socks5Outbound outbound = CreateOutbound(tcpPort);
 
 		// This implementation uses an all-zero address in the control connection's family.
 		await using IPacketConnection pkt = await outbound.CreatePacketConnectionAsync(cancellationToken);
@@ -317,11 +280,7 @@ public class Socks5OutboundTest
 		TaskCompletionSource<(byte Atyp, byte[] Addr, ushort Port)> capturedDst = new();
 		_ = FakeUdpAssociateServerAsync(tcp, relayPort, capturedDst, cancellationToken);
 
-		Socks5Outbound outbound = new(new Socks5CreateOption
-		{
-			Address = IPAddress.IPv6Loopback,
-			Port = tcpPort,
-		});
+		Socks5Outbound outbound = CreateOutbound(tcpPort, IPAddress.IPv6Loopback);
 
 		// This implementation uses an all-zero address in the control connection's family.
 		await using IPacketConnection pkt = await outbound.CreatePacketConnectionAsync(cancellationToken);
@@ -343,11 +302,7 @@ public class Socks5OutboundTest
 
 		_ = FakeTruncatedMethodServerAsync(tcp, bytesToSend: 0, cancellationToken);
 
-		Socks5Outbound outbound = new(new Socks5CreateOption
-		{
-			Address = IPAddress.Loopback,
-			Port = tcpPort,
-		});
+		Socks5Outbound outbound = CreateOutbound(tcpPort);
 
 		await Assert.That(async () =>
 			await outbound.ConnectAsync(new ProxyDestination("127.0.0.1"u8.ToArray(), 80), cancellationToken)
@@ -364,11 +319,7 @@ public class Socks5OutboundTest
 
 		_ = FakeTruncatedMethodServerAsync(tcp, bytesToSend: 1, cancellationToken);
 
-		Socks5Outbound outbound = new(new Socks5CreateOption
-		{
-			Address = IPAddress.Loopback,
-			Port = tcpPort,
-		});
+		Socks5Outbound outbound = CreateOutbound(tcpPort);
 
 		await Assert.That(async () =>
 			await outbound.ConnectAsync(new ProxyDestination("127.0.0.1"u8.ToArray(), 80), cancellationToken)
@@ -376,74 +327,45 @@ public class Socks5OutboundTest
 	}
 
 	[Test]
+	[DisplayName("Constructor: null option throws")]
+	public async Task Constructor_NullOption_Throws(CancellationToken cancellationToken)
+	{
+		await Assert.That(() => new Socks5Outbound(null!)).Throws<ArgumentNullException>();
+	}
+
+	[Test]
 	[DisplayName("Constructor: empty username in UserPassAuth throws")]
 	public async Task Constructor_EmptyUsername_Throws(CancellationToken cancellationToken)
 	{
-		await Assert.That(() => new Socks5Outbound(new Socks5CreateOption
-		{
-			Address = IPAddress.Loopback,
-			Port = 1,
-			UserPassAuth = new UserPassAuth
-			{
-				UserName = Array.Empty<byte>(),
-				Password = "p"u8.ToArray()
-			}
-		})).Throws<ArgumentException>();
+		await Assert.That(() => CreateOutbound(1, userPassAuth: CreateCredential(Array.Empty<byte>(), "p"u8.ToArray()))).Throws<ArgumentException>();
 	}
 
 	[Test]
 	[DisplayName("Constructor: username > 255 bytes in UserPassAuth throws")]
 	public async Task Constructor_UsernameTooLong_Throws(CancellationToken cancellationToken)
 	{
-		await Assert.That(() => new Socks5Outbound(new Socks5CreateOption
-		{
-			Address = IPAddress.Loopback,
-			Port = 1,
-			UserPassAuth = new UserPassAuth
-			{
-				UserName = new byte[256],
-				Password = "p"u8.ToArray()
-			}
-		})).Throws<ArgumentException>();
+		await Assert.That(() => CreateOutbound(1, userPassAuth: CreateCredential(new byte[256], "p"u8.ToArray()))).Throws<ArgumentException>();
 	}
 
 	[Test]
 	[DisplayName("Constructor: password > 255 bytes in UserPassAuth throws")]
 	public async Task Constructor_PasswordTooLong_Throws(CancellationToken cancellationToken)
 	{
-		await Assert.That(() => new Socks5Outbound(new Socks5CreateOption
-		{
-			Address = IPAddress.Loopback,
-			Port = 1,
-			UserPassAuth = new UserPassAuth
-			{
-				UserName = "u"u8.ToArray(),
-				Password = new byte[256]
-			}
-		})).Throws<ArgumentException>();
+		await Assert.That(() => CreateOutbound(1, userPassAuth: CreateCredential("u"u8.ToArray(), new byte[256]))).Throws<ArgumentException>();
 	}
 
 	[Test]
 	[DisplayName("Constructor: empty password in UserPassAuth throws")]
 	public async Task Constructor_EmptyPassword_Throws(CancellationToken cancellationToken)
 	{
-		await Assert.That(() => new Socks5Outbound(new Socks5CreateOption
-		{
-			Address = IPAddress.Loopback,
-			Port = 1,
-			UserPassAuth = new UserPassAuth
-			{
-				UserName = "u"u8.ToArray(),
-				Password = Array.Empty<byte>()
-			}
-		})).Throws<ArgumentException>();
+		await Assert.That(() => CreateOutbound(1, userPassAuth: CreateCredential("u"u8.ToArray(), Array.Empty<byte>()))).Throws<ArgumentException>();
 	}
 
 	[Test]
 	[DisplayName("Constructor: null address throws")]
 	public async Task Constructor_NullAddress_Throws(CancellationToken cancellationToken)
 	{
-		await Assert.That(() => new Socks5Outbound(new Socks5CreateOption
+		await Assert.That(() => new Socks5Outbound(new Socks5OutboundOption
 		{
 			Address = null!,
 			Port = 1,
@@ -453,16 +375,12 @@ public class Socks5OutboundTest
 	[Test]
 	public async Task AuthRequired_NoCredentials(CancellationToken cancellationToken)
 	{
-		Socks5CreateOption option = new()
-		{
-			Address = IPAddress.Loopback,
-			Port = F.AuthProxyPort,
-		};
+		Socks5OutboundOption option = CreateOutboundOption(F.AuthProxyPort);
 
 		Socks5MethodUnsupportedException? methodEx = await Assert.That
 		(async () =>
 			{
-				await Socks5TestUtils.Socks5ConnectAsync
+				await Socks5ConnectAsync
 				(
 					option, "/status/204", "localhost", (ushort)F.MockHttp.Port, cancellationToken
 				);
@@ -482,16 +400,7 @@ public class Socks5OutboundTest
 
 		_ = FakeTruncatedAuthServerAsync(tcp, bytesToSend: 0, cancellationToken);
 
-		Socks5Outbound outbound = new(new Socks5CreateOption
-		{
-			Address = IPAddress.Loopback,
-			Port = tcpPort,
-			UserPassAuth = new UserPassAuth
-			{
-				UserName = "u"u8.ToArray(),
-				Password = "p"u8.ToArray()
-			}
-		});
+		Socks5Outbound outbound = CreateOutbound(tcpPort, userPassAuth: CreateCredential("u"u8.ToArray(), "p"u8.ToArray()));
 
 		await Assert.That(async () =>
 			await outbound.ConnectAsync(new ProxyDestination("127.0.0.1"u8.ToArray(), 80), cancellationToken)
@@ -508,16 +417,7 @@ public class Socks5OutboundTest
 
 		_ = FakeTruncatedAuthServerAsync(tcp, bytesToSend: 1, cancellationToken);
 
-		Socks5Outbound outbound = new(new Socks5CreateOption
-		{
-			Address = IPAddress.Loopback,
-			Port = tcpPort,
-			UserPassAuth = new UserPassAuth
-			{
-				UserName = "u"u8.ToArray(),
-				Password = "p"u8.ToArray()
-			}
-		});
+		Socks5Outbound outbound = CreateOutbound(tcpPort, userPassAuth: CreateCredential("u"u8.ToArray(), "p"u8.ToArray()));
 
 		await Assert.That(async () =>
 			await outbound.ConnectAsync(new ProxyDestination("127.0.0.1"u8.ToArray(), 80), cancellationToken)
@@ -534,11 +434,7 @@ public class Socks5OutboundTest
 
 		_ = FakeTruncatedCommandServerAsync(tcp, bytesToSend: 0, cancellationToken);
 
-		Socks5Outbound outbound = new(new Socks5CreateOption
-		{
-			Address = IPAddress.Loopback,
-			Port = tcpPort,
-		});
+		Socks5Outbound outbound = CreateOutbound(tcpPort);
 
 		await Assert.That(async () =>
 			await outbound.ConnectAsync(new ProxyDestination("127.0.0.1"u8.ToArray(), 80), cancellationToken)
@@ -555,11 +451,7 @@ public class Socks5OutboundTest
 
 		_ = FakeTruncatedCommandServerAsync(tcp, bytesToSend: 1, cancellationToken);
 
-		Socks5Outbound outbound = new(new Socks5CreateOption
-		{
-			Address = IPAddress.Loopback,
-			Port = tcpPort,
-		});
+		Socks5Outbound outbound = CreateOutbound(tcpPort);
 
 		await Assert.That(async () =>
 			await outbound.ConnectAsync(new ProxyDestination("127.0.0.1"u8.ToArray(), 80), cancellationToken)

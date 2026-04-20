@@ -9,6 +9,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using UnitTest.TestBase;
+using static UnitTest.TestBase.Socks5TestUtils;
 
 namespace UnitTest;
 
@@ -34,18 +35,14 @@ public class Socks5InboundTest
 		CancellationTokenSource cts = new();
 		DirectOutbound outbound = new();
 
-		Socks5Inbound forwarder = new();
+		Socks5Inbound forwarder = CreateInbound();
 		TcpListener proxyListener = new(IPAddress.Loopback, 0);
 		proxyListener.Start();
 		_ = TestAcceptLoop.RunAsync(proxyListener, forwarder, outbound, cts.Token);
 		ushort proxyPort = (ushort)((IPEndPoint)proxyListener.LocalEndpoint).Port;
 
-		UserPassAuth cred = new()
-		{
-			UserName = "user"u8.ToArray(),
-			Password = "pass"u8.ToArray()
-		};
-		Socks5Inbound authForwarder = new(cred);
+		UserPassAuth cred = CreateCredential();
+		Socks5Inbound authForwarder = CreateInbound(cred);
 		TcpListener authProxyListener = new(IPAddress.Loopback, 0);
 		authProxyListener.Start();
 		_ = TestAcceptLoop.RunAsync(authProxyListener, authForwarder, outbound, cts.Token);
@@ -66,6 +63,15 @@ public class Socks5InboundTest
 		f.ProxyListener.Stop();
 		f.MockHttp.Dispose();
 		f.Cts.Dispose();
+	}
+
+	private static UserPassAuth CreateCredential(byte[]? userName = null, byte[]? password = null)
+	{
+		return new()
+		{
+			UserName = userName ?? "user"u8.ToArray(),
+			Password = password ?? "pass"u8.ToArray()
+		};
 	}
 
 	private static async Task NoAuthHandshakeAsync(PipeWriter toServer, PipeReader fromServer, CancellationToken cancellationToken)
@@ -97,7 +103,7 @@ public class Socks5InboundTest
 		InboundContext? context = null)
 	{
 		SpyPacketOutbound spy = new();
-		Socks5Inbound inbound = new();
+		Socks5Inbound inbound = CreateInbound();
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
@@ -337,62 +343,53 @@ public class Socks5InboundTest
 	}
 
 	[Test]
+	[DisplayName("Constructor: null option throws ArgumentNullException")]
+	public async Task Constructor_NullOption_Throws(CancellationToken cancellationToken)
+	{
+		await Assert.That(() => new Socks5Inbound(null!)).Throws<ArgumentNullException>();
+	}
+
+	[Test]
 	[DisplayName("Constructor: empty username credential throws ArgumentException")]
 	public async Task Constructor_EmptyUsername_Throws(CancellationToken cancellationToken)
 	{
-		UserPassAuth cred = new()
-		{
-			UserName = Array.Empty<byte>(),
-			Password = "pass"u8.ToArray()
-		};
+		UserPassAuth cred = CreateCredential(Array.Empty<byte>());
 
-		await Assert.That(() => new Socks5Inbound(cred)).Throws<ArgumentException>();
+		await Assert.That(() => CreateInbound(cred)).Throws<ArgumentException>();
 	}
 
 	[Test]
 	[DisplayName("Constructor: username > 255 bytes throws ArgumentException")]
 	public async Task Constructor_UsernameTooLong_Throws(CancellationToken cancellationToken)
 	{
-		UserPassAuth cred = new()
-		{
-			UserName = new byte[256],
-			Password = "pass"u8.ToArray()
-		};
+		UserPassAuth cred = CreateCredential(new byte[256]);
 
-		await Assert.That(() => new Socks5Inbound(cred)).Throws<ArgumentException>();
+		await Assert.That(() => CreateInbound(cred)).Throws<ArgumentException>();
 	}
 
 	[Test]
 	[DisplayName("Constructor: password > 255 bytes throws ArgumentException")]
 	public async Task Constructor_PasswordTooLong_Throws(CancellationToken cancellationToken)
 	{
-		UserPassAuth cred = new()
-		{
-			UserName = "user"u8.ToArray(),
-			Password = new byte[256]
-		};
+		UserPassAuth cred = CreateCredential(password: new byte[256]);
 
-		await Assert.That(() => new Socks5Inbound(cred)).Throws<ArgumentException>();
+		await Assert.That(() => CreateInbound(cred)).Throws<ArgumentException>();
 	}
 
 	[Test]
 	[DisplayName("Constructor: empty password credential throws ArgumentException")]
 	public async Task Constructor_EmptyPassword_Throws(CancellationToken cancellationToken)
 	{
-		UserPassAuth cred = new()
-		{
-			UserName = "user"u8.ToArray(),
-			Password = Array.Empty<byte>()
-		};
+		UserPassAuth cred = CreateCredential(password: Array.Empty<byte>());
 
-		await Assert.That(() => new Socks5Inbound(cred)).Throws<ArgumentException>();
+		await Assert.That(() => CreateInbound(cred)).Throws<ArgumentException>();
 	}
 
 	[Test]
 	[DisplayName("Method negotiation: desired method beyond 8th position is still accepted")]
 	public async Task MethodNegotiation_DesiredMethodBeyondEighth_StillAccepted(CancellationToken cancellationToken)
 	{
-		Socks5Inbound inbound = new();
+		Socks5Inbound inbound = CreateInbound();
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
@@ -426,7 +423,7 @@ public class Socks5InboundTest
 	[DisplayName("Truncated greeting (VER byte only then EOF) throws without sending 0xFF")]
 	public async Task TruncatedGreeting_OnlyVer_ThrowsWithoutResponse(CancellationToken cancellationToken)
 	{
-		Socks5Inbound inbound = new();
+		Socks5Inbound inbound = CreateInbound();
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
@@ -449,7 +446,7 @@ public class Socks5InboundTest
 	[DisplayName("Truncated greeting (partial METHODS then EOF) throws without sending 0xFF")]
 	public async Task TruncatedGreeting_PartialMethods_ThrowsWithoutResponse(CancellationToken cancellationToken)
 	{
-		Socks5Inbound inbound = new();
+		Socks5Inbound inbound = CreateInbound();
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
@@ -471,7 +468,7 @@ public class Socks5InboundTest
 	[DisplayName("NMETHODS=0 (malformed) closes without any response")]
 	public async Task MalformedGreeting_ZeroMethods_ClosesWithoutResponse(CancellationToken cancellationToken)
 	{
-		Socks5Inbound inbound = new();
+		Socks5Inbound inbound = CreateInbound();
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
@@ -492,12 +489,8 @@ public class Socks5InboundTest
 	[Test]
 	public async Task NoAcceptableMethod_ClosesWithoutFurtherReply(CancellationToken cancellationToken)
 	{
-		UserPassAuth cred = new()
-		{
-			UserName = "u"u8.ToArray(),
-			Password = "p"u8.ToArray()
-		};
-		Socks5Inbound inbound = new(cred);
+		UserPassAuth cred = CreateCredential("u"u8.ToArray(), "p"u8.ToArray());
+		Socks5Inbound inbound = CreateInbound(cred);
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
@@ -527,12 +520,8 @@ public class Socks5InboundTest
 	[DisplayName("Truncated auth (VER byte only then EOF) closes silently, no auth reply sent")]
 	public async Task TruncatedAuth_ClosesWithoutError(CancellationToken cancellationToken)
 	{
-		UserPassAuth cred = new()
-		{
-			UserName = "u"u8.ToArray(),
-			Password = "p"u8.ToArray()
-		};
-		Socks5Inbound inbound = new(cred);
+		UserPassAuth cred = CreateCredential("u"u8.ToArray(), "p"u8.ToArray());
+		Socks5Inbound inbound = CreateInbound(cred);
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
@@ -560,7 +549,7 @@ public class Socks5InboundTest
 	[DisplayName("Truncated request (VER+CMD only then EOF) closes silently, no reply sent")]
 	public async Task TruncatedRequest_VerCmdOnly_ClosesWithoutError(CancellationToken cancellationToken)
 	{
-		Socks5Inbound inbound = new();
+		Socks5Inbound inbound = CreateInbound();
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
@@ -585,7 +574,7 @@ public class Socks5InboundTest
 	[DisplayName("Malformed request (invalid VER byte only) terminates promptly without reply")]
 	public async Task MalformedRequest_InvalidVerOnly_TerminatesPromptly(CancellationToken cancellationToken)
 	{
-		Socks5Inbound inbound = new();
+		Socks5Inbound inbound = CreateInbound();
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
@@ -644,7 +633,7 @@ public class Socks5InboundTest
 	[Test]
 	public async Task UnsupportedCommand_Bind(CancellationToken cancellationToken)
 	{
-		Socks5Inbound inbound = new();
+		Socks5Inbound inbound = CreateInbound();
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
@@ -672,7 +661,7 @@ public class Socks5InboundTest
 	[DisplayName("Unknown command (0x04) replies REP=0x07 CommandNotSupported (RFC 1928 §6)")]
 	public async Task UnknownCommand_RepliesCommandNotSupported(CancellationToken cancellationToken)
 	{
-		Socks5Inbound inbound = new();
+		Socks5Inbound inbound = CreateInbound();
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
@@ -700,7 +689,7 @@ public class Socks5InboundTest
 	[DisplayName("Unknown ATYP (0x05) replies REP=0x08 AddressTypeNotSupported (RFC 1928 §6)")]
 	public async Task UnknownAddressType_RepliesAddressTypeNotSupported(CancellationToken cancellationToken)
 	{
-		Socks5Inbound inbound = new();
+		Socks5Inbound inbound = CreateInbound();
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
@@ -773,7 +762,7 @@ public class Socks5InboundTest
 		// Default Socks5Inbound uses IPAddress.Any (IPv4 wildcard) as _udpRelayBindAddress,
 		// but on an IPv6 TCP control connection the relay should fall back to tcpLocalAddress.
 		// The pre-check must use the effective family, not the raw wildcard family.
-		Socks5Inbound inbound = new();
+		Socks5Inbound inbound = CreateInbound();
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
@@ -810,7 +799,7 @@ public class Socks5InboundTest
 	[DisplayName("UDP relay: cross-family (IPv4 client + IPv6 relay) rejects with AddressTypeNotSupported")]
 	public async Task UdpRelay_CrossFamily_Rejects(CancellationToken cancellationToken)
 	{
-		Socks5Inbound inbound = new(udpRelayBindAddress: IPAddress.IPv6Loopback);
+		Socks5Inbound inbound = CreateInbound(udpRelayBindAddress: IPAddress.IPv6Loopback);
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
@@ -837,7 +826,7 @@ public class Socks5InboundTest
 	[DisplayName("UDP ASSOCIATE: default bind replies with TCP local address, not wildcard (RFC 1928 §6)")]
 	public async Task UdpAssociate_DefaultBind_RepliesWithTcpLocalAddress(CancellationToken cancellationToken)
 	{
-		Socks5Inbound inbound = new();
+		Socks5Inbound inbound = CreateInbound();
 
 		Pipe clientToServer = new();
 		Pipe serverToClient = new();
@@ -866,7 +855,7 @@ public class Socks5InboundTest
 	[DisplayName("UDP ASSOCIATE: wildcard listener replies with concrete BND.ADDR (integration)")]
 	public async Task UdpAssociate_WildcardListener_RepliesWithConcreteAddress(CancellationToken cancellationToken)
 	{
-		Socks5Inbound inbound = new();
+		Socks5Inbound inbound = CreateInbound();
 		DirectOutbound outbound = new();
 
 		await using ProxyTestSession session = await StartProxySessionAsync(inbound, outbound, cancellationToken, IPAddress.Any);
@@ -896,7 +885,7 @@ public class Socks5InboundTest
 		ushort targetPort = (ushort)((IPEndPoint)target.LocalEndpoint).Port;
 		Task<Socket> acceptTask = target.AcceptSocketAsync(cancellationToken).AsTask();
 
-		Socks5Inbound inbound = new();
+		Socks5Inbound inbound = CreateInbound();
 		DirectOutbound outbound = new();
 		await using ProxyTestSession session = await StartProxySessionAsync(inbound, outbound, cancellationToken, loopback);
 
@@ -928,18 +917,14 @@ public class Socks5InboundTest
 	[Test]
 	public async Task UdpAssociateNoAuth(CancellationToken cancellationToken)
 	{
-		Socks5CreateOption option = new()
-		{
-			Address = IPAddress.Loopback,
-			Port = F.ProxyPort,
-		};
+		Socks5OutboundOption option = CreateOutboundOption(F.ProxyPort);
 
 		using MockUdpEchoServer echo = new();
 		echo.Start();
 
 		await Assert.That
 		(
-			await Socks5TestUtils.Socks5UdpAssociateAsync
+			await Socks5UdpAssociateAsync
 			(
 				option,
 				targetHost: IPAddress.Loopback.ToString(),
@@ -954,7 +939,7 @@ public class Socks5InboundTest
 	public async Task UdpAssociate_ControlChannelReadableData_DoesNotTerminateAssociation(CancellationToken cancellationToken)
 	{
 		SpyPacketOutbound outbound = new();
-		Socks5Inbound inbound = new();
+		Socks5Inbound inbound = CreateInbound();
 
 		await using ProxyTestSession session = await StartProxySessionAsync(inbound, outbound, cancellationToken);
 		ServerBound bound = await NegotiateUdpAssociateAsync(session.Stream, cancellationToken);
@@ -981,7 +966,7 @@ public class Socks5InboundTest
 	public async Task UdpRelay_MalformedPacket_DroppedAndRelayContinues(CancellationToken cancellationToken)
 	{
 		SpyPacketOutbound outbound = new();
-		Socks5Inbound inbound = new();
+		Socks5Inbound inbound = CreateInbound();
 
 		await using ProxyTestSession session = await StartProxySessionAsync(inbound, outbound, cancellationToken);
 		ServerBound bound = await NegotiateUdpAssociateAsync(session.Stream, cancellationToken);
@@ -1007,7 +992,7 @@ public class Socks5InboundTest
 		using MockUdpEchoServer echo = new();
 		echo.Start();
 
-		Socks5Inbound inbound = new();
+		Socks5Inbound inbound = CreateInbound();
 		DirectOutbound outbound = new();
 
 		await using ProxyTestSession session = await StartProxySessionAsync(inbound, outbound, cancellationToken);
@@ -1035,7 +1020,7 @@ public class Socks5InboundTest
 	public async Task UdpRelay_MostRecentValidClientDatagram_WinsReplyRouting(CancellationToken cancellationToken)
 	{
 		ScriptedPacketOutbound outbound = new();
-		Socks5Inbound inbound = new();
+		Socks5Inbound inbound = CreateInbound();
 
 		await using ProxyTestSession session = await StartProxySessionAsync(inbound, outbound, cancellationToken);
 		ServerBound bound = await NegotiateUdpAssociateAsync(session.Stream, cancellationToken);
@@ -1074,7 +1059,7 @@ public class Socks5InboundTest
 	public async Task UdpRelay_SendFailure_DroppedAndRelayContinues(CancellationToken cancellationToken)
 	{
 		FailOnceSendPacketOutbound outbound = new();
-		Socks5Inbound inbound = new();
+		Socks5Inbound inbound = CreateInbound();
 
 		await using ProxyTestSession session = await StartProxySessionAsync(inbound, outbound, cancellationToken);
 		ServerBound bound = await NegotiateUdpAssociateAsync(session.Stream, cancellationToken);
@@ -1097,7 +1082,7 @@ public class Socks5InboundTest
 	public async Task UdpRelay_RemoteToClientSendFailure_DroppedAndRelayContinues(CancellationToken cancellationToken)
 	{
 		OversizedThenNormalPacketOutbound outbound = new();
-		Socks5Inbound inbound = new();
+		Socks5Inbound inbound = CreateInbound();
 
 		await using ProxyTestSession session = await StartProxySessionAsync(inbound, outbound, cancellationToken);
 		ServerBound bound = await NegotiateUdpAssociateAsync(session.Stream, cancellationToken);
@@ -1126,7 +1111,7 @@ public class Socks5InboundTest
 	[DisplayName("UDP ASSOCIATE: setup failure sends REP=0x01 GeneralFailure")]
 	public async Task UdpAssociate_SetupFailure_RepliesGeneralFailure(CancellationToken cancellationToken)
 	{
-		Socks5Inbound inbound = new();
+		Socks5Inbound inbound = CreateInbound();
 
 		await using ProxyTestSession session = await StartProxySessionAsync(inbound, new ThrowingPacketOutbound(), cancellationToken);
 
@@ -1146,7 +1131,7 @@ public class Socks5InboundTest
 	[DisplayName("CONNECT: null LocalEndPoint replies Succeeded with 0.0.0.0:0 BND (industry convention)")]
 	public async Task Connect_NullLocalEndPoint_SucceedsWithUnspecifiedBound(CancellationToken cancellationToken)
 	{
-		Socks5Inbound inbound = new();
+		Socks5Inbound inbound = CreateInbound();
 		await using ProxyTestSession session = await StartProxySessionAsync(inbound, new NullLocalEndPointOutbound(), cancellationToken);
 
 		byte[] cmd = new byte[Constants.MaxCommandLength];
@@ -1169,7 +1154,7 @@ public class Socks5InboundTest
 	[DisplayName("CONNECT: SocketError.TimedOut maps to GeneralFailure reply")]
 	public async Task Connect_TimedOut_RepliesToGeneralFailure(CancellationToken cancellationToken)
 	{
-		Socks5Inbound inbound = new();
+		Socks5Inbound inbound = CreateInbound();
 		SocketExceptionThrowingOutbound outbound = new(SocketError.TimedOut);
 		await using ProxyTestSession session = await StartProxySessionAsync(inbound, outbound, cancellationToken);
 
@@ -1189,7 +1174,7 @@ public class Socks5InboundTest
 	[DisplayName("CONNECT: upstream Socks5ProtocolErrorException forwards exact REP to client")]
 	public async Task Connect_UpstreamSocks5Error_ForwardsExactReply(CancellationToken cancellationToken)
 	{
-		Socks5Inbound inbound = new();
+		Socks5Inbound inbound = CreateInbound();
 		Socks5ReplyThrowingOutbound outbound = new(Socks5Reply.ConnectionRefused);
 		await using ProxyTestSession session = await StartProxySessionAsync(inbound, outbound, cancellationToken);
 
@@ -1209,7 +1194,7 @@ public class Socks5InboundTest
 	[DisplayName("UDP ASSOCIATE: upstream Socks5ProtocolErrorException forwards exact REP to client")]
 	public async Task UdpAssociate_UpstreamSocks5Error_ForwardsExactReply(CancellationToken cancellationToken)
 	{
-		Socks5Inbound inbound = new();
+		Socks5Inbound inbound = CreateInbound();
 		Socks5ReplyThrowingOutbound outbound = new(Socks5Reply.HostUnreachable);
 		await using ProxyTestSession session = await StartProxySessionAsync(inbound, outbound, cancellationToken);
 
