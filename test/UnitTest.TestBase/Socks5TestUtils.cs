@@ -1,9 +1,9 @@
 using Proxy.Abstractions;
 using Socks5;
 using System.Buffers;
-using System.Net;
 using System.Diagnostics.CodeAnalysis;
 using System.IO.Pipelines;
+using System.Net;
 using System.Text;
 
 namespace UnitTest.TestBase;
