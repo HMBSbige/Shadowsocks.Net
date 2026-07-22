@@ -20,7 +20,7 @@ jobs:
         with:
           fetch-depth: 0
           filter: tree:0
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: ${{ env.NET_VERSION }}
       - run: dotnet pack
