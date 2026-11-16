@@ -3,7 +3,9 @@
   "assignees": [
     "HMBSbige"
   ],
-  "dependencyDashboard": false,
+  "dependencyDashboard": {
+    "enabled": false
+  },
   "extends": [
     "config:recommended",
     ":configMigration",
